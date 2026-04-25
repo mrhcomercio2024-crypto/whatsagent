@@ -311,3 +311,11 @@
 - [x] Testes antigos atualizados para nova redação + 6 testes novos (leadAskedQuestion + flex)
 - [x] Suite verde 133/133
 - [x] Checkpoint v19
+
+## Fase 49: Bug — agente ignora a última mensagem do lead
+- [x] Auditado: histórico chega correto e em ordem cronológica (slice(-30) + cron asc); inbound atual já está nele
+- [x] Bloco ÚLTIMA MENSAGEM DO LEAD literal entre <<< >>> no fim do system prompt
+- [x] Heurística `buildShortReplyHint`: detecta concordância/negação curta + pergunta curta
+- [x] Regra anti-contradição: "NUNCA responda 'não, não é bem assim'" quando lead concorda
+- [x] Vitest `lastInbound.test.ts` (9 cenários) — 142/142 verde
+- [x] Checkpoint v20

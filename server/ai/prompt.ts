@@ -165,6 +165,16 @@ ${availableMedia
           .join("\n")}\n`
       : "";
 
+  // Última mensagem do lead em destaque (literal). Garantia de que a LLM
+  // não "perde" a fala mais recente quando o histórico fica grande.
+  const lastInbound = [...ctx.history]
+    .reverse()
+    .find(m => m.direction === "inbound" && (m.body || "").trim().length > 0);
+  const lastInboundText = (lastInbound?.body || "").trim();
+  const lastInboundBlock = lastInboundText
+    ? `\n# ÚLTIMA MENSAGEM DO LEAD (responda DIRETAMENTE a este texto)\n<<<\n${lastInboundText}\n>>>\n${buildShortReplyHint(lastInboundText)}\n`
+    : "";
+
   return `Você é "${agent.name}", agente de vendas via WhatsApp.
 
 # CÉREBRO DO AGENTE
@@ -181,9 +191,47 @@ ${restrictedBlock}
 # DADOS DO LEAD
 - Nome: ${leadName || "(desconhecido — pergunte se necessário pela etapa)"}
 - Telefone: ${leadPhone || "(oculto)"}
-
+${lastInboundBlock}
 ${HARD_RULES}
 `;
+}
+
+/**
+ * Heurística simples: se a última mensagem do lead é uma concordância curta
+ * (sim/ok/blz/claro/uhum/aham/positivo/etc), reforce que a IA deve CONTINUAR
+ * o tema (avançar / detalhar), nunca contradizer.
+ */
+function buildShortReplyHint(text: string): string {
+  const norm = text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9 ]+/g, " ")
+    .trim();
+  const tokens = norm.split(/\s+/).filter(Boolean);
+  const AGREE = new Set([
+    "sim", "s", "ss", "ok", "okay", "blz", "beleza", "claro",
+    "certo", "isso", "uhum", "aham", "positivo", "perfeito",
+    "bora", "vamos", "top", "otimo", "legal", "bacana", "show",
+    "entendi", "entendido", "saquei", "compreendi", "combinado",
+  ]);
+  const NEGATIVE = new Set([
+    "nao", "naum", "n", "nope", "jamais", "nunca",
+  ]);
+  if (tokens.length > 0 && tokens.length <= 3) {
+    const allAgree = tokens.every(t => AGREE.has(t));
+    if (allAgree) {
+      return `INTERPRETAÇÃO: o lead CONCORDOU/confirmou de forma curta. CONTINUE o tema natural — dê o próximo passo (detalhe, avance no assunto, ofereça a ação seguinte). NUNCA responda "não, não é bem assim" ou contradiga uma confirmação.`;
+    }
+    const allNo = tokens.every(t => NEGATIVE.has(t));
+    if (allNo) {
+      return `INTERPRETAÇÃO: o lead disse NÃO de forma curta. Pergunte o que mudou de ideia ou ofereça alternativa — nunca finja que ele concordou.`;
+    }
+    if (text.trim().endsWith("?")) {
+      return `INTERPRETAÇÃO: o lead fez uma PERGUNTA curta. RESPONDA primeiro objetivamente.`;
+    }
+  }
+  return "";
 }
 
 /**
