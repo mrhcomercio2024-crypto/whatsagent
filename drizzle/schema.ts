@@ -63,6 +63,10 @@ export const agents = mysqlTable("agents", {
   typingMaxDelayMs: int("typingMaxDelayMs").default(8000).notNull(),
   // Pausa entre mensagens consecutivas do bot (ms)
   interMessageDelayMs: int("interMessageDelayMs").default(1200).notNull(),
+  // Quebra de mensagens longas em vários balões para parecer mais humano
+  splitLongMessages: boolean("splitLongMessages").default(true).notNull(),
+  // Tamanho máximo (chars) de cada balão antes de forçar quebra
+  splitMaxChars: int("splitMaxChars").default(220).notNull(),
 
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),

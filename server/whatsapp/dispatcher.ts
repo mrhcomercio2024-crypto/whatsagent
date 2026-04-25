@@ -26,6 +26,7 @@ import {
   simulateTypingForMessage,
 } from "../ai/humanize";
 import { listMessages } from "../db";
+import { splitMessage } from "../ai/splitter";
 
 /**
  * Roteia o envio para o transporte correto conforme o modo do agente:
@@ -74,6 +75,19 @@ export async function dispatchActionsOfficial(opts: {
     appSecret: config.appSecret,
   };
 
+  // Expande mensagens de texto longas em vários balões (apenas para envios da IA)
+  const expanded: OutboundAction[] =
+    sender === "ai"
+      ? actions.flatMap<OutboundAction>((a) =>
+          a.type === "text"
+            ? splitMessage(a.text, {
+                enabled: agent.splitLongMessages,
+                maxChars: agent.splitMaxChars,
+              }).map((piece) => ({ type: "text" as const, text: piece }))
+            : [a],
+        )
+      : actions;
+
   // Recupera o waMessageId do último inbound do lead, para acionar o
   // typing_indicator da Meta (a Cloud API exige passar o id da última mensagem).
   let lastInboundWaId: string | undefined;
@@ -103,8 +117,8 @@ export async function dispatchActionsOfficial(opts: {
         }
       : undefined;
 
-  for (let i = 0; i < actions.length; i++) {
-    const a = actions[i];
+  for (let i = 0; i < expanded.length; i++) {
+    const a = expanded[i];
     // Simulação de digitação antes de enviar
     if (sender === "ai") {
       const textLen =
@@ -154,7 +168,7 @@ export async function dispatchActionsOfficial(opts: {
     });
 
     // Pausa entre mensagens consecutivas
-    if (sender === "ai" && i < actions.length - 1) {
+    if (sender === "ai" && i < expanded.length - 1) {
       await pauseBetweenMessages(agent);
     }
   }

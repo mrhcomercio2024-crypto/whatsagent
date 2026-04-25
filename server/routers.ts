@@ -133,6 +133,8 @@ export const appRouter = router({
             typingMinDelayMs: z.number().int().min(0).max(60_000).optional(),
             typingMaxDelayMs: z.number().int().min(0).max(120_000).optional(),
             interMessageDelayMs: z.number().int().min(0).max(60_000).optional(),
+            splitLongMessages: z.boolean().optional(),
+            splitMaxChars: z.number().int().min(80).max(600).optional(),
           }),
         })
       )
@@ -633,10 +635,23 @@ export const appRouter = router({
           inboundText: input.text,
           isSimulation: true,
         });
+        // Quebra textos longos em vários balões se o agente tiver isso ativado
+        const { splitMessage } = await import("./ai/splitter");
+        type SimAction =
+          | { type: "text"; text: string }
+          | { type: "media"; mediaId: number };
+        const expanded: SimAction[] = result.actions.flatMap<SimAction>((a) =>
+          a.type === "text"
+            ? splitMessage(a.text, {
+                enabled: agent.splitLongMessages,
+                maxChars: agent.splitMaxChars,
+              }).map((piece) => ({ type: "text" as const, text: piece }))
+            : [a],
+        );
         // Enriquecer ações com timing e dados visuais para o emulador
         const { computeTypingDelayMs } = await import("./ai/humanize");
         const enriched = await Promise.all(
-          result.actions.map(async a => {
+          expanded.map(async a => {
             if (a.type === "text") {
               const typingMs = computeTypingDelayMs(a.text.length, agent);
               await appendMessage({

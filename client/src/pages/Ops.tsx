@@ -75,6 +75,8 @@ function Inner({ agentId }: { agentId: number }) {
     typingMinDelayMs: 800,
     typingMaxDelayMs: 8000,
     interMessageDelayMs: 1200,
+    splitLongMessages: true,
+    splitMaxChars: 220,
   });
   useEffect(() => {
     if (agent) {
@@ -85,6 +87,8 @@ function Inner({ agentId }: { agentId: number }) {
         typingMinDelayMs: agent.typingMinDelayMs,
         typingMaxDelayMs: agent.typingMaxDelayMs,
         interMessageDelayMs: agent.interMessageDelayMs,
+        splitLongMessages: agent.splitLongMessages,
+        splitMaxChars: agent.splitMaxChars,
       });
     }
   }, [agent]);
@@ -280,6 +284,46 @@ function Inner({ agentId }: { agentId: number }) {
             />
             <p className="text-xs text-muted-foreground">
               Limite máximo, para mensagens longas não demorarem demais.
+            </p>
+          </div>
+        </div>
+
+        {/* Quebra de mensagens longas */}
+        <div className="rounded-xl border border-border/40 bg-background/40 p-4 space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label>Quebrar mensagens longas em vários balões</Label>
+              <p className="text-xs text-muted-foreground max-w-md">
+                Em vez de enviar um único blocão, o agente divide a resposta em parágrafos/frases
+                e envia como mensagens separadas, com indicador "digitando…" entre cada uma.
+              </p>
+            </div>
+            <Switch
+              checked={behavior.splitLongMessages}
+              onCheckedChange={v =>
+                setBehavior(b => ({ ...b, splitLongMessages: v }))
+              }
+            />
+          </div>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <Label>Tamanho máximo por balão</Label>
+              <span className="text-sm font-mono text-primary">
+                {behavior.splitMaxChars} caracteres
+              </span>
+            </div>
+            <Slider
+              min={80}
+              max={600}
+              step={10}
+              value={[behavior.splitMaxChars]}
+              onValueChange={v =>
+                setBehavior(b => ({ ...b, splitMaxChars: v[0] ?? 220 }))
+              }
+              disabled={!behavior.splitLongMessages}
+            />
+            <p className="text-xs text-muted-foreground">
+              Mensagens menores parecem mais humanas. Recomendado entre 180 e 280.
             </p>
           </div>
         </div>

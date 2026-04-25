@@ -316,7 +316,19 @@ export async function dispatchViaBaileys(opts: {
   actions: OutboundAction[];
   sender: "ai" | "human";
 }): Promise<void> {
-  const { agent, conversationId, actions, sender } = opts;
+  const { agent, conversationId, sender } = opts;
+  const { splitMessage } = await import("../ai/splitter");
+  const actions: OutboundAction[] =
+    sender === "ai"
+      ? opts.actions.flatMap<OutboundAction>((a) =>
+          a.type === "text"
+            ? splitMessage(a.text, {
+                enabled: agent.splitLongMessages,
+                maxChars: agent.splitMaxChars,
+              }).map((piece) => ({ type: "text" as const, text: piece }))
+            : [a],
+        )
+      : opts.actions;
   const sock = sockets.get(agent.id);
   if (!sock) {
     console.warn(`[baileys] no live socket for agent ${agent.id}; persisting only`);

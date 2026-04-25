@@ -146,3 +146,16 @@
 - [x] Painel lateral de diagnóstico (estado e configuração ativa)
 - [x] Testes vitest 31/31 passando (não foram acrescidos novos pq a lógica de timing já é coberta por humanize.test.ts)
 - [x] Checkpoint v5 (b0718f71)
+
+
+## Fase 23: Quebra de mensagens longas em vários balões
+- [ ] Adicionar em `agents`: `splitLongMessages` (bool, default true) e `splitMaxChars` (int, default 220)
+- [ ] Migration aplicada
+- [ ] Procedure `agents.updateBehavior` aceita os novos campos
+- [ ] UI Operação: toggle e slider (80–600 chars) na seção "Comportamento humano"
+- [ ] Helper `splitMessage(text, maxChars)`: respeita parágrafos, depois frases, depois fallback por largura, sem cortar palavra no meio
+- [ ] Testes vitest do splitter
+- [ ] Dispatcher Oficial: aplicar quebra antes de enviar texto, mantendo typing on/off + pausa entre balões
+- [ ] Dispatcher Baileys: idem
+- [ ] Simulator backend: incluir balões já quebrados na resposta
+- [ ] Checkpoint v6
