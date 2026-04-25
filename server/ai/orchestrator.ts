@@ -39,6 +39,7 @@ import {
   buildMessages,
   buildSystemPrompt,
   findRestrictedHits,
+  looksLikeStepLeak,
   parseAgentOutput,
   selectKnowledge,
   type PromptContext,
@@ -294,6 +295,58 @@ export async function processInboundForReply(opts: {
           "gi"
         );
         aiOutput = aiOutput.replace(re, "—");
+      }
+    }
+  }
+
+  // VALIDADOR anti-vazamento de etapa: se a IA começou a "narrar" o script,
+  // pedimos uma reescrita curta. Se persistir, devolvemos um fallback humano.
+  {
+    const leakReason = looksLikeStepLeak(aiOutput, currentStep);
+    if (leakReason) {
+      console.log(
+        `[orchestrator] step leak detected (${leakReason}); regenerating once`
+      );
+      try {
+        const r3 = await invokeWithModel({
+          model,
+          messages: [
+            ...messages,
+            { role: "assistant", content: aiOutput },
+            {
+              role: "user",
+              content:
+                `Sua última resposta vazou o sistema interno (motivo: ${leakReason}). ` +
+                `REESCREVA SOMENTE como a próxima mensagem natural ao lead, em 1–3 frases curtas, ` +
+                `como uma pessoa real digitaria no WhatsApp. ` +
+                `NÃO cite "etapa", "objetivo", "critério", "script" ou qualquer estrutura. ` +
+                `NÃO use listas numeradas nem markdown. NÃO explique nada.`,
+            },
+          ],
+          maxTokens: 400,
+          temperature: 0.5,
+          tracking: {
+            purpose: "validator",
+            agentId: agent.id,
+            conversationId,
+            leadId: lead?.id,
+          },
+        });
+        aiOutput = r3.text || aiOutput;
+      } catch (e) {
+        console.warn(
+          "[orchestrator] step-leak regenerate failed:",
+          (e as Error).message
+        );
+      }
+      // Se ainda assim vazar, devolve um fallback mínimo humano em vez do dump.
+      const stillLeak = looksLikeStepLeak(aiOutput, currentStep);
+      if (stillLeak) {
+        console.warn(
+          `[orchestrator] step leak persisted (${stillLeak}); using safe fallback`
+        );
+        aiOutput =
+          "Posso te perguntar uma coisa rapidinho pra te ajudar melhor?";
       }
     }
   }

@@ -239,3 +239,14 @@
 - [x] UI Operação: seção "Memória da conversa" com slider 3–30 + select de modelo ("Usar modelo padrão do agente" incluído)
 - [x] Vitest: 2 novos casos para `every` customizado (suite 80/80 verde)
 - [x] Checkpoint v11
+
+## Fase 41: Bug — agente "lê as etapas" em vez de executá-las
+- [x] Reler `buildSystemPrompt` e identificar onde as instruções da etapa viravam texto de saída
+- [x] Bloco ETAPA ATUAL reescrito como DIRETIVA INTERNA (uso interno; não citar)
+- [x] Funil agora aparece só como esqueleto (nomes), sem instruções
+- [x] Regras invioláveis: "escreva apenas a próxima mensagem", proibida narração/lista/markdown
+- [x] `looksLikeStepLeak(text, step)` em prompt.ts (prefixos, listas numeradas, repetição literal, markdown/bullets)
+- [x] Orchestrator: se vazamento detectado, regenera 1x com prompt corretivo; persistindo, fallback humano curto
+- [x] `literalMode` + `literalText` já enviavam literal; reforçado no prompt como bloco <<< >>>
+- [x] Vitest `stepLeak.test.ts` (9 cenários) — 89/89 verde
+- [x] Checkpoint v12
