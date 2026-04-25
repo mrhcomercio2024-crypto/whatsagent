@@ -285,3 +285,11 @@
 - [x] `debounceWorker` já zera após processar (sem mudança necessária)
 - [x] Vitest `debounceFixedWindow.test.ts` (6 cenários) — 117/117 verde
 - [x] Checkpoint v16
+
+## Fase 46: Simulador — manter histórico persistido
+- [x] Procedure `simulator.history` carrega mensagens do número `+55SIMULATED` (sem criar lead/conv)
+- [x] `findLeadByPhone` + `findConversationByLead` (helpers find-only) em `db.ts`
+- [x] Simulator.tsx carrega o histórico no mount; reset só via `/limpar`
+- [x] Botão "Reiniciar" removido do header; descrição explica que só `/limpar` zera
+- [x] Vitest `simulatorHistory.test.ts` (5 cenários) — 122/122 verde
+- [x] Checkpoint v17

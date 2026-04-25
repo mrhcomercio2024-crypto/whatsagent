@@ -11,7 +11,6 @@ import {
   MoreVertical,
   Paperclip,
   Phone,
-  RotateCcw,
   Send,
   Smile,
   Video as VideoIcon,
@@ -56,6 +55,48 @@ function Inner({ agentId }: { agentId: number }) {
   const send = trpc.simulator.sendMessage.useMutation();
   const reset = trpc.simulator.reset.useMutation();
   const endRef = useRef<HTMLDivElement>(null);
+
+  // Carrega o histórico persistido (única chamada ao abrir; depois
+  // mantemos `items` em memória e só invalidamos no /limpar).
+  const history = trpc.simulator.history.useQuery(
+    { agentId },
+    { staleTime: Infinity, refetchOnWindowFocus: false }
+  );
+  const loadedRef = useRef(false);
+  useEffect(() => {
+    if (loadedRef.current) return;
+    if (!history.data) return;
+    loadedRef.current = true;
+    if (history.data.conversationId) setConvId(history.data.conversationId);
+    const mapped: ChatItem[] = history.data.messages.map(m => {
+      const ts = m.createdAt ? new Date(m.createdAt).getTime() : Date.now();
+      if (m.direction === "inbound") {
+        return {
+          kind: "user" as const,
+          id: `srv-${m.id}`,
+          text: m.body ?? "",
+          ts,
+        };
+      }
+      const isMedia =
+        m.contentType === "image" ||
+        m.contentType === "video" ||
+        m.contentType === "audio" ||
+        m.contentType === "document";
+      return {
+        kind: "bot" as const,
+        id: `srv-${m.id}`,
+        text: !isMedia ? (m.body ?? "") : undefined,
+        mediaType: isMedia
+          ? (m.contentType as "image" | "video" | "audio" | "document")
+          : undefined,
+        mediaUrl: isMedia ? m.mediaUrl : undefined,
+        caption: isMedia ? m.body : undefined,
+        ts,
+      };
+    });
+    setItems(mapped);
+  }, [history.data]);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -196,17 +237,7 @@ function Inner({ agentId }: { agentId: number }) {
       <PageHeader
         eyebrow="Teste"
         title="Emulador de WhatsApp"
-        description="Conversa idêntica à do WhatsApp real, respeitando debounce, simulação de digitação e pausas configuradas no agente. Nenhuma mensagem é enviada de verdade."
-        actions={
-          <Button
-            variant="outline"
-            onClick={handleReset}
-            disabled={reset.isPending}
-          >
-            <RotateCcw className="h-4 w-4 mr-1.5" />
-            Reiniciar
-          </Button>
-        }
+        description="Conversa idêntica à do WhatsApp real, respeitando debounce, simulação de digitação e pausas configuradas no agente. O histórico é mantido entre sessões — digite /limpar dentro do chat para zerar."
       />
 
       <div className="flex gap-6 items-start flex-col lg:flex-row">

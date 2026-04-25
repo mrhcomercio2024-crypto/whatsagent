@@ -372,6 +372,43 @@ export async function getTemplateById(id: number) {
 /* ============================================================
  * LEADS / CONVERSATIONS / MESSAGES
  * ============================================================ */
+/**
+ * Apenas localiza o lead pelo telefone (não cria). Retorna `null` se não existir.
+ */
+export async function findLeadByPhone(
+  agentId: number,
+  phoneNumber: string
+): Promise<{ id: number; agentId: number; phoneNumber: string; name: string | null } | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db
+    .select()
+    .from(leads)
+    .where(and(eq(leads.agentId, agentId), eq(leads.phoneNumber, phoneNumber)))
+    .limit(1);
+  const r = rows[0];
+  return r
+    ? { id: r.id, agentId: r.agentId, phoneNumber: r.phoneNumber, name: r.name ?? null }
+    : null;
+}
+
+/**
+ * Localiza a conversa de um lead (não cria). Retorna `null` se não existir.
+ */
+export async function findConversationByLead(
+  leadId: number
+): Promise<{ id: number; agentId: number; leadId: number } | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db
+    .select()
+    .from(conversations)
+    .where(eq(conversations.leadId, leadId))
+    .limit(1);
+  const r = rows[0];
+  return r ? { id: r.id, agentId: r.agentId, leadId: r.leadId } : null;
+}
+
 export async function findOrCreateLead(
   agentId: number,
   phoneNumber: string,

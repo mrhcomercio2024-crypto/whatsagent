@@ -772,6 +772,44 @@ export const appRouter = router({
         const { resetConversation } = await import("./db");
         await resetConversation(input.conversationId);
       }),
+    /**
+     * Histórico persistente do simulador. Se a conversa do número
+     * `+55SIMULATED` já existir, devolve as mensagens. Caso contrário,
+     * devolve `{ conversationId: null, messages: [] }`. **Não cria** a
+     * conversa — isso só acontece quando o usuário envia a 1ª mensagem.
+     */
+    history: protectedProcedure
+      .input(
+        z.object({
+          agentId: z.number().int().positive(),
+          simulatedPhone: z.string().default("+55SIMULATED"),
+        })
+      )
+      .query(async ({ input }) => {
+        const { findLeadByPhone, findConversationByLead, listMessages } =
+          await import("./db");
+        const lead = await findLeadByPhone(input.agentId, input.simulatedPhone);
+        if (!lead) return { conversationId: null, messages: [] };
+        const conv = await findConversationByLead(lead.id);
+        if (!conv) return { conversationId: null, messages: [] };
+        const msgs = await listMessages(conv.id, { limit: 200 });
+        return {
+          conversationId: conv.id,
+          messages: msgs.map(m => ({
+            id: m.id,
+            direction: m.direction as "inbound" | "outbound",
+            sender: m.sender as "lead" | "ai" | "human" | string,
+            contentType: m.contentType as string,
+            body: m.body,
+            mediaUrl: (m as any).mediaUrl ?? null,
+            mediaId: (m as any).mediaId ?? null,
+            createdAt:
+              m.createdAt instanceof Date
+                ? m.createdAt.toISOString()
+                : (m.createdAt as any),
+          })),
+        };
+      }),
   }),
 
   // ============================================================
