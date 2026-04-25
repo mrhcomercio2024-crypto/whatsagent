@@ -293,3 +293,10 @@
 - [x] Botão "Reiniciar" removido do header; descrição explica que só `/limpar` zera
 - [x] Vitest `simulatorHistory.test.ts` (5 cenários) — 122/122 verde
 - [x] Checkpoint v17
+
+## Fase 47: Debounce fixed window no front do Simulador
+- [x] `scheduleProcessing` só inicia o timer se ainda não houver um rodando
+- [x] Mensagens subsequentes apenas entram em `queueRef`, NÃO reagendam
+- [x] Após processar, libera o slot para a próxima janela (timer = null no clear)
+- [x] Vitest `simulatorDebounce.test.ts` (4 cenários) — 126/126 verde
+- [x] Checkpoint v18

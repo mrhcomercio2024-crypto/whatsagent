@@ -125,8 +125,13 @@ function Inner({ agentId }: { agentId: number }) {
     }
   }
 
+  /**
+   * Debounce **fixed window**: a 1ª mensagem do lote inicia a contagem.
+   * Mensagens subsequentes apenas entram na `queueRef` e NÃO recomeçam o
+   * temporizador — espelha a regra do backend (`setConversationPendingProcessAt`).
+   */
   function scheduleProcessing() {
-    clearDebounceTimer();
+    if (debounceTimerRef.current !== null) return; // janela já em andamento
     setPending(true);
     let left = debounceSec;
     setDebounceLeft(left);
