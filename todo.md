@@ -210,3 +210,13 @@
 - [x] Suite completa verde (64/64)
 - [x] Checkpoint v8
 
+
+## Fase 38: Migração do chat para SSE
+- [x] Pub/sub em memória `server/realtime/bus.ts` com canais por conversationId
+- [x] Endpoint Express `/api/chat/stream/:conversationId` (SSE) protegido por cookie + heartbeat
+- [x] Eventos: `message`, `typing.agent` (thinking/writing/delivering/idle), `status`
+- [x] Hooks: `appendMessage` publica `message`; orchestrator emite `typing.agent`; `updateConversation` emite `status`
+- [x] Webhook Cloud API e Baileys já vão por `appendMessage`, então publicam automaticamente
+- [x] Chat.tsx consumindo EventSource com fallback de polling de 15s + heurístico antigo
+- [x] Vitest do bus pub/sub (5 cenários)
+- [x] Checkpoint v9

@@ -455,6 +455,12 @@ export async function updateConversation(
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
   await db.update(conversations).set(patch).where(eq(conversations.id, id));
+  try {
+    const { publish } = await import("./realtime/bus");
+    publish({ type: "status", conversationId: id, patch });
+  } catch {
+    // ignored
+  }
 }
 
 export async function listConversations(
@@ -496,6 +502,7 @@ export async function appendMessage(input: InsertMessage) {
   if (!db) throw new Error("DB unavailable");
   const now = new Date();
   const r = await db.insert(messages).values(input);
+  const insertId = (r as any)[0]?.insertId as number;
   const updates: Partial<typeof conversations.$inferInsert> = {
     lastMessageAt: now,
   };
@@ -505,7 +512,21 @@ export async function appendMessage(input: InsertMessage) {
     .update(conversations)
     .set(updates)
     .where(eq(conversations.id, input.conversationId));
-  return (r as any)[0]?.insertId as number;
+
+  // Realtime: emite no bus para qualquer SSE conectado nesta conversa.
+  // Carregado dinamicamente para evitar ciclo (db <-> realtime).
+  try {
+    const { publish } = await import("./realtime/bus");
+    publish({
+      type: "message",
+      conversationId: input.conversationId,
+      message: { id: insertId, ...input, createdAt: now },
+    });
+  } catch {
+    // se o módulo ainda não estiver disponível (ex: testes), apenas ignora
+  }
+
+  return insertId;
 }
 
 export async function listMessages(conversationId: number, opts?: { limit?: number }) {

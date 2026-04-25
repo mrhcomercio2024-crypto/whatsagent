@@ -48,6 +48,7 @@ import {
 } from "./triggers";
 import { isWithinBusinessHours } from "./timing";
 import { qualifyLead } from "./qualifier";
+import { publish as publishRealtime } from "../realtime/bus";
 
 export type OutboundAction =
   | { type: "text"; text: string }
@@ -188,6 +189,15 @@ export async function processInboundForReply(opts: {
 
   const startedAt = Date.now();
   let aiOutput = "";
+  // Realtime: avisa o painel humano que a IA está "pensando"
+  try {
+    publishRealtime({
+      type: "typing.agent",
+      conversationId,
+      phase: "thinking",
+      stepName: currentStep?.name ?? null,
+    });
+  } catch {}
   try {
     console.log(
       `[orchestrator] agent ${agent.id} conv ${conversationId}: invoking LLM model=${model} (msgs=${messages.length})`
@@ -343,6 +353,16 @@ export async function processInboundForReply(opts: {
       .catch(() => undefined);
   }
 
+  // Realtime: "writing" antes do dispatcher engatar typing/sleep e "idle" ao final.
+  try {
+    publishRealtime({
+      type: "typing.agent",
+      conversationId,
+      phase: actions.length > 0 ? "writing" : "idle",
+      stepName: currentStep?.name ?? null,
+    });
+  } catch {}
+
   return {
     actions,
     handoff: parsed.handoff || !!handoffMatch,
@@ -362,6 +382,10 @@ export async function persistOutboundActions(opts: {
   waMessageIds?: Array<string | undefined>;
 }) {
   const { conversationId, actions, sender, waMessageIds } = opts;
+  // Aviso de "delivering" para a UI antes de cada balão ser persistido
+  try {
+    publishRealtime({ type: "typing.agent", conversationId, phase: "delivering" });
+  } catch {}
   for (let i = 0; i < actions.length; i++) {
     const a = actions[i];
     const waId = waMessageIds?.[i];

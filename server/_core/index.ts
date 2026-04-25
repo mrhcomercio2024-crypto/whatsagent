@@ -9,6 +9,7 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { registerWhatsappWebhook } from "../whatsapp/webhook";
+import { registerRealtimeRoutes } from "../realtime/sse";
 import { startFollowupEngine } from "../followup/engine";
 import { startDebounceWorker } from "../ai/debounceWorker";
 import { reconnectAllQrSessions } from "../whatsapp/baileys";
@@ -41,6 +42,7 @@ async function startServer() {
   registerStorageProxy(app);
   registerOAuthRoutes(app);
   registerWhatsappWebhook(app);
+  registerRealtimeRoutes(app);
   // tRPC API
   app.use(
     "/api/trpc",

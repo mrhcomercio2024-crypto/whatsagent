@@ -38,10 +38,83 @@ export default function ChatPage() {
   );
 }
 
+/**
+ * useChatStream — assina o SSE em /api/chat/stream/:conversationId.
+ * Retorna a fase de typing da IA e dispara callbacks quando chegam
+ * eventos de mensagem ou status. Cai silenciosamente em fallback se
+ * o EventSource não estiver disponível ou o servidor responder erro.
+ */
+function useChatStream(
+  conversationId: number | null,
+  handlers: {
+    onMessage?: () => void;
+    onStatus?: () => void;
+  }
+) {
+  const [agentPhase, setAgentPhase] = useState<
+    "idle" | "thinking" | "writing" | "delivering"
+  >("idle");
+  const [connected, setConnected] = useState(false);
+  const handlersRef = useRef(handlers);
+  handlersRef.current = handlers;
+
+  useEffect(() => {
+    if (!conversationId) {
+      setConnected(false);
+      setAgentPhase("idle");
+      return;
+    }
+    if (typeof window === "undefined" || typeof EventSource === "undefined") return;
+
+    const es = new EventSource(`/api/chat/stream/${conversationId}`, {
+      withCredentials: true,
+    });
+    let phaseTimer: ReturnType<typeof setTimeout> | null = null;
+
+    es.addEventListener("ready", () => setConnected(true));
+    es.addEventListener("message", () => {
+      handlersRef.current.onMessage?.();
+      setAgentPhase("idle");
+    });
+    es.addEventListener("status", () => {
+      handlersRef.current.onStatus?.();
+    });
+    es.addEventListener("typing.agent", (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data);
+        const phase = (data?.phase ?? "idle") as typeof agentPhase;
+        setAgentPhase(phase);
+        if (phaseTimer) clearTimeout(phaseTimer);
+        if (phase !== "idle") {
+          // safety net: limpa o indicador se a IA travar e não emitir idle
+          phaseTimer = setTimeout(() => setAgentPhase("idle"), 30_000);
+        }
+      } catch {
+        // ignored
+      }
+    });
+    es.onerror = () => {
+      // Fechamos para deixar o navegador reabrir; se falhar persistente,
+      // o componente Conversation segue funcionando via refetch periódico.
+      setConnected(false);
+    };
+
+    return () => {
+      if (phaseTimer) clearTimeout(phaseTimer);
+      es.close();
+      setConnected(false);
+      setAgentPhase("idle");
+    };
+  }, [conversationId]);
+
+  return { agentPhase, connected };
+}
+
 function Inner({ agentId }: { agentId: number }) {
+  // Polling longo só para a lista lateral (resumo); o detalhe vem por SSE.
   const { data: list } = trpc.conversations.list.useQuery(
     { agentId },
-    { refetchInterval: 2500 }
+    { refetchInterval: 8000 }
   );
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [search, setSearch] = useState("");
@@ -177,10 +250,23 @@ function Inner({ agentId }: { agentId: number }) {
 
 function Conversation({ convId }: { convId: number }) {
   const utils = trpc.useUtils();
+  // Sem polling agressivo: o SSE invalida a query quando algo muda.
+  // Mantemos um refetch lento (15s) como cinto de segurança contra perdas.
   const { data } = trpc.conversations.get.useQuery(
     { id: convId },
-    { refetchInterval: 1500 }
+    { refetchInterval: 15000 }
   );
+  const { agentPhase, connected: sseConnected } = useChatStream(convId, {
+    onMessage: () => {
+      utils.conversations.get.invalidate({ id: convId });
+      // também atualiza a lista lateral (última mensagem, horário, badges)
+      utils.conversations.list.invalidate();
+    },
+    onStatus: () => {
+      utils.conversations.get.invalidate({ id: convId });
+      utils.conversations.list.invalidate();
+    },
+  });
   const setPause = trpc.conversations.setPause.useMutation({
     onSuccess: () => utils.conversations.get.invalidate({ id: convId }),
   });
@@ -211,10 +297,20 @@ function Conversation({ convId }: { convId: number }) {
       </div>
     );
 
-  // IA "digitando" se a conversa tem pendingProcessAt no futuro próximo
-  const aiTyping =
-    !!data.conversation.pendingProcessAt &&
-    new Date(data.conversation.pendingProcessAt).getTime() > Date.now() - 8000;
+  // IA "digitando": preferência para o sinal real do SSE; cai para o
+  // heurístico antigo (pendingProcessAt) caso o SSE não esteja conectado.
+  const aiTyping = sseConnected
+    ? agentPhase !== "idle"
+    : !!data.conversation.pendingProcessAt &&
+      new Date(data.conversation.pendingProcessAt).getTime() > Date.now() - 8000;
+  const aiPhaseLabel =
+    agentPhase === "thinking"
+      ? "IA pensando…"
+      : agentPhase === "writing"
+        ? "IA digitando…"
+        : agentPhase === "delivering"
+          ? "IA enviando…"
+          : "IA digitando…";
 
   return (
     <div className="flex flex-col h-full">
@@ -236,7 +332,7 @@ function Conversation({ convId }: { convId: number }) {
               {data.lead?.phoneNumber}
               {aiTyping && (
                 <span className="ml-2 inline-flex items-center gap-1 text-emerald-400">
-                  <TypingDots /> IA digitando…
+                  <TypingDots /> {aiPhaseLabel}
                 </span>
               )}
               {!aiTyping && humanTyping && data.conversation.aiPaused && (
