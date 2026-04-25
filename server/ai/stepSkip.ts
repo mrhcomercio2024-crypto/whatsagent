@@ -124,21 +124,42 @@ export type StepSkipResult = {
   reason?: string;
 };
 
+export type StepSkipOpts = {
+  firstTurn?: boolean;
+  /** Quantos inbounds reais o lead já enviou na conversa */
+  inboundCount?: number;
+};
+
 /**
- * @param text texto produzido pela IA
- * @param current etapa atual
- * @param all     todas as etapas, em ordem
- * @param firstTurn se true, é a primeira resposta da IA (regra mais dura)
+ * Heurística conservadora: só acusa skip quando a IA produz texto FORTEMENTE
+ * alinhado a uma etapa POSTERIOR e MUITO POUCO alinhado à etapa atual.
+ *
+ * Regras (calibradas para evitar falsos positivos):
+ *  - Apenas no primeiro turno (sem inbound do lead) somos um pouco mais rígidos.
+ *  - Fora do primeiro turno, a etapa futura precisa de pelo menos 3 hits e
+ *    pelo menos 3 hits a mais que a etapa atual.
+ *  - Se já há 2+ inbounds do lead, a conversa está "andando" — nesse caso
+ *    nunca acusamos skip (deixa o STEP_ADVANCE da própria IA controlar).
  */
 export function looksLikeStepSkip(
   text: string,
   current: StepShape | null | undefined,
   all: StepShape[],
-  firstTurn: boolean = false
+  optsOrFirstTurn: boolean | StepSkipOpts = false
 ): StepSkipResult {
+  const opts: StepSkipOpts =
+    typeof optsOrFirstTurn === "boolean"
+      ? { firstTurn: optsOrFirstTurn }
+      : optsOrFirstTurn;
+  const firstTurn = !!opts.firstTurn;
+  const inboundCount = opts.inboundCount ?? 0;
+
   if (!text || !current || !all || all.length === 0) {
     return { skipped: false };
   }
+  // Conversa já andando: confiar no STEP_ADVANCE e não brigar com a IA.
+  if (!firstTurn && inboundCount >= 2) return { skipped: false };
+
   const ordered = [...all].sort(
     (a, b) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0)
   );
@@ -155,10 +176,9 @@ export function looksLikeStepSkip(
   const currentHits = Array.from(currentKw).filter(k => haystack.includes(k));
   const currentScore = currentHits.length;
 
-  // Mínimo absoluto de matches numa etapa futura para considerar suspeita
-  const MIN_FUTURE_HITS = firstTurn ? 1 : 2;
-  // Margem necessária sobre a etapa atual
-  const MARGIN = firstTurn ? 1 : 2;
+  // Calibração conservadora
+  const MIN_FUTURE_HITS = firstTurn ? 2 : 3;
+  const MARGIN = firstTurn ? 2 : 3;
 
   for (const f of futures) {
     const kw = extractKeywords(`${f.name ?? ""} ${f.instructions ?? ""}`);

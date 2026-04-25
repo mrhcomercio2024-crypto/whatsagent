@@ -390,10 +390,16 @@ export async function processInboundForReply(opts: {
     }
   }
 
-  // VALIDADOR anti-pular-etapa: se a IA antecipou conteúdo de etapa
-  // posterior, regenera 1x forçando ficar na etapa atual.
+  // VALIDADOR anti-pular-etapa: só atua em primeiro turno ou conversa muito
+  // curta. Em conversa já andando confiamos no STEP_ADVANCE.
+  const inboundCountForSkip = history.filter(
+    h => h.direction === "inbound" && h.sender === "lead"
+  ).length;
   if (currentStep && steps.length > 1) {
-    const skip = looksLikeStepSkip(aiOutput, currentStep, steps as any, isFirstTurn);
+    const skip = looksLikeStepSkip(aiOutput, currentStep, steps as any, {
+      firstTurn: isFirstTurn,
+      inboundCount: inboundCountForSkip,
+    });
     if (skip.skipped) {
       console.log(
         `[orchestrator] step skip detectado (${skip.reason}; matched=${(skip.matchedKeywords||[]).join(",")}); regenerando 1x`
@@ -403,7 +409,7 @@ export async function processInboundForReply(opts: {
           ...messages,
           {
             role: "system" as const,
-            content: `⚠️ Sua resposta anterior antecipou "${skip.jumpedTo}". Reescreva FOCANDO APENAS na etapa "${currentStep.name}". Sem mencionar produto/preço/próximos passos. UMA pergunta só.`,
+            content: `⚠️ Sua resposta anterior antecipou "${skip.jumpedTo}". Reescreva em 1–2 frases focando APENAS na etapa "${currentStep.name}".`,
           },
         ];
         const r2 = await invokeWithModel({
@@ -418,20 +424,60 @@ export async function processInboundForReply(opts: {
           },
         });
         const text2 = (r2.text || "").trim();
-        const skip2 = looksLikeStepSkip(text2, currentStep, steps as any, isFirstTurn);
-        if (text2 && !skip2.skipped) {
+        if (text2) {
+          // Mantemos a regen mesmo que ainda "pareça skip" — preferível à frase fixa repetida.
           aiOutput = text2;
-        } else if (text2) {
-          // segunda tentativa ainda antecipou: usa fallback humano da etapa atual
-          console.warn(
-            `[orchestrator] step skip persistiu após reescrita (${skip2.reason})`
-          );
-          aiOutput = isFirstTurn
-            ? "Oi! Tudo bem? Antes da gente falar dos detalhes, posso saber seu nome?"
-            : "Antes de seguir, me confirma rapidinho o que você já sabe sobre isso?";
         }
       } catch (e) {
         console.warn("[orchestrator] regen step skip falhou:", (e as Error).message);
+      }
+    }
+  }
+
+  // ANTI-REPETIÇÃO: nunca reenvie EXATAMENTE a mesma frase da última saída.
+  {
+    const lastOutbound = [...history]
+      .reverse()
+      .find(h => h.direction === "outbound" && h.sender === "ai" && (h.body || "").trim());
+    const normLine = (s: string) =>
+      (s || "")
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-z0-9 ]+/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+    if (lastOutbound && normLine(aiOutput) === normLine(lastOutbound.body || "")) {
+      console.log("[orchestrator] resposta duplicada detectada; regenerando 1x com instrução anti-repetição");
+      try {
+        const r3 = await invokeWithModel({
+          model,
+          messages: [
+            ...messages,
+            { role: "assistant", content: aiOutput },
+            {
+              role: "system" as const,
+              content: `⚠️ Você acabou de repetir literalmente a mesma frase: "${(lastOutbound.body || "").slice(0,140)}". Reaja à ÚLTIMA mensagem do lead com algo COMPLETAMENTE diferente, em 1–2 frases. Avance a conversa.`,
+            },
+          ],
+          maxTokens: 500,
+          temperature: 0.7,
+          tracking: {
+            purpose: "orchestrator",
+            agentId: agent.id,
+            conversationId,
+          },
+        });
+        const text3 = (r3.text || "").trim();
+        if (text3 && normLine(text3) !== normLine(lastOutbound.body || "")) {
+          aiOutput = text3;
+        } else {
+          // Ainda duplicado: omitimos esta resposta para evitar spam.
+          console.warn("[orchestrator] duplicata persistiu; suprimindo balao desta rodada");
+          aiOutput = "";
+        }
+      } catch (e) {
+        console.warn("[orchestrator] regen anti-repetição falhou:", (e as Error).message);
       }
     }
   }

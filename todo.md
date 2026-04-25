@@ -271,3 +271,10 @@
 - [x] Orchestrator: regenera 1x com instrução estrita; persistindo, devolve fallback humano fiel à etapa atual
 - [x] Vitest `stepSkip.test.ts` (14 cenários) — 110/110 verde
 - [x] Checkpoint v14
+
+## Fase 44: Bug — agente travado em fallback genérico repetido
+- [x] `looksLikeStepSkip` recalibrado: MIN_FUTURE_HITS 2/3, MARGIN 2/3, e desativado a partir de 2 inbounds
+- [x] Removido fallback humano fixo: regen mantém a resposta da IA mesmo se ainda parecer skip
+- [x] Anti-repetição: detecta duplicata exata (normalizada) da última outbound; regenera 1x; persistindo, suprime o balão
+- [x] Vitest novos: 1 caso de "já há inbounds" + frase neutra fora de primeiro turno (suite 111/111)
+- [x] Checkpoint v15

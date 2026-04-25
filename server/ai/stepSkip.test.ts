@@ -47,16 +47,26 @@ describe("looksLikeStepSkip", () => {
   it("detecta antecipação de Explicar produto na etapa Cumprimentar", () => {
     const text =
       "Vou te explicar como o produto funciona, temos um catálogo enorme e cuidamos da logística e da plataforma para você.";
-    const r = looksLikeStepSkip(text, stepGreet, allSteps, true);
+    const r = looksLikeStepSkip(text, stepGreet, allSteps, { firstTurn: true });
     expect(r.skipped).toBe(true);
     expect(r.jumpedTo).toBe("Explicar produto");
   });
 
   it("detecta antecipação de Investimento (preços) ainda na Cumprimentar", () => {
     const text =
-      "Posso te passar agora os preços e as condições de pagamento, é tranquilo de fechar venda.";
-    const r = looksLikeStepSkip(text, stepGreet, allSteps, true);
+      "Posso te passar agora os preços e as condições de pagamento, é tranquilo fechar a venda no fechamento.";
+    const r = looksLikeStepSkip(text, stepGreet, allSteps, { firstTurn: true });
     expect(r.skipped).toBe(true);
+  });
+
+  it("NUNCA acusa skip quando já há 2+ inbounds (conversa andando)", () => {
+    const text =
+      "Vou te explicar como o produto funciona, temos um catálogo enorme.";
+    const r = looksLikeStepSkip(text, stepGreet, allSteps, {
+      firstTurn: false,
+      inboundCount: 3,
+    });
+    expect(r.skipped).toBe(false);
   });
 
   it("não acusa skip se já estamos na última etapa", () => {
@@ -69,12 +79,13 @@ describe("looksLikeStepSkip", () => {
     expect(r.skipped).toBe(false);
   });
 
-  it("é menos rígido fora do primeiro turno (margem maior)", () => {
-    // 1 hit de futura, 0 da atual: no firstTurn dispararia (margem 1), fora não (margem 2)
-    const text = "Quanto à entrega, te explico melhor depois.";
-    const r1 = looksLikeStepSkip(text, stepGreet, allSteps, true);
-    const r2 = looksLikeStepSkip(text, stepGreet, allSteps, false);
-    expect(r1.skipped || !r2.skipped).toBe(true);
+  it("não acusa skip por uma palavra solta tipo 'entrega' fora de primeiro turno", () => {
+    const text = "Beleza, te entendi. Por que tipo de produto você se interessa?";
+    const r = looksLikeStepSkip(text, stepGreet, allSteps, {
+      firstTurn: false,
+      inboundCount: 1,
+    });
+    expect(r.skipped).toBe(false);
   });
 });
 
