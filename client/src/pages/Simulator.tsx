@@ -160,6 +160,13 @@ function Inner({ agentId }: { agentId: number }) {
   function submit() {
     const v = text.trim();
     if (!v) return;
+    // Comando interno: zera a conversa local + servidor sem mandar pro pipeline.
+    const RESET_RE = /^\/(limpar|clear|reset|start|restart)$/i;
+    if (RESET_RE.test(v)) {
+      setText("");
+      void handleReset();
+      return;
+    }
     pushUser(v);
     queueRef.current.push(v);
     setText("");
@@ -475,7 +482,7 @@ function ChatInput({
               onSubmit();
             }
           }}
-          placeholder="Mensagem"
+          placeholder="Mensagem (digite /limpar para resetar)"
           className="flex-1 bg-transparent outline-none text-[15px] text-white placeholder:text-white/40"
         />
         <Paperclip className="h-5 w-5 text-white/60 shrink-0 -rotate-45" />

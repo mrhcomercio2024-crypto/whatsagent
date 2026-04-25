@@ -318,6 +318,9 @@ export const conversations = mysqlTable(
     sentMediaIds: json("sentMediaIds"), // ids de mídias já enviadas (controle once)
     // Debounce: horário em que a IA deve processar a conversa (coalesce de várias mensagens)
     pendingProcessAt: timestamp("pendingProcessAt"),
+    // Memória evolutiva: resumo do que já aconteceu na conversa, atualizado pelo agente
+    summary: text("summary"),
+    summaryUpdatedAt: timestamp("summaryUpdatedAt"),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
     updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   },

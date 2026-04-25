@@ -544,12 +544,20 @@ export const appRouter = router({
         if (!conv) throw new TRPCError({ code: "NOT_FOUND" });
         const agent = await getAgentById(conv.agentId);
         if (!agent) throw new TRPCError({ code: "NOT_FOUND" });
+        // Comando interno do operador: zera a conversa sem enviar nada ao lead.
+        const { isResetCommand } = await import("./ai/resetCommand");
+        if (isResetCommand(input.text)) {
+          const { resetConversation } = await import("./db");
+          await resetConversation(conv.id);
+          return { reset: true } as const;
+        }
         await dispatchActions({
           agent,
           conversationId: conv.id,
           actions: [{ type: "text", text: input.text }],
           sender: "human",
         });
+        return { reset: false } as const;
       }),
   }),
 
@@ -735,13 +743,10 @@ export const appRouter = router({
     reset: protectedProcedure
       .input(z.object({ conversationId: z.number().int().positive() }))
       .mutation(async ({ input }) => {
-        await cancelPendingJobsForConversation(input.conversationId);
-        await updateConversation(input.conversationId, {
-          aiPaused: false,
-          status: "open",
-          currentStepId: null,
-          sentMediaIds: [],
-        });
+        // Usa o reset completo: apaga mensagens, zera summary/etapa,
+        // cancela follow-ups e volta currentStepId para a etapa 1.
+        const { resetConversation } = await import("./db");
+        await resetConversation(input.conversationId);
       }),
   }),
 

@@ -26,10 +26,13 @@ import {
   listSteps,
   listTriggers,
   recordMetric,
+  resetConversation,
   scheduleFollowupJobs,
   updateConversation,
   updateLead,
 } from "../db";
+import { isResetCommand, RESET_REPLY } from "./resetCommand";
+import { refreshConversationSummary, shouldRefreshSummary } from "./summarizer";
 import type { Agent } from "../../drizzle/schema";
 import { invokeWithModel } from "./invoke";
 import {
@@ -74,6 +77,17 @@ export async function processInboundForReply(opts: {
   const conv = await getConversationById(conversationId);
   if (!conv) throw new Error("Conversation not found");
   const lead = await getLeadById(conv.leadId);
+
+  // 0.a Comando interno /limpar — reset total da conversa.
+  if (isResetCommand(inboundText)) {
+    await resetConversation(conversationId);
+    return {
+      actions: [{ type: "text", text: RESET_REPLY }],
+      handoff: false,
+      stepAdvanced: false,
+      outOfHours: false,
+    };
+  }
 
   // 0. Cancela follow-ups pendentes (lead respondeu)
   await cancelPendingJobsForConversation(conversationId);
@@ -182,6 +196,7 @@ export async function processInboundForReply(opts: {
     leadName: lead?.name ?? null,
     leadPhone: lead?.phoneNumber ?? null,
     restrictedTerms: restricted,
+    conversationSummary: conv.summary ?? null,
   };
 
   const messages = buildMessages(ctx);
@@ -362,6 +377,27 @@ export async function processInboundForReply(opts: {
       stepName: currentStep?.name ?? null,
     });
   } catch {}
+
+  // Atualiza o RESUMO da conversa em background quando passamos do limite de
+  // mensagens novas desde o último resumo. Não bloqueamos a resposta.
+  try {
+    const total = (history?.length ?? 0) + 1; // +1 inbound atual
+    if (
+      shouldRefreshSummary({
+        totalMessages: total,
+        lastSummaryAtMessages: conv.summary ? total - 1 : null,
+        every: 6,
+      })
+    ) {
+      void refreshConversationSummary({
+        agent,
+        conversationId,
+        previousSummary: conv.summary ?? null,
+      });
+    }
+  } catch {
+    // não queremos derrubar a resposta caso o resumidor falhe.
+  }
 
   return {
     actions,

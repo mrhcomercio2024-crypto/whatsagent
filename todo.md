@@ -220,3 +220,13 @@
 - [x] Chat.tsx consumindo EventSource com fallback de polling de 15s + heurístico antigo
 - [x] Vitest do bus pub/sub (5 cenários)
 - [x] Checkpoint v9
+
+## Fase 39: Memória, fidelidade ao script e /limpar
+- [x] Coluna `summary` (text) e `summaryUpdatedAt` em `conversations` (migration 0008)
+- [x] Helper `resetConversation(convId)`: deleta mensagens, zera summary/currentStep, cancela jobs, volta etapa 1
+- [x] Resumidor evolutivo `server/ai/summarizer.ts` (`shouldRefreshSummary` + `refreshConversationSummary`, purpose=summary)
+- [x] Prompt: bloco "RESUMO DA CONVERSA" obrigatório + regras anti-repetição
+- [x] Prompt: bloco "ETAPA ATUAL" com critério de avanço explícito + proibição de pular etapas
+- [x] Comando `/limpar` no orchestrator, simulator (front + back) e sendHumanMessage
+- [x] Vitest `memory.test.ts` (9 cenários) — 78/78 verde
+- [x] Checkpoint v10

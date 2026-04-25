@@ -31,19 +31,21 @@ export type PromptContext = {
   leadName?: string | null;
   leadPhone?: string | null;
   restrictedTerms?: Array<{ term: string; action: "block" | "rewrite" }>;
+  /** Resumo evolutivo da conversa (memória persistida em conversations.summary) */
+  conversationSummary?: string | null;
 };
 
 const HARD_RULES = `
-REGRAS INVIOLÁVEIS:
-- Você é o agente acima. Responda SOMENTE com base nas informações do "Cérebro do Agente" e "Base de Conhecimento". Se não souber algo, diga educadamente que vai verificar e proponha próxima etapa.
-- NUNCA invente preços, prazos, descontos, condições ou produtos que não estejam no cérebro/base.
-- Siga rigorosamente a ETAPA ATUAL DO SCRIPT. Não pule etapas obrigatórias.
-- Soe humano: respostas curtas, naturais, com no máximo 2-3 frases por mensagem. Use o tom configurado.
-- Pergunte uma coisa de cada vez. Não despeje informação.
-- Quando precisar enviar uma imagem ou vídeo da biblioteca, use a marcação especial: [SEND_MEDIA:<id>] em qualquer parte da resposta. Use SOMENTE ids da lista "Mídias disponíveis".
-- Se a etapa atual exigir avanço (critério cumprido), inclua [STEP_ADVANCE] no final.
-- Se o lead pedir para falar com humano ou demonstrar irritação séria, inclua [HANDOFF].
-- Sua resposta visível ao lead NÃO deve mostrar essas marcações como "[SEND_MEDIA...]" — elas serão removidas do texto enviado, mas precisam estar no seu output para que o sistema execute a ação.
+REGRAS INVIOLÁVEIS (prioritárias sobre tudo):
+1. ANTES DE RESPONDER, releia o bloco "RESUMO DA CONVERSA" e o histórico. JAMAIS repita a mesma pergunta ou frase já enviada antes — se for inevitável reapresentar uma ideia, reformule completamente.
+2. Responda DIRETAMENTE à última mensagem do lead, no idioma e no contexto dela. Não ignore o que o lead acabou de dizer.
+3. Siga a ETAPA ATUAL DO SCRIPT em ordem. Não pule etapas obrigatórias e não avance enquanto o critério da etapa não for cumprido. Para avançar, inclua [STEP_ADVANCE] no final.
+4. Responda SOMENTE com base no "Cérebro do Agente" + "Base de Conhecimento" + "Resumo da Conversa". Se não souber, diga educadamente que vai verificar e proponha o próximo passo do script.
+5. NUNCA invente preços, prazos, descontos, condições ou produtos que não estejam no cérebro/base.
+6. Soe humano: respostas curtas, naturais, no máximo 2–3 frases por mensagem. Pergunte UMA coisa de cada vez.
+7. Para enviar uma imagem ou vídeo da biblioteca, use [SEND_MEDIA:<id>] usando SOMENTE ids da lista "Mídias disponíveis".
+8. Se o lead pedir falar com humano ou demonstrar irritação séria, inclua [HANDOFF].
+9. Sua resposta visível ao lead NÃO deve mostrar essas marcações — elas serão removidas do texto enviado, mas precisam estar no seu output para o sistema executar.
 `;
 
 function fmtIfPresent(label: string, val?: string | null): string {
@@ -51,8 +53,16 @@ function fmtIfPresent(label: string, val?: string | null): string {
   return `\n## ${label}\n${val.trim()}\n`;
 }
 
+function buildSummaryBlock(summary?: string | null): string {
+  const s = (summary ?? "").trim();
+  if (!s) {
+    return `\n## RESUMO DA CONVERSA\n(ainda não há resumo — esta é uma conversa nova ou recente)\n`;
+  }
+  return `\n## RESUMO DA CONVERSA (memória evolutiva — LEIA ANTES DE RESPONDER)\n${s}\n`;
+}
+
 export function buildSystemPrompt(ctx: PromptContext): string {
-  const { agent, brain, steps, currentStep, knowledge, availableMedia, leadName, leadPhone } = ctx;
+  const { agent, brain, steps, currentStep, knowledge, availableMedia, leadName, leadPhone, conversationSummary } = ctx;
 
   const stepsList = steps
     .map(
@@ -116,6 +126,7 @@ ${fmtIfPresent("Persona", agent.persona)}${fmtIfPresent("Prompt mestre", brain?.
 ${stepsList || "(sem etapas configuradas)"}
 
 ${currentStepBlock}
+${buildSummaryBlock(conversationSummary)}
 ${knowledgeBlock}
 ${mediaBlock}
 ${restrictedBlock}

@@ -1198,3 +1198,65 @@ export async function updateStepLiteralMode(
     .set({ literalMode, literalText })
     .where(eq(scriptSteps.id, stepId));
 }
+
+/* ============================================================
+ * RESET DE CONVERSA (comando interno /limpar)
+ * ============================================================ */
+
+/**
+ * Apaga todas as mensagens da conversa, zera summary, currentStep,
+ * pendingProcessAt, sentMediaIds e cancela jobs de followup pendentes.
+ * Mantém a conversa (mesmo id), apenas como se nunca tivesse acontecido.
+ */
+export async function resetConversation(conversationId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+
+  // Apaga todas as mensagens
+  await db.delete(messages).where(eq(messages.conversationId, conversationId));
+
+  // Cancela follow-ups pendentes
+  await cancelPendingJobsForConversation(conversationId);
+
+  // Reseta a conversa para o estado inicial.
+  // Volta o currentStepId para a primeira etapa do agente, se existir.
+  const conv = await getConversationById(conversationId);
+  let firstStepId: number | null = null;
+  if (conv) {
+    const stepsList = await db
+      .select()
+      .from(scriptSteps)
+      .where(eq(scriptSteps.agentId, conv.agentId))
+      .orderBy(asc(scriptSteps.orderIndex))
+      .limit(1);
+    firstStepId = stepsList[0]?.id ?? null;
+  }
+
+  await db
+    .update(conversations)
+    .set({
+      summary: null,
+      summaryUpdatedAt: null,
+      currentStepId: firstStepId,
+      pendingProcessAt: null,
+      sentMediaIds: [],
+      status: "open",
+      aiPaused: false,
+      lastInboundAt: null,
+      lastOutboundAt: null,
+      lastMessageAt: null,
+    })
+    .where(eq(conversations.id, conversationId));
+
+  // Avisa o realtime: histórico zerado.
+  try {
+    const { publish } = await import("./realtime/bus");
+    publish({
+      type: "status",
+      conversationId,
+      patch: { reset: true } as any,
+    });
+  } catch {
+    // ignored
+  }
+}
