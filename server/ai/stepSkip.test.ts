@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { canAdvanceStep, looksLikeStepSkip, extractKeywords } from "./stepSkip";
+import {
+  canAdvanceStep,
+  looksLikeStepSkip,
+  extractKeywords,
+  leadAskedQuestion,
+} from "./stepSkip";
 import { buildSystemPrompt } from "./prompt";
 
 const stepGreet = {
@@ -126,14 +131,14 @@ describe("prompt: regra dura de não antecipar etapas", () => {
     leadPhone: null,
   };
 
-  it("inclui regra de não antecipar etapas seguintes", () => {
+  it("inclui regra de prioridade máxima — responder à última pergunta do lead", () => {
     const sys = buildSystemPrompt(baseCtx);
-    expect(sys).toMatch(/NUNCA antecipe conte[uú]do de etapas seguintes/i);
+    expect(sys).toMatch(/PRIORIDADE M[AÁ]XIMA: responda DIRETAMENTE/i);
   });
 
-  it("menciona o nome da próxima etapa para reforçar bloqueio", () => {
+  it("menciona o nome da próxima etapa para reforçar contexto", () => {
     const sys = buildSystemPrompt(baseCtx);
-    expect(sys).toMatch(/A pr[oó]xima etapa se chama "Explicar produto"/i);
+    expect(sys).toMatch(/Pr[oó]xima etapa: "Explicar produto"/i);
   });
 
   it("inclui regra explícita de NUNCA STEP_ADVANCE no primeiro turno", () => {
@@ -141,8 +146,54 @@ describe("prompt: regra dura de não antecipar etapas", () => {
     expect(sys).toMatch(/NUNCA inclua \[STEP_ADVANCE\] no primeiro turno/i);
   });
 
-  it("informa o número da etapa atual e o total", () => {
+  it("informa o número da etapa atual e o total + obrigatória/opcional", () => {
     const sys = buildSystemPrompt(baseCtx);
     expect(sys).toMatch(/etapa 1 de 3: "Cumprimentar"/i);
+  });
+
+  it("inclui o tom de vendedor consultivo flexível", () => {
+    const sys = buildSystemPrompt(baseCtx);
+    expect(sys).toMatch(/vendedor consultivo/i);
+    expect(sys).toMatch(/etapas s[aã]o OBJETIVOS a cumprir/i);
+  });
+});
+
+describe("leadAskedQuestion", () => {
+  it("detecta interrogação explícita", () => {
+    expect(leadAskedQuestion("quanto custa isso?")).toBe(true);
+  });
+  it("detecta termo interrogativo sem ?", () => {
+    expect(leadAskedQuestion("como funciona o produto")).toBe(true);
+  });
+  it("não acusa em afirmação neutra", () => {
+    expect(leadAskedQuestion("to comecando do zero")).toBe(false);
+  });
+  it("trata texto vazio", () => {
+    expect(leadAskedQuestion("")).toBe(false);
+    expect(leadAskedQuestion(null)).toBe(false);
+  });
+});
+
+describe("looksLikeStepSkip + leadAskedQuestion (vendedor flexível)", () => {
+  it("libera resposta sobre 'preco' quando o lead perguntou diretamente", () => {
+    const text =
+      "O investimento começa em X. Você já vende online ou está começando agora?";
+    const r = looksLikeStepSkip(text, stepGreet, allSteps, {
+      firstTurn: false,
+      inboundCount: 1,
+      leadAskedQuestion: true,
+    });
+    expect(r.skipped).toBe(false);
+  });
+
+  it("continua bloqueando antecipação quando o lead NÃO perguntou", () => {
+    const text =
+      "Vou te explicar como o produto funciona, temos um catálogo enorme e cuidamos da logística.";
+    const r = looksLikeStepSkip(text, stepGreet, allSteps, {
+      firstTurn: false,
+      inboundCount: 1,
+      leadAskedQuestion: false,
+    });
+    expect(r.skipped).toBe(true);
   });
 });

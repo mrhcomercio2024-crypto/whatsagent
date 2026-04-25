@@ -300,3 +300,14 @@
 - [x] Após processar, libera o slot para a próxima janela (timer = null no clear)
 - [x] Vitest `simulatorDebounce.test.ts` (4 cenários) — 126/126 verde
 - [x] Checkpoint v18
+
+## Fase 48: Agente flexível — passar sutilmente pelas etapas
+- [x] HARD_RULES reescrito: prioridade #1 = responder à última pergunta do lead, antes de seguir o roteiro
+- [x] Etapas tratadas como "objetivos" (vendedor consultivo flexível) — pode cumprir etapa enquanto responde outra
+- [x] Permite STEP_ADVANCE sem reperguntar quando a fala do lead já entrega a informação da etapa
+- [x] `leadAskedQuestion(text)` heurística simples (interrogação + termos como quanto/como/qual)
+- [x] `looksLikeStepSkip` ignora antecipação quando o lead perguntou diretamente (e não é 1º turno)
+- [x] Bloco da etapa atual com instruções de "como conduzir" (consultivo) + obrigatória/opcional
+- [x] Testes antigos atualizados para nova redação + 6 testes novos (leadAskedQuestion + flex)
+- [x] Suite verde 133/133
+- [x] Checkpoint v19

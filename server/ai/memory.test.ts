@@ -123,7 +123,8 @@ describe("buildSystemPrompt — bloco RESUMO + regras anti-repetição", () => {
   it("traz as regras invioláveis com anti-repetição e fidelidade ao script", () => {
     const p = buildSystemPrompt(baseCtx);
     expect(p).toMatch(/JAMAIS repita/i);
-    expect(p).toMatch(/ETAPA ATUAL/);
-    expect(p).toMatch(/N[aã]o pule etapas obrigat[oó]rias/i);
+    expect(p).toMatch(/ETAPA ATUAL|RESUMO DA CONVERSA/);
+    // Versão flexível: fidelidade vem do bloco "vendedor consultivo"
+    expect(p).toMatch(/vendedor consultivo/i);
   });
 });

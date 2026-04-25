@@ -114,7 +114,7 @@ describe("buildSystemPrompt — etapa como diretiva interna", () => {
     const p = buildSystemPrompt(baseCtx);
     expect(p).toMatch(/DIRETIVA INTERNA/);
     expect(p).toMatch(/uso interno/);
-    expect(p).toMatch(/NÃO escreva "Objetivo"/);
+    expect(p).toMatch(/sem dizer "Objetivo\/Etapa\/Script"/);
     // Funil deve aparecer só como esqueleto (só nomes, sem o texto das instruções)
     expect(p).toMatch(/FUNIL DE ATENDIMENTO/);
     const funilStart = p.indexOf("FUNIL DE ATENDIMENTO");
@@ -141,7 +141,7 @@ describe("buildSystemPrompt — etapa como diretiva interna", () => {
   it("traz as regras invioláveis novas (anti-vazamento, formato curto)", () => {
     const p = buildSystemPrompt(baseCtx);
     expect(p).toMatch(/ESCREVA APENAS A PRÓXIMA MENSAGEM/);
-    expect(p).toMatch(/NÃO REPITA/);
+    expect(p).toMatch(/JAMAIS repita pergunta/i);
     expect(p).toMatch(/sem listas numeradas/);
   });
 });

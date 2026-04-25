@@ -128,7 +128,23 @@ export type StepSkipOpts = {
   firstTurn?: boolean;
   /** Quantos inbounds reais o lead já enviou na conversa */
   inboundCount?: number;
+  /** Se a última mensagem do lead contém uma pergunta direta */
+  leadAskedQuestion?: boolean;
 };
+
+/**
+ * Heurística simples: detecta se a última mensagem do lead contém
+ * uma pergunta (ponto de interrogação ou termo interrogativo PT-BR).
+ * Usado para liberar o agente quando ele responde à pergunta do lead
+ * mesmo que esse conteúdo pareça de uma etapa futura.
+ */
+export function leadAskedQuestion(text: string | null | undefined): boolean {
+  if (!text) return false;
+  const t = norm(text);
+  if (t.includes("?")) return true;
+  // Termos interrogativos comuns no início da fala (sem acentos)
+  return /\b(quanto|quantos|qual|quais|como|onde|quando|porque|por que|tem |voce|voces|posso|podemos|pode|aceita|funciona|inclui|cobra|custa)\b/.test(t);
+}
 
 /**
  * Heurística conservadora: só acusa skip quando a IA produz texto FORTEMENTE
@@ -153,12 +169,16 @@ export function looksLikeStepSkip(
       : optsOrFirstTurn;
   const firstTurn = !!opts.firstTurn;
   const inboundCount = opts.inboundCount ?? 0;
+  const askedQuestion = !!opts.leadAskedQuestion;
 
   if (!text || !current || !all || all.length === 0) {
     return { skipped: false };
   }
   // Conversa já andando: confiar no STEP_ADVANCE e não brigar com a IA.
   if (!firstTurn && inboundCount >= 2) return { skipped: false };
+  // Se o lead fez uma pergunta direta, o agente PODE responder com conteúdo de etapa
+  // futura sem ser punido (vendedor consultivo flexível).
+  if (!firstTurn && askedQuestion) return { skipped: false };
 
   const ordered = [...all].sort(
     (a, b) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0)

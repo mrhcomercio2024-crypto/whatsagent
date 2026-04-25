@@ -36,7 +36,7 @@ import {
   countAiMessagesInCurrentStep,
   shouldAutoAdvanceByCount,
 } from "./stepLimit";
-import { canAdvanceStep, looksLikeStepSkip } from "./stepSkip";
+import { canAdvanceStep, leadAskedQuestion, looksLikeStepSkip } from "./stepSkip";
 import { refreshConversationSummary, shouldRefreshSummary } from "./summarizer";
 import type { Agent } from "../../drizzle/schema";
 import { invokeWithModel } from "./invoke";
@@ -396,9 +396,17 @@ export async function processInboundForReply(opts: {
     h => h.direction === "inbound" && h.sender === "lead"
   ).length;
   if (currentStep && steps.length > 1) {
+    // Última mensagem do lead (a inbound mais recente) determina se ele
+    // fez uma pergunta direta — nesse caso liberamos o agente para responder
+    // mesmo que o conteúdo pareça de uma etapa futura (vendedor flexível).
+    const lastLeadMsg = [...history]
+      .reverse()
+      .find(h => h.direction === "inbound" && h.sender === "lead");
+    const askedQuestion = leadAskedQuestion(lastLeadMsg?.body ?? null);
     const skip = looksLikeStepSkip(aiOutput, currentStep, steps as any, {
       firstTurn: isFirstTurn,
       inboundCount: inboundCountForSkip,
+      leadAskedQuestion: askedQuestion,
     });
     if (skip.skipped) {
       console.log(
