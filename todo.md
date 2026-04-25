@@ -319,3 +319,11 @@
 - [x] Regra anti-contradição: "NUNCA responda 'não, não é bem assim'" quando lead concorda
 - [x] Vitest `lastInbound.test.ts` (9 cenários) — 142/142 verde
 - [x] Checkpoint v20
+
+## Fase 50: Cérebro do Agente em Markdown
+- [x] `MarkdownEditor` com toolbar (Bold/Itálico/H2/Listas/Quote/Code/Link), atalhos Ctrl+B / Ctrl+I e modos Editar/Split/Preview
+- [x] Preview ao vivo via Streamdown (já disponível no projeto), respeitando classes prose/dark
+- [x] Brain.tsx: todos os 6 campos longos migrados para MarkdownEditor, payload tRPC inalterado (string Markdown)
+- [x] Vitest `markdownInsert.test.ts` (8 cenários cobrindo wrap, prefix multi-linha, link c/ e s/ seleção)
+- [x] Suite verde 150/150
+- [x] Checkpoint v21

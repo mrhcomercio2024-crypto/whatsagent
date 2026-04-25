@@ -3,8 +3,8 @@ import { AgentRequired } from "@/components/AgentRequired";
 import { PageHeader } from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
+import { MarkdownEditor } from "@/components/MarkdownEditor";
 import { Save, ShieldOff, X, Plus } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -129,17 +129,15 @@ function BrainEditor({ agentId }: { agentId: number }) {
           <div className="elevated-card rounded-2xl h-40 animate-pulse" />
         ) : (
           fields.map(f => (
-            <div key={f.key} className="elevated-card rounded-2xl p-6 space-y-2">
-              <div className="flex items-center justify-between">
-                <Label className="text-sm">{f.label}</Label>
-              </div>
-              <p className="text-xs text-muted-foreground">{f.description}</p>
-              <Textarea
+            <div key={f.key} className="elevated-card rounded-2xl p-6">
+              <MarkdownEditor
+                label={f.label}
+                description={f.description}
+                placeholder={f.placeholder}
                 rows={f.rows}
                 value={form[f.key]}
-                onChange={e => setForm({ ...form, [f.key]: e.target.value })}
-                placeholder={f.placeholder}
-                className="font-mono text-sm leading-relaxed bg-background/40"
+                onChange={next => setForm({ ...form, [f.key]: next })}
+                compact={f.rows <= 3}
               />
             </div>
           ))
