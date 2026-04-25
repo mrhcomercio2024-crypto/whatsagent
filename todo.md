@@ -278,3 +278,10 @@
 - [x] Anti-repetição: detecta duplicata exata (normalizada) da última outbound; regenera 1x; persistindo, suprime o balão
 - [x] Vitest novos: 1 caso de "já há inbounds" + frase neutra fora de primeiro turno (suite 111/111)
 - [x] Checkpoint v15
+
+## Fase 45: Debounce fixed window
+- [x] Mapeados os call sites: `webhook.ts`, `baileys.ts`, `debounceWorker.ts` (clear) e `db.ts`
+- [x] `setConversationPendingProcessAt` agora preserva janela existente; aceita `{force:true}` e `at=null` para clear
+- [x] `debounceWorker` já zera após processar (sem mudança necessária)
+- [x] Vitest `debounceFixedWindow.test.ts` (6 cenários) — 117/117 verde
+- [x] Checkpoint v16

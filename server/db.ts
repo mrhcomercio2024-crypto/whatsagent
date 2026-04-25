@@ -841,16 +841,48 @@ export async function getAgentByJid(jid: string) {
  * ============================================================ */
 
 /**
- * Marca a conversa para ser processada em `pendingProcessAt`.
- * Cada nova mensagem do lead empurra esse timestamp para frente,
- * fazendo com que o bot espere até o lead "parar de digitar".
+ * Marca a conversa para ser processada em `pendingProcessAt` usando
+ * **fixed window**: se já existe um `pendingProcessAt` futuro, **não** o
+ * atualizamos — a janela de debounce começa quando chega a 1ª mensagem
+ * do lote e não é reiniciada por mensagens subsequentes do lead.
+ *
+ * Ou seja: o bot espera o tempo configurado a partir da PRIMEIRA mensagem,
+ * mesmo que o lead continue digitando depois.
+ *
+ * Use `force: true` para limpar (`at = null`) ou para sobrescrever explicitamente
+ * (ex.: depois de processar um turno, ou em comandos administrativos).
  */
 export async function setConversationPendingProcessAt(
   conversationId: number,
-  at: Date | null
+  at: Date | null,
+  opts?: { force?: boolean }
 ) {
   const db = await getDb();
   if (!db) return;
+  const force = !!opts?.force;
+
+  // Caso 1: limpar (at=null) ou forçar — sempre atualiza.
+  if (at === null || force) {
+    await db
+      .update(conversations)
+      .set({ pendingProcessAt: at })
+      .where(eq(conversations.id, conversationId));
+    return;
+  }
+
+  // Caso 2: fixed window — só marca se ainda não há um pendente futuro.
+  const now = new Date();
+  const rows = await db
+    .select({ pendingProcessAt: conversations.pendingProcessAt })
+    .from(conversations)
+    .where(eq(conversations.id, conversationId))
+    .limit(1);
+
+  const existing = rows[0]?.pendingProcessAt as Date | null | undefined;
+  if (existing && existing > now) {
+    // Já existe uma janela em andamento — preserva.
+    return;
+  }
   await db
     .update(conversations)
     .set({ pendingProcessAt: at })
