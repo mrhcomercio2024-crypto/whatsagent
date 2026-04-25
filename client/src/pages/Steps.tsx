@@ -68,6 +68,8 @@ function StepsEditor({ agentId }: { agentId: number }) {
     isMandatory: true,
     literalMode: false,
     literalText: "",
+    // 0 = sem limite. UI converte para null no payload.
+    maxMessages: 0,
   });
 
   function openCreate() {
@@ -80,6 +82,7 @@ function StepsEditor({ agentId }: { agentId: number }) {
       isMandatory: true,
       literalMode: false,
       literalText: "",
+      maxMessages: 0,
     });
     setOpen(true);
   }
@@ -93,6 +96,7 @@ function StepsEditor({ agentId }: { agentId: number }) {
       isMandatory: s.isMandatory,
       literalMode: !!s.literalMode,
       literalText: s.literalText ?? "",
+      maxMessages: s.maxMessages ?? 0,
     });
     setOpen(true);
   }
@@ -107,6 +111,9 @@ function StepsEditor({ agentId }: { agentId: number }) {
       llmModel: form.llmModel || null,
       completionCriteria: form.completionCriteria || null,
       literalText: form.literalMode ? form.literalText : null,
+      // 0 ou negativo = sem limite → envia null para o backend
+      maxMessages:
+        form.maxMessages && form.maxMessages > 0 ? form.maxMessages : null,
     };
     if (editing) {
       update.mutate(
@@ -182,6 +189,11 @@ function StepsEditor({ agentId }: { agentId: number }) {
                     {s.literalMode && (
                       <span className="text-[10px] uppercase tracking-wider text-amber-400/90 bg-amber-400/10 px-1.5 py-0.5 rounded">
                         literal
+                      </span>
+                    )}
+                    {typeof s.maxMessages === "number" && s.maxMessages > 0 && (
+                      <span className="text-[10px] uppercase tracking-wider text-cyan-400/90 bg-cyan-400/10 px-1.5 py-0.5 rounded">
+                        máx {s.maxMessages} msg
                       </span>
                     )}
                   </div>
@@ -312,6 +324,38 @@ function StepsEditor({ agentId }: { agentId: number }) {
                   onChange={e => setForm({ ...form, literalText: e.target.value })}
                   placeholder="Texto exato que o agente vai enviar nesta etapa."
                 />
+              )}
+            </div>
+
+            <div className="rounded-xl border border-border/60 p-4 space-y-3 bg-muted/20">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <Label className="cursor-pointer">Avançar após N mensagens (anti-trava)</Label>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Se a IA enviar mais de N mensagens nesta etapa sem o critério ser cumprido, ela avança automaticamente para a próxima. Use 0 para desativar.
+                  </p>
+                </div>
+                <Input
+                  type="number"
+                  inputMode="numeric"
+                  min={0}
+                  max={50}
+                  step={1}
+                  className="w-24 text-right"
+                  value={form.maxMessages ?? 0}
+                  onChange={e => {
+                    const v = parseInt(e.target.value, 10);
+                    setForm({
+                      ...form,
+                      maxMessages: Number.isFinite(v) ? Math.max(0, Math.min(50, v)) : 0,
+                    });
+                  }}
+                />
+              </div>
+              {form.maxMessages > 0 && (
+                <p className="text-[11px] text-amber-400/80">
+                  Auto-avanço ativo: após {form.maxMessages} mensagem(ns) da IA nesta etapa, o agente vai para a próxima etapa antes de gerar a resposta seguinte.
+                </p>
               )}
             </div>
           </div>

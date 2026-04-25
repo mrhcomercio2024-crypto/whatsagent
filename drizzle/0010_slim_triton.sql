@@ -1,0 +1,1 @@
+ALTER TABLE `script_steps` ADD `maxMessages` int;

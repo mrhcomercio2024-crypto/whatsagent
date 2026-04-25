@@ -210,6 +210,7 @@ export const appRouter = router({
           completionCriteria: z.string().nullable().optional(),
           llmModel: z.string().nullable().optional(),
           isMandatory: z.boolean().default(true),
+          maxMessages: z.number().int().min(1).max(50).nullable().optional(),
         })
       )
       .mutation(({ input }) => createStep(input)),
@@ -226,6 +227,8 @@ export const appRouter = router({
             isMandatory: z.boolean().optional(),
             literalMode: z.boolean().optional(),
             literalText: z.string().nullable().optional(),
+            // null/0 = sem limite; 1..50 = avança automaticamente após N mensagens da IA na etapa
+            maxMessages: z.number().int().min(1).max(50).nullable().optional(),
           }),
         })
       )

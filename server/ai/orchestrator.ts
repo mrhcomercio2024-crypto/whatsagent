@@ -32,6 +32,10 @@ import {
   updateLead,
 } from "../db";
 import { isResetCommand, RESET_REPLY } from "./resetCommand";
+import {
+  countAiMessagesInCurrentStep,
+  shouldAutoAdvanceByCount,
+} from "./stepLimit";
 import { refreshConversationSummary, shouldRefreshSummary } from "./summarizer";
 import type { Agent } from "../../drizzle/schema";
 import { invokeWithModel } from "./invoke";
@@ -153,6 +157,35 @@ export async function processInboundForReply(opts: {
     ? steps.find(s => s.id === conv.currentStepId)
     : steps[0];
   if (!currentStep && steps.length > 0) currentStep = steps[0];
+
+  // 3.a Auto-avanço por teto de mensagens da etapa: se a etapa atual tem
+  // `maxMessages` configurado e a IA já enviou esse total nesta etapa, avança
+  // ANTES de gerar a próxima resposta para não ficar presa.
+  let stepAutoAdvancedByLimit = false;
+  if (currentStep && currentStep.maxMessages && currentStep.maxMessages > 0) {
+    const aiInStep = countAiMessagesInCurrentStep({
+      messages: history as any,
+      currentStepId: currentStep.id,
+      conversationCurrentStepSince: conv.updatedAt as any,
+    });
+    if (shouldAutoAdvanceByCount(aiInStep, currentStep.maxMessages)) {
+      const idx = steps.findIndex(s => s.id === currentStep!.id);
+      const next = idx >= 0 && idx + 1 < steps.length ? steps[idx + 1] : null;
+      if (next) {
+        console.log(
+          `[orchestrator] auto-advance step (max_messages=${currentStep.maxMessages}, count=${aiInStep}): ${currentStep.name} → ${next.name}`
+        );
+        await updateConversation(conversationId, { currentStepId: next.id });
+        currentStep = next;
+        stepAutoAdvancedByLimit = true;
+      } else {
+        // Última etapa: não tem para onde avançar; mantém, mas loga aviso
+        console.warn(
+          `[orchestrator] step ${currentStep.name} reached max_messages but no next step exists`
+        );
+      }
+    }
+  }
 
   // 3.b MODO LITERAL: se a etapa atual define texto literal, despacha sem LLM
   if (currentStep?.literalMode && currentStep.literalText && currentStep.literalText.trim()) {
@@ -379,6 +412,9 @@ export async function processInboundForReply(opts: {
     const next = idx >= 0 && idx + 1 < steps.length ? steps[idx + 1] : null;
     if (next) updates.currentStepId = next.id;
   } else if (!conv.currentStepId && currentStep) {
+    updates.currentStepId = currentStep.id;
+  } else if (stepAutoAdvancedByLimit && currentStep) {
+    // garante persistência caso nenhuma outra atualização tenha alterado o stepId
     updates.currentStepId = currentStep.id;
   }
 

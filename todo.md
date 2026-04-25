@@ -250,3 +250,13 @@
 - [x] `literalMode` + `literalText` já enviavam literal; reforçado no prompt como bloco <<< >>>
 - [x] Vitest `stepLeak.test.ts` (9 cenários) — 89/89 verde
 - [x] Checkpoint v12
+
+## Fase 42: Limite de mensagens por etapa (auto-avanço)
+- [x] Coluna `maxMessages` (int, nullable) em `script_steps` (migration 0010 aplicada)
+- [x] Helpers puros `shouldAutoAdvanceByCount` + `countAiMessagesInCurrentStep` (`server/ai/stepLimit.ts`)
+- [x] Orchestrator: antes do MODO LITERAL e da chamada LLM, conta mensagens da IA na etapa atual e avança se atingir o teto
+- [x] Log explícito quando o auto-avanço ocorre (motivo: max_messages) + warn quando é a última etapa
+- [x] Procedures `steps.create` e `steps.update` aceitam `maxMessages` (1..50 ou null)
+- [x] UI Etapas: input numérico "Avançar após N mensagens (anti-trava)" + badge "máx N msg" na lista
+- [x] Vitest `stepLimit.test.ts` (7 cenários) — 96/96 verde
+- [x] Checkpoint v13

@@ -131,6 +131,9 @@ export const scriptSteps = mysqlTable(
     // Se true, agente envia EXATAMENTE o texto literal abaixo (sem reescrever)
     literalMode: boolean("literalMode").default(false).notNull(),
     literalText: text("literalText"),
+    // Limite de mensagens da IA nesta etapa antes de avançar automaticamente.
+    // null/0 = sem limite. Quando atingido, o orchestrator avança para a próxima etapa.
+    maxMessages: int("maxMessages"),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
   },
   table => ({
