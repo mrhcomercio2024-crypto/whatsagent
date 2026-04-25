@@ -327,3 +327,23 @@
 - [x] Vitest `markdownInsert.test.ts` (8 cenários cobrindo wrap, prefix multi-linha, link c/ e s/ seleção)
 - [x] Suite verde 150/150
 - [x] Checkpoint v21
+
+## Fase 51: Auditoria de fluxo do agente
+- [ ] Mapear pipeline (orchestrator, prompt, dispatcher, db, webhook, baileys)
+- [ ] Rodar suite vitest completa e revisar cobertura
+- [ ] Compilar fragilidades por criticidade
+- [ ] Entregar relatório priorizado com recomendações
+
+## Fase 52: Investigar variação do agente "Ravi teste" no Simulador
+- [ ] Inspecionar agent_brain e script_steps do agente Ravi para identificar a causa
+- [ ] Diagnosticar: script vs cérebro vs orchestrator
+- [ ] Reportar diagnóstico com recomendação
+- [ ] Bug: "(Sem resposta — verifique cérebro/etapas)" — corrigir orchestrator quando agente não tem etapas
+
+
+## Fase 53: Bug "(Sem resposta — verifique cérebro/etapas)" no Simulador
+- [x] Diagnóstico: anti-repetição persistente suprimia totalmente o balão (`aiOutput=""`) → `actions: []` → frontend exibia o fallback de erro
+- [x] Correção 1: anti-repetição agora mantém a saída regenerada mesmo se persistir similar (em vez de suprimir)
+- [x] Correção 2: safety net no fim do orchestrator — se `actions=[]` em conversa normal (não handoff/out-of-hours), envia frase neutra "Pode me contar um pouco mais? Quero te entender melhor pra te ajudar do jeito certo."
+- [x] Testes vitest: `orchestratorSafety.test.ts` (6 testes) cobre buildSystemPrompt sem etapas + parseAgentOutput vazio
+- [x] Suite completa verde (156/156)

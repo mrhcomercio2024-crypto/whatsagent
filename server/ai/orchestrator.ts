@@ -480,9 +480,11 @@ export async function processInboundForReply(opts: {
         if (text3 && normLine(text3) !== normLine(lastOutbound.body || "")) {
           aiOutput = text3;
         } else {
-          // Ainda duplicado: omitimos esta resposta para evitar spam.
-          console.warn("[orchestrator] duplicata persistiu; suprimindo balao desta rodada");
-          aiOutput = "";
+          // Ainda duplicado: NÃO suprimimos (isso causava "Sem resposta" no Simulador).
+          // Mantemos a saída regenerada mesmo que ainda pareça parecida — é
+          // melhor que silêncio e o usuário pode redirecionar a conversa.
+          console.warn("[orchestrator] duplicata persistiu; mantendo resposta regenerada para evitar silêncio");
+          if (text3) aiOutput = text3;
         }
       } catch (e) {
         console.warn("[orchestrator] regen anti-repetição falhou:", (e as Error).message);
@@ -607,6 +609,20 @@ export async function processInboundForReply(opts: {
     }
   } catch {
     // não queremos derrubar a resposta caso o resumidor falhe.
+  }
+
+  // SAFETY NET: se chegamos até aqui sem nenhuma ação textual ou de mídia em
+  // conversa normal (não handoff, não out-of-hours), é sintoma de bug a
+  // montante (LLM devolveu vazio, parser limpou tudo, etc.). Devolvemos um
+  // texto curto neutro pra evitar silêncio percebido pelo lead/usuário.
+  if (actions.length === 0 && !parsed.handoff) {
+    console.warn(
+      `[orchestrator] actions vazias em conv ${conversationId} (LLM devolveu '${aiOutput.slice(0,80)}'); usando fallback neutro`
+    );
+    actions.push({
+      type: "text",
+      text: "Pode me contar um pouco mais? Quero te entender melhor pra te ajudar do jeito certo.",
+    });
   }
 
   return {
