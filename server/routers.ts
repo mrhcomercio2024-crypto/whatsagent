@@ -733,11 +733,21 @@ export const appRouter = router({
   // ============================================================
   costs: router({
     summary: protectedProcedure
-      .input(z.object({ agentId: z.number().int().positive().optional(), daysBack: z.number().int().min(1).max(365).default(30) }))
+      .input(z.object({
+        agentId: z.number().int().positive().optional(),
+        daysBack: z.number().int().min(1).max(365).default(30),
+        model: z.string().min(1).max(120).optional(),
+      }))
       .query(async ({ input }) => getCostsSummary(input)),
 
     byLead: protectedProcedure
-      .input(z.object({ agentId: z.number().int().positive().optional(), daysBack: z.number().int().min(1).max(365).default(30), limit: z.number().int().min(1).max(500).default(100) }))
+      .input(z.object({
+        agentId: z.number().int().positive().optional(),
+        daysBack: z.number().int().min(1).max(365).default(30),
+        limit: z.number().int().min(1).max(500).default(100),
+        offset: z.number().int().min(0).default(0),
+        model: z.string().min(1).max(120).optional(),
+      }))
       .query(async ({ input }) => getCostsByLead(input)),
 
     prices: router({

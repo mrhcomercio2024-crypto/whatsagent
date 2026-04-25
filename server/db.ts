@@ -937,6 +937,7 @@ export type CostsSummary = {
   totalTokens: number;
   totalLeads: number;
   avgPerLeadMicroUsd: number;
+  topModel: { model: string; micro: number; calls: number } | null;
   byModel: Array<{
     model: string;
     calls: number;
@@ -944,11 +945,13 @@ export type CostsSummary = {
     micro: number;
   }>;
   byDay: Array<{ date: string; micro: number; calls: number }>;
+  availableModels: string[]; // todos os modelos já usados no período (para popular o filtro)
 };
 
 export async function getCostsSummary(opts: {
   agentId?: number;
   daysBack: number;
+  model?: string;
 }): Promise<CostsSummary> {
   const db = await getDb();
   const empty: CostsSummary = {
@@ -957,14 +960,26 @@ export async function getCostsSummary(opts: {
     totalTokens: 0,
     totalLeads: 0,
     avgPerLeadMicroUsd: 0,
+    topModel: null,
     byModel: [],
     byDay: [],
+    availableModels: [],
   };
   if (!db) return empty;
 
   const since = new Date(Date.now() - opts.daysBack * 24 * 60 * 60 * 1000);
-  const where: any[] = [sql`${llmUsage.createdAt} >= ${since}`];
-  if (opts.agentId) where.push(eq(llmUsage.agentId, opts.agentId));
+  // Para a lista de modelos disponíveis no filtro, ignoramos o filtro de modelo.
+  const baseWhere: any[] = [sql`${llmUsage.createdAt} >= ${since}`];
+  if (opts.agentId) baseWhere.push(eq(llmUsage.agentId, opts.agentId));
+  const baseCond = baseWhere.length > 1 ? and(...baseWhere) : baseWhere[0];
+  const allRowsForModels = await db
+    .select({ model: llmUsage.model })
+    .from(llmUsage)
+    .where(baseCond);
+  const availableModels = Array.from(new Set(allRowsForModels.map(r => r.model))).sort();
+
+  const where: any[] = [...baseWhere];
+  if (opts.model) where.push(eq(llmUsage.model, opts.model));
   const cond = where.length > 1 ? and(...where) : where[0];
 
   const rows = await db.select().from(llmUsage).where(cond);
@@ -988,6 +1003,9 @@ export async function getCostsSummary(opts: {
   const byModel = Array.from(byModelMap.entries())
     .map(([model, v]) => ({ model, ...v }))
     .sort((a, b) => b.micro - a.micro);
+  const topModel = byModel.length > 0
+    ? { model: byModel[0].model, micro: byModel[0].micro, calls: byModel[0].calls }
+    : null;
 
   const byDayMap = new Map<string, { micro: number; calls: number }>();
   for (const r of rows) {
@@ -1008,8 +1026,10 @@ export async function getCostsSummary(opts: {
     totalTokens,
     totalLeads,
     avgPerLeadMicroUsd,
+    topModel,
     byModel,
     byDay,
+    availableModels,
   };
 }
 
@@ -1023,16 +1043,24 @@ export type LeadCostRow = {
   lastUsedAt: Date | null;
 };
 
+export type LeadCostsPage = {
+  rows: LeadCostRow[];
+  total: number;
+};
+
 export async function getCostsByLead(opts: {
   agentId?: number;
   daysBack: number;
   limit?: number;
-}): Promise<LeadCostRow[]> {
+  offset?: number;
+  model?: string;
+}): Promise<LeadCostsPage> {
   const db = await getDb();
-  if (!db) return [];
+  if (!db) return { rows: [], total: 0 };
   const since = new Date(Date.now() - opts.daysBack * 24 * 60 * 60 * 1000);
   const where: any[] = [sql`${llmUsage.createdAt} >= ${since}`];
   if (opts.agentId) where.push(eq(llmUsage.agentId, opts.agentId));
+  if (opts.model) where.push(eq(llmUsage.model, opts.model));
   const cond = where.length > 1 ? and(...where) : where[0];
 
   const rows = await db.select().from(llmUsage).where(cond);
@@ -1055,7 +1083,7 @@ export async function getCostsByLead(opts: {
     if (d && (!cur.lastUsedAt || d > cur.lastUsedAt)) cur.lastUsedAt = d;
     map.set(r.leadId, cur);
   }
-  if (map.size === 0) return [];
+  if (map.size === 0) return { rows: [], total: 0 };
 
   const ids = Array.from(map.keys());
   const leadRows = await db.select().from(leads).where(inArray(leads.id, ids));
@@ -1064,9 +1092,13 @@ export async function getCostsByLead(opts: {
     c.leadName = l.name;
     c.phone = l.phoneNumber;
   }
-  return Array.from(map.values())
-    .sort((a, b) => b.micro - a.micro)
-    .slice(0, opts.limit ?? 200);
+  const all = Array.from(map.values()).sort((a, b) => b.micro - a.micro);
+  const offset = opts.offset ?? 0;
+  const limit = opts.limit ?? 25;
+  return {
+    rows: all.slice(offset, offset + limit),
+    total: all.length,
+  };
 }
 
 /* ============================================================

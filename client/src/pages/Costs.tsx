@@ -58,13 +58,28 @@ export default function CostsPage() {
   );
 }
 
+const PAGE_SIZE = 25;
+
 function Inner({ agentId }: { agentId: number }) {
   const [daysBack, setDaysBack] = useState<number>(30);
   const [scope, setScope] = useState<"agent" | "all">("agent");
+  const [modelFilter, setModelFilter] = useState<string>("all");
+  const [page, setPage] = useState<number>(0);
 
   const queryAgentId = scope === "agent" ? agentId : undefined;
-  const summaryQ = trpc.costs.summary.useQuery({ agentId: queryAgentId, daysBack });
-  const byLeadQ = trpc.costs.byLead.useQuery({ agentId: queryAgentId, daysBack, limit: 100 });
+  const modelArg = modelFilter === "all" ? undefined : modelFilter;
+  const summaryQ = trpc.costs.summary.useQuery({
+    agentId: queryAgentId,
+    daysBack,
+    model: modelArg,
+  });
+  const byLeadQ = trpc.costs.byLead.useQuery({
+    agentId: queryAgentId,
+    daysBack,
+    limit: PAGE_SIZE,
+    offset: page * PAGE_SIZE,
+    model: modelArg,
+  });
   const extrasQ = trpc.costs.extras.list.useQuery({ agentId: queryAgentId });
 
   const m = summaryQ.data;
@@ -80,8 +95,8 @@ function Inner({ agentId }: { agentId: number }) {
         title="Custos"
         description="Gasto da IA por agente e por lead, com tabela de preços editável e custos extras manuais."
         actions={
-          <div className="flex items-center gap-2">
-            <Select value={scope} onValueChange={v => setScope(v as any)}>
+          <div className="flex flex-wrap items-center gap-2">
+            <Select value={scope} onValueChange={v => { setScope(v as any); setPage(0); }}>
               <SelectTrigger className="h-9 w-[180px]">
                 <SelectValue />
               </SelectTrigger>
@@ -90,7 +105,7 @@ function Inner({ agentId }: { agentId: number }) {
                 <SelectItem value="all">Todos os agentes</SelectItem>
               </SelectContent>
             </Select>
-            <Select value={String(daysBack)} onValueChange={v => setDaysBack(parseInt(v, 10))}>
+            <Select value={String(daysBack)} onValueChange={v => { setDaysBack(parseInt(v, 10)); setPage(0); }}>
               <SelectTrigger className="h-9 w-[140px]">
                 <SelectValue />
               </SelectTrigger>
@@ -101,12 +116,23 @@ function Inner({ agentId }: { agentId: number }) {
                 <SelectItem value="365">Últimos 365 dias</SelectItem>
               </SelectContent>
             </Select>
+            <Select value={modelFilter} onValueChange={v => { setModelFilter(v); setPage(0); }}>
+              <SelectTrigger className="h-9 w-[200px]">
+                <SelectValue placeholder="Modelo" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos os modelos</SelectItem>
+                {(m?.availableModels ?? []).map(model => (
+                  <SelectItem key={model} value={model}>{model}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         }
       />
 
       {/* Cards de resumo */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         <Stat
           icon={<DollarSign className="h-4 w-4" />}
           label="Custo total IA"
@@ -126,6 +152,15 @@ function Inner({ agentId }: { agentId: number }) {
           label="Tokens totais"
           value={m ? m.totalTokens.toLocaleString("pt-BR") : "—"}
           hint="Entrada + saída combinadas"
+          loading={summaryQ.isLoading}
+        />
+        <Stat
+          icon={<Activity className="h-4 w-4" />}
+          label="Modelo mais consumido"
+          value={m && m.topModel ? m.topModel.model : "—"}
+          hint={m && m.topModel
+            ? `${fmtUsd(m.topModel.micro)} · ${m.topModel.calls.toLocaleString("pt-BR")} chamadas`
+            : undefined}
           loading={summaryQ.isLoading}
         />
         <Stat
@@ -209,7 +244,7 @@ function Inner({ agentId }: { agentId: number }) {
       >
         {byLeadQ.isLoading ? (
           <div className="elevated-card rounded-2xl h-32 animate-pulse" />
-        ) : !byLeadQ.data || byLeadQ.data.length === 0 ? (
+        ) : !byLeadQ.data || byLeadQ.data.rows.length === 0 ? (
           <EmptyState
             icon={<Users className="h-5 w-5" />}
             title="Nenhum lead consumiu IA ainda"
@@ -229,7 +264,7 @@ function Inner({ agentId }: { agentId: number }) {
                 </tr>
               </thead>
               <tbody>
-                {byLeadQ.data.map(row => (
+                {byLeadQ.data.rows.map(row => (
                   <tr key={row.leadId} className="border-t border-border/30">
                     <td className="px-5 py-3">{row.leadName || <span className="text-muted-foreground">(sem nome)</span>}</td>
                     <td className="px-5 py-3 font-mono text-xs text-muted-foreground">{row.phone}</td>
@@ -243,6 +278,32 @@ function Inner({ agentId }: { agentId: number }) {
                 ))}
               </tbody>
             </table>
+            <div className="flex items-center justify-between px-5 py-3 text-xs text-muted-foreground border-t border-border/30">
+              <div>
+                Mostrando {byLeadQ.data.rows.length} de {byLeadQ.data.total.toLocaleString("pt-BR")} leads
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 px-2"
+                  disabled={page === 0}
+                  onClick={() => setPage(p => Math.max(0, p - 1))}
+                >
+                  Anterior
+                </Button>
+                <div className="px-2">Página {page + 1} de {Math.max(1, Math.ceil(byLeadQ.data.total / PAGE_SIZE))}</div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 px-2"
+                  disabled={(page + 1) * PAGE_SIZE >= byLeadQ.data.total}
+                  onClick={() => setPage(p => p + 1)}
+                >
+                  Próxima
+                </Button>
+              </div>
+            </div>
           </div>
         )}
       </Section>

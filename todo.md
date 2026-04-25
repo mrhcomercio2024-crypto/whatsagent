@@ -162,13 +162,13 @@
 
 
 ## Fase 27: Aba de Custos
-- [ ] Tabelas `llm_usage` e `llm_prices` no schema
-- [ ] Migration aplicada
-- [ ] Seed da `llm_prices` com preços de referência (gpt-4.1, gpt-4.1-mini, gpt-4o, gpt-4o-mini, claude-3.5-sonnet, claude-3.7-sonnet, gemini-2.5-pro/flash, etc.)
-- [ ] Instrumentar `invokeWithModel` para gravar tokens + custo (com agentId/conversationId/leadId quando disponível)
-- [ ] Helper `computeCost(model, promptTokens, completionTokens)`
-- [ ] Procedures tRPC: `costs.summary`, `costs.byLead`, `costs.byModel`, `costs.prices.list`, `costs.prices.upsert`, `costs.taxas.set/get` (campo "outras taxas" mensais somado ao total)
-- [ ] Página `Costs.tsx` com filtros (período 7/30/90d, modelo), 4 cards (total, médio por lead, mais consumido, taxas extras), gráfico de barras por dia, tabela paginada por lead, editor de preços por modelo
-- [ ] Adicionar item "Custos" no menu lateral
-- [ ] Testes vitest do cálculo
-- [ ] Checkpoint v7
+- [x] Tabelas `llm_usage`, `llm_prices` e `cost_extras` no schema
+- [x] Migration 0006 aplicada
+- [x] Seed da `llm_prices` com preços de referência (15 modelos OpenAI/Anthropic/Google)
+- [x] `invokeWithModel` instrumentado: registra agentId/conversationId/leadId/purpose + tokens + custo
+- [x] Helper `computeCostMicroUsd` + `referenceCostMicroUsd`
+- [x] Procedures tRPC: `costs.summary/byLead/extras.list/extras.add/extras.remove/prices.list/prices.upsert/prices.reseed`
+- [x] Página `Costs.tsx` com filtros (período + escopo agente/todos), 4 cards (custo IA, médio por lead, tokens, taxas extras), tabela por modelo, gráfico diário em barras, top leads, CRUD de outras taxas e editor de preços por modelo (com 'Restaurar referência')
+- [x] Item "Custos" no menu lateral
+- [x] 12 testes vitest do cálculo de custo
+- [x] Checkpoint v7 (6489c2cf)
