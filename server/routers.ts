@@ -26,6 +26,7 @@ import {
   findOrCreateConversation,
   findOrCreateLead,
   getAgentById,
+  getMediaById,
   getBrainByAgent,
   getBusinessHours,
   getConversationById,
@@ -632,27 +633,63 @@ export const appRouter = router({
           inboundText: input.text,
           isSimulation: true,
         });
-        // Simulação: NÃO envia ao WhatsApp, apenas grava no DB
-        for (const a of result.actions) {
-          if (a.type === "text") {
+        // Enriquecer ações com timing e dados visuais para o emulador
+        const { computeTypingDelayMs } = await import("./ai/humanize");
+        const enriched = await Promise.all(
+          result.actions.map(async a => {
+            if (a.type === "text") {
+              const typingMs = computeTypingDelayMs(a.text.length, agent);
+              await appendMessage({
+                conversationId: convId!,
+                direction: "outbound",
+                sender: "ai",
+                contentType: "text",
+                body: a.text,
+              });
+              return {
+                kind: "text" as const,
+                text: a.text,
+                typingMs,
+              };
+            }
+            const m = await getMediaById(a.mediaId);
+            const fakeLen = (m?.caption?.length ?? 0) + 60;
+            const typingMs = computeTypingDelayMs(fakeLen, agent);
             await appendMessage({
-              conversationId: convId,
+              conversationId: convId!,
               direction: "outbound",
               sender: "ai",
-              contentType: "text",
-              body: a.text,
-            });
-          } else {
-            await appendMessage({
-              conversationId: convId,
-              direction: "outbound",
-              sender: "ai",
-              contentType: "image",
+              contentType: (m?.mediaType ?? "image") as any,
+              body: m?.caption ?? null,
+              mediaUrl: m?.storageUrl ?? null,
               mediaId: a.mediaId,
             });
-          }
-        }
-        return { conversationId: convId, ...result };
+            return {
+              kind: "media" as const,
+              mediaId: a.mediaId,
+              mediaType: (m?.mediaType ?? "image") as "image" | "video" | "audio" | "document",
+              mediaUrl: m?.storageUrl ?? null,
+              caption: m?.caption ?? null,
+              filename: m?.name ?? null,
+              typingMs,
+            };
+          })
+        );
+        return {
+          conversationId: convId,
+          handoff: result.handoff,
+          stepAdvanced: result.stepAdvanced,
+          outOfHours: result.outOfHours,
+          actions: enriched,
+          timing: {
+            debounceSeconds: agent.debounceSeconds,
+            typingSimulationEnabled: agent.typingSimulationEnabled,
+            typingCps: agent.typingCps,
+            typingMinDelayMs: agent.typingMinDelayMs,
+            typingMaxDelayMs: agent.typingMaxDelayMs,
+            interMessageDelayMs: agent.interMessageDelayMs,
+          },
+        };
       }),
     reset: protectedProcedure
       .input(z.object({ conversationId: z.number().int().positive() }))

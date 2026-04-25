@@ -134,4 +134,14 @@
 - [x] Logs detalhados em baileys/debounce/orchestrator para diagnóstico futuro
 - [x] Migration 0004 aplicada (`qr_sessions.authBlob`)
 - [x] Testes vitest (31 passando: snapshot ida-e-volta + filtro debounce)
-- [ ] Checkpoint v4 (próximo)
+- [x] Checkpoint v4 salvo (e0874810). Validacão end-to-end depende de re-escaneamento do QR pelo usuário após republish.
+
+
+## Fase 19: Simulador como Emulador WhatsApp realista
+- [ ] Backend: procedure `simulator.send` que processa o input com cérebro/etapas/mídias e retorna lista de ações + parâmetros de timing (debounce, typing cps, min/max, inter-message)
+- [ ] Frontend: novo `Simulator.tsx` no estilo emulador (header verde com avatar, status "online"/"digitando…", fundo padrão pattern, balões verde-claro do agente / branco do "lead", ticks azuis de leitura, timestamp, scroll automático)
+- [ ] Animações: indicador "digitando…" no header e balão de typing; respeitar `debounceSeconds` antes de processar; aplicar `typingMinDelayMs/MaxDelayMs` antes de cada mensagem; calcular tempo extra proporcional (`length / typingCps`); aplicar `interMessageDelayMs` entre mensagens
+- [ ] Suporte a renderização de mídia (imagem/vídeo) como no WhatsApp
+- [ ] Botão "Reiniciar conversa" e seletor de etapa inicial
+- [ ] Testes vitest para cálculo de tempo total (debounce + typing + delays)
+- [ ] Checkpoint v5
