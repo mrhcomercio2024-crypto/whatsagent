@@ -121,6 +121,21 @@ export const appRouter = router({
       )
       .mutation(({ input }) => updateAgent(input.id, input.patch)),
     delete: protectedProcedure.input(idSchema).mutation(({ input }) => deleteAgent(input.id)),
+    updateBehavior: protectedProcedure
+      .input(
+        z.object({
+          id: z.number().int().positive(),
+          patch: z.object({
+            debounceSeconds: z.number().int().min(0).max(300).optional(),
+            typingSimulationEnabled: z.boolean().optional(),
+            typingCps: z.number().int().min(5).max(80).optional(),
+            typingMinDelayMs: z.number().int().min(0).max(60_000).optional(),
+            typingMaxDelayMs: z.number().int().min(0).max(120_000).optional(),
+            interMessageDelayMs: z.number().int().min(0).max(60_000).optional(),
+          }),
+        })
+      )
+      .mutation(({ input }) => updateAgent(input.id, input.patch)),
   }),
 
   // ─── BRAIN ───

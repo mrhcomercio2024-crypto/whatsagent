@@ -219,19 +219,10 @@ async function handleInbound(agentId: number, sock: WASocket, msg: any) {
   if (!conv) return;
   if (conv.aiPaused || conv.status === "human_handoff") return;
 
-  const result = await processInboundForReply({
-    agent,
-    conversationId: convId,
-    inboundText,
-  });
-  if (result.actions.length > 0) {
-    await dispatchViaBaileys({
-      agent,
-      conversationId: convId,
-      actions: result.actions,
-      sender: "ai",
-    });
-  }
+  // Agenda o processamento respeitando o debounce do agente.
+  const { setConversationPendingProcessAt } = await import("../db");
+  const { nextProcessAt } = await import("../ai/humanize");
+  await setConversationPendingProcessAt(convId, nextProcessAt(agent));
 }
 
 /**
@@ -264,8 +255,40 @@ export async function dispatchViaBaileys(opts: {
   if (!phone) return;
   const jid = `${phone.replace(/\D/g, "")}@s.whatsapp.net`;
 
+  // Helper de typing via Baileys (presence)
+  const setTyping =
+    sender === "ai" && agent.typingSimulationEnabled
+      ? async (state: "on" | "off") => {
+          try {
+            await sock.presenceSubscribe(jid);
+            await sock.sendPresenceUpdate(
+              state === "on" ? "composing" : "paused",
+              jid
+            );
+          } catch {
+            /* ignora */
+          }
+        }
+      : undefined;
+
   const waMessageIds: Array<string | undefined> = [];
-  for (const a of actions) {
+  for (let i = 0; i < actions.length; i++) {
+    const a = actions[i];
+    if (sender === "ai") {
+      const { simulateTypingForMessage, pauseBetweenMessages } = await import(
+        "../ai/humanize"
+      );
+      const textLen =
+        a.type === "text"
+          ? a.text.length
+          : Math.max(20, (await getMediaById(a.mediaId))?.caption?.length ?? 0);
+      await simulateTypingForMessage({
+        agent,
+        textLength: textLen,
+        setTyping,
+      });
+      if (i > 0) await pauseBetweenMessages(agent);
+    }
     let id: string | undefined;
     try {
       if (a.type === "text") {

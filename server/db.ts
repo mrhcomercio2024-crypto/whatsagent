@@ -778,3 +778,71 @@ export async function getAgentByJid(jid: string) {
     .limit(1);
   return r[0]?.agent;
 }
+
+
+/* ============================================================
+ * DEBOUNCE / COALESCING DE MENSAGENS
+ * ============================================================ */
+
+/**
+ * Marca a conversa para ser processada em `pendingProcessAt`.
+ * Cada nova mensagem do lead empurra esse timestamp para frente,
+ * fazendo com que o bot espere até o lead "parar de digitar".
+ */
+export async function setConversationPendingProcessAt(
+  conversationId: number,
+  at: Date | null
+) {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .update(conversations)
+    .set({ pendingProcessAt: at })
+    .where(eq(conversations.id, conversationId));
+}
+
+/**
+ * Lista conversas cujo debounce já venceu (prontas para processar).
+ */
+export async function listConversationsDueForProcessing(now: Date, limit = 25) {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(conversations)
+    .where(
+      and(
+        // pendingProcessAt não é nulo e já passou
+        lt(conversations.pendingProcessAt, now)
+      )
+    )
+    .limit(limit);
+}
+
+/**
+ * Concatena as últimas N mensagens inbound do lead (para passar
+ * ao orquestrador como um único turno).
+ */
+export async function concatRecentInbound(
+  conversationId: number,
+  sinceMs = 5 * 60_000
+) {
+  const db = await getDb();
+  if (!db) return "";
+  const since = new Date(Date.now() - sinceMs);
+  const rows = await db
+    .select()
+    .from(messages)
+    .where(
+      and(
+        eq(messages.conversationId, conversationId),
+        eq(messages.direction, "inbound"),
+        gt(messages.createdAt, since)
+      )
+    )
+    .orderBy(asc(messages.createdAt));
+  return rows
+    .map(r => (r.body || "").trim())
+    .filter(Boolean)
+    .join("\n");
+}

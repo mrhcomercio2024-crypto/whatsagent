@@ -13,6 +13,7 @@ A ferramenta foi desenhada para parecer o mais humanizada possível, **amarrando
 - **WhatsApp Cloud API oficial**: webhook + envio de texto, imagem, vídeo e templates HSM.
 - **WhatsApp via QR Code** (modo alternativo): conecte um número escaneando o QR pelo celular, sem precisar aprovar BM/templates na Meta. ⚠️ Viola os Termos da Meta e o número pode ser banido — use por sua conta e risco.
 - **Follow-up totalmente configurável**: intervalos, tentativas, mensagem fixa ou gerada pela IA, e política da janela 24h (livre, sempre template ou auto).
+- **Comportamento humano**: tempo de espera (debounce) para coalescer mensagens em rajada do lead e simulação de “digitando…” com velocidade configurável — funciona em ambos os modos de conexão.
 - **Inbox em tempo real** com possibilidade de pausar a IA e assumir o atendimento manualmente (handoff humano).
 - **Qualificação automática de leads** (quente / morno / frio) e exportação CSV.
 - **Simulador interno** para testar o cérebro sem enviar mensagens reais.

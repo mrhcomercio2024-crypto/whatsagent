@@ -10,6 +10,7 @@ import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { registerWhatsappWebhook } from "../whatsapp/webhook";
 import { startFollowupEngine } from "../followup/engine";
+import { startDebounceWorker } from "../ai/debounceWorker";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -64,6 +65,7 @@ async function startServer() {
   server.listen(port, () => {
     console.log(`Server running on http://localhost:${port}/`);
     startFollowupEngine();
+    startDebounceWorker();
   });
 }
 

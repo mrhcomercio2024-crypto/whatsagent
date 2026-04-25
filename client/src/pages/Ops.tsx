@@ -7,8 +7,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { Slider } from "@/components/ui/slider";
 import { trpc } from "@/lib/trpc";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Sparkles, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -59,6 +60,38 @@ function Inner({ agentId }: { agentId: number }) {
     onSuccess: () => utils.ops.listHandoffKeywords.invalidate({ agentId }),
   });
 
+  // — Comportamento humano —
+  const { data: agent } = trpc.agents.get.useQuery({ id: agentId });
+  const updateBehavior = trpc.agents.updateBehavior.useMutation({
+    onSuccess: () => {
+      utils.agents.get.invalidate({ id: agentId });
+      toast.success("Comportamento atualizado");
+    },
+  });
+  const [behavior, setBehavior] = useState({
+    debounceSeconds: 8,
+    typingSimulationEnabled: true,
+    typingCps: 22,
+    typingMinDelayMs: 800,
+    typingMaxDelayMs: 8000,
+    interMessageDelayMs: 1200,
+  });
+  useEffect(() => {
+    if (agent) {
+      setBehavior({
+        debounceSeconds: agent.debounceSeconds,
+        typingSimulationEnabled: agent.typingSimulationEnabled,
+        typingCps: agent.typingCps,
+        typingMinDelayMs: agent.typingMinDelayMs,
+        typingMaxDelayMs: agent.typingMaxDelayMs,
+        interMessageDelayMs: agent.interMessageDelayMs,
+      });
+    }
+  }, [agent]);
+  function saveBehavior() {
+    updateBehavior.mutate({ id: agentId, patch: behavior });
+  }
+
   const [enabled, setEnabled] = useState(true);
   const [tz, setTz] = useState("America/Sao_Paulo");
   const [outMsg, setOutMsg] = useState(
@@ -98,6 +131,165 @@ function Inner({ agentId }: { agentId: number }) {
         title="Horário e handoff"
         description="Defina quando o agente está ativo e quais palavras-chave do lead pedem atendimento humano."
       />
+
+      <section className="elevated-card rounded-2xl p-6 space-y-6">
+        <div className="flex items-start justify-between">
+          <div className="flex items-start gap-3">
+            <div className="h-9 w-9 rounded-full bg-primary/15 text-primary flex items-center justify-center">
+              <Sparkles className="h-4 w-4" />
+            </div>
+            <div>
+              <h3 className="font-medium">Comportamento humano</h3>
+              <p className="text-xs text-muted-foreground max-w-xl">
+                Configure o tempo que o agente espera antes de processar (debounce) e a simulação de
+                digitação, para que o atendimento pareça o mais natural possível.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Debounce */}
+          <div className="rounded-xl border border-border/40 bg-background/40 p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <Label>Tempo de espera (debounce)</Label>
+              <span className="text-sm font-mono text-primary">
+                {behavior.debounceSeconds}s
+              </span>
+            </div>
+            <Slider
+              min={0}
+              max={60}
+              step={1}
+              value={[behavior.debounceSeconds]}
+              onValueChange={v =>
+                setBehavior(b => ({ ...b, debounceSeconds: v[0] ?? 0 }))
+              }
+            />
+            <p className="text-xs text-muted-foreground">
+              Tempo em segundos que o agente aguarda desde a última mensagem do lead antes de
+              processar a resposta. Se o lead enviar várias mensagens em sequência, todas são
+              tratadas como um único turno.
+            </p>
+          </div>
+
+          {/* Toggle typing */}
+          <div className="rounded-xl border border-border/40 bg-background/40 p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <Label>Simular digitação</Label>
+              <Switch
+                checked={behavior.typingSimulationEnabled}
+                onCheckedChange={v =>
+                  setBehavior(b => ({ ...b, typingSimulationEnabled: v }))
+                }
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Mostra o indicador “digitando…” no WhatsApp e espera um tempo proporcional ao tamanho
+              da mensagem antes de enviar. Funciona tanto na API Oficial quanto no modo QR Code.
+            </p>
+          </div>
+
+          {/* CPS */}
+          <div className="rounded-xl border border-border/40 bg-background/40 p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <Label>Velocidade de digitação</Label>
+              <span className="text-sm font-mono text-primary">
+                {behavior.typingCps} caracteres/seg
+              </span>
+            </div>
+            <Slider
+              min={5}
+              max={80}
+              step={1}
+              value={[behavior.typingCps]}
+              onValueChange={v =>
+                setBehavior(b => ({ ...b, typingCps: v[0] ?? 22 }))
+              }
+              disabled={!behavior.typingSimulationEnabled}
+            />
+            <p className="text-xs text-muted-foreground">
+              Referências: 12 cps = devagar; 22 cps = humano normal; 50 cps = rápido.
+            </p>
+          </div>
+
+          {/* Pausa entre mensagens */}
+          <div className="rounded-xl border border-border/40 bg-background/40 p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <Label>Pausa entre mensagens</Label>
+              <span className="text-sm font-mono text-primary">
+                {(behavior.interMessageDelayMs / 1000).toFixed(1)}s
+              </span>
+            </div>
+            <Slider
+              min={0}
+              max={10000}
+              step={100}
+              value={[behavior.interMessageDelayMs]}
+              onValueChange={v =>
+                setBehavior(b => ({ ...b, interMessageDelayMs: v[0] ?? 0 }))
+              }
+              disabled={!behavior.typingSimulationEnabled}
+            />
+            <p className="text-xs text-muted-foreground">
+              Quando o agente envia mais de uma mensagem em sequência, espera esse tempo entre
+              elas.
+            </p>
+          </div>
+
+          {/* Min delay */}
+          <div className="rounded-xl border border-border/40 bg-background/40 p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <Label>Atraso mínimo</Label>
+              <span className="text-sm font-mono text-primary">
+                {(behavior.typingMinDelayMs / 1000).toFixed(1)}s
+              </span>
+            </div>
+            <Slider
+              min={0}
+              max={5000}
+              step={100}
+              value={[behavior.typingMinDelayMs]}
+              onValueChange={v =>
+                setBehavior(b => ({ ...b, typingMinDelayMs: v[0] ?? 0 }))
+              }
+              disabled={!behavior.typingSimulationEnabled}
+            />
+            <p className="text-xs text-muted-foreground">
+              Tempo mínimo de digitação, mesmo para mensagens curtas.
+            </p>
+          </div>
+
+          {/* Max delay */}
+          <div className="rounded-xl border border-border/40 bg-background/40 p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <Label>Atraso máximo</Label>
+              <span className="text-sm font-mono text-primary">
+                {(behavior.typingMaxDelayMs / 1000).toFixed(1)}s
+              </span>
+            </div>
+            <Slider
+              min={1000}
+              max={20000}
+              step={500}
+              value={[behavior.typingMaxDelayMs]}
+              onValueChange={v =>
+                setBehavior(b => ({ ...b, typingMaxDelayMs: v[0] ?? 8000 }))
+              }
+              disabled={!behavior.typingSimulationEnabled}
+            />
+            <p className="text-xs text-muted-foreground">
+              Limite máximo, para mensagens longas não demorarem demais.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex justify-end">
+          <Button onClick={saveBehavior} disabled={updateBehavior.isPending}>
+            Salvar comportamento
+          </Button>
+        </div>
+      </section>
 
       <section className="elevated-card rounded-2xl p-6 space-y-5">
         <div className="flex items-center justify-between">

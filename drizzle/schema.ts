@@ -49,6 +49,21 @@ export const agents = mysqlTable("agents", {
   language: varchar("language", { length: 10 }).default("pt-BR").notNull(),
   // Modo de conexão WhatsApp: 'official' (Meta Cloud API) ou 'qr' (Baileys não oficial)
   connectionMode: mysqlEnum("connectionMode", ["official", "qr"]).default("official").notNull(),
+
+  // — Comportamento humano —
+  // Tempo (segundos) que o agente espera desde a última mensagem do lead antes de processar
+  debounceSeconds: int("debounceSeconds").default(8).notNull(),
+  // Simulação de digitação (typing…)
+  typingSimulationEnabled: boolean("typingSimulationEnabled").default(true).notNull(),
+  // Velocidade de digitação em caracteres por segundo (5–80)
+  typingCps: int("typingCps").default(22).notNull(),
+  // Atraso mínimo antes de começar a digitar (ms)
+  typingMinDelayMs: int("typingMinDelayMs").default(800).notNull(),
+  // Atraso máximo de digitação por mensagem (ms)
+  typingMaxDelayMs: int("typingMaxDelayMs").default(8000).notNull(),
+  // Pausa entre mensagens consecutivas do bot (ms)
+  interMessageDelayMs: int("interMessageDelayMs").default(1200).notNull(),
+
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -294,6 +309,8 @@ export const conversations = mysqlTable(
     lastMessageAt: timestamp("lastMessageAt"),
     assignedUserId: int("assignedUserId"), // operador humano que assumiu
     sentMediaIds: json("sentMediaIds"), // ids de mídias já enviadas (controle once)
+    // Debounce: horário em que a IA deve processar a conversa (coalesce de várias mensagens)
+    pendingProcessAt: timestamp("pendingProcessAt"),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
     updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   },

@@ -144,6 +144,24 @@ Além da API Cloud oficial, o WhatsAgent suporta conectar um número de WhatsApp
 
 ---
 
+## 5C. Comportamento humano (debounce + simulação de digitação)
+
+Em **Operação → Comportamento humano** você controla o tempo de reação do agente. Os valores ficam por agente e funcionam tanto na API Oficial quanto no modo QR Code.
+
+| Configuração | O que faz |
+|---|---|
+| **Tempo de espera (debounce)** | Segundos que o agente aguarda desde a última mensagem do lead antes de processar. Se o lead enviar várias mensagens em sequência, todas viram um único turno. Padrão: 8s. |
+| **Simular digitação** | Liga/desliga o indicador “digitando…”. Padrão: ligado. |
+| **Velocidade de digitação (cps)** | Caracteres por segundo. 12 = devagar, 22 = humano normal, 50 = rápido. |
+| **Atraso mínimo / máximo** | Limites de quanto tempo o indicador fica ligado por mensagem. |
+| **Pausa entre mensagens** | Tempo entre mensagens consecutivas do bot. |
+
+O worker de debounce roda a cada 1 segundo no servidor (`startDebounceWorker`), olha `conversations.pendingProcessAt` e dispara o orquestrador quando o tempo vence. Mensagens que chegam durante a espera empurram o `pendingProcessAt` para frente.
+
+Na API Oficial o indicador é enviado via `messages` com `typing_indicator: { type: "text" }` (Cloud API v21+). No modo QR Code é enviado via `presenceSubscribe` + `sendPresenceUpdate('composing'|'paused')` do Baileys.
+
+---
+
 ## 6. Configurando o agente passo a passo
 
 ### 6.1. Cérebro

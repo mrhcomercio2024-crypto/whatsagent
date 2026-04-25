@@ -168,21 +168,14 @@ async function handleIncoming(req: Request) {
         }
 
         try {
-          const result = await processInboundForReply({
-            agent,
-            conversationId: convId,
-            inboundText,
-          });
-          if (result.actions.length > 0) {
-            await dispatchActions({
-              agent,
-              conversationId: convId,
-              actions: result.actions,
-              sender: "ai",
-            });
-          }
+          // Em vez de processar imediatamente, agenda o turno respeitando o debounce do agente.
+          // Cada nova mensagem do lead empurra o pendingProcessAt para frente,
+          // de modo que o bot espere o lead 'parar de digitar' antes de responder.
+          const { setConversationPendingProcessAt } = await import("../db");
+          const { nextProcessAt } = await import("../ai/humanize");
+          await setConversationPendingProcessAt(convId, nextProcessAt(agent));
         } catch (err) {
-          console.error("[webhook] AI processing failed:", err);
+          console.error("[webhook] schedule debounce failed:", err);
         }
       }
     }

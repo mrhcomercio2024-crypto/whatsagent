@@ -152,6 +152,24 @@ export async function sendTemplate(
 }
 
 /**
+ * Envia o indicador de "digitando..." para o lead.
+ * Na Cloud API isso é feito junto com `messages.markAsRead`,
+ * passando `typing_indicator: { type: 'text' }` no payload.
+ * O indicador some sozinho após ~25s ou quando enviamos a próxima mensagem.
+ */
+export async function sendTypingOn(
+  creds: WaCredentials,
+  waMessageId: string
+): Promise<WaSendResult> {
+  return callGraphApi(creds, {
+    messaging_product: "whatsapp",
+    status: "read",
+    message_id: waMessageId,
+    typing_indicator: { type: "text" },
+  });
+}
+
+/**
  * Marca uma mensagem como lida (azulzinha).
  */
 export async function markAsRead(

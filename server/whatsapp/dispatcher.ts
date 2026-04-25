@@ -17,9 +17,15 @@ import {
   sendText,
   sendVideo,
   sendDocument,
+  sendTypingOn,
   type WaCredentials,
 } from "./client";
 import type { OutboundAction } from "../ai/orchestrator";
+import {
+  pauseBetweenMessages,
+  simulateTypingForMessage,
+} from "../ai/humanize";
+import { listMessages } from "../db";
 
 /**
  * Roteia o envio para o transporte correto conforme o modo do agente:
@@ -68,7 +74,50 @@ export async function dispatchActionsOfficial(opts: {
     appSecret: config.appSecret,
   };
 
-  for (const a of actions) {
+  // Recupera o waMessageId do último inbound do lead, para acionar o
+  // typing_indicator da Meta (a Cloud API exige passar o id da última mensagem).
+  let lastInboundWaId: string | undefined;
+  if (sender === "ai" && agent.typingSimulationEnabled) {
+    try {
+      const msgs = await listMessages(conversationId, { limit: 30 });
+      for (let i = msgs.length - 1; i >= 0; i--) {
+        const m = msgs[i];
+        if (m.direction === "inbound" && m.waMessageId) {
+          lastInboundWaId = m.waMessageId;
+          break;
+        }
+      }
+    } catch {
+      /* ignora */
+    }
+  }
+
+  const setTyping =
+    sender === "ai" && agent.typingSimulationEnabled && lastInboundWaId
+      ? async (state: "on" | "off") => {
+          if (state === "on") {
+            await sendTypingOn(creds, lastInboundWaId!);
+          }
+          // Meta não tem 'off' explícito — o indicador some ao enviar a próxima
+          // mensagem ou após ~25s.
+        }
+      : undefined;
+
+  for (let i = 0; i < actions.length; i++) {
+    const a = actions[i];
+    // Simulação de digitação antes de enviar
+    if (sender === "ai") {
+      const textLen =
+        a.type === "text"
+          ? a.text.length
+          : Math.max(20, (await getMediaById(a.mediaId))?.caption?.length ?? 0);
+      await simulateTypingForMessage({
+        agent,
+        textLength: textLen,
+        setTyping,
+      });
+    }
+
     let waId: string | undefined;
     let errorMsg: string | undefined;
     if (a.type === "text") {
@@ -90,7 +139,6 @@ export async function dispatchActionsOfficial(opts: {
           lead.phoneNumber,
           fullUrl,
           m.caption ?? undefined,
-          // sendDocument tem um arg a mais (filename) que ignoramos
         );
         waId = r.messageId;
         errorMsg = r.ok ? undefined : r.error;
@@ -104,6 +152,11 @@ export async function dispatchActionsOfficial(opts: {
       conversationId,
       eventType: "message_sent",
     });
+
+    // Pausa entre mensagens consecutivas
+    if (sender === "ai" && i < actions.length - 1) {
+      await pauseBetweenMessages(agent);
+    }
   }
 
   // (Re)agendar follow-ups com base no momento atual (agente respondeu agora)

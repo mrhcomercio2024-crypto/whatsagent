@@ -97,3 +97,30 @@
 - [x] Reconnect automático e tratamento de logout/banimento
 - [x] Atualizar SELF_HOSTING.md e README com a nova opção e disclaimers
 - [x] Checkpoint v2
+
+
+## Fase 14: Debounce de mensagens
+- [x] Adicionar `debounceSeconds` em `agents` (default 8s)
+- [x] Adicionar `pendingProcessAt` em `conversations` para coalescer mensagens
+- [x] Migration aplicada
+- [x] Reescrever webhook/baileys para agendar processamento após debounce
+- [x] Worker (loop 1s) que dispara processamento quando o tempo passa sem novas mensagens
+- [x] Cancelar/reagendar quando nova mensagem chega antes do prazo
+
+## Fase 15: Simulação de digitação humana
+- [x] Adicionar em `agents`: `typingSimulationEnabled`, `typingCps`, `typingMinDelayMs`, `typingMaxDelayMs`, `interMessageDelayMs`
+- [x] Migration aplicada
+- [x] `sendTypingOn` para API Oficial (Cloud API v21+)
+- [x] Typing via Baileys (`presenceSubscribe` + `sendPresenceUpdate`)
+- [x] Dispatcher (oficial e Baileys): typing on → atraso → enviar → pausa entre mensagens
+- [x] Limites min/max respeitados
+
+## Fase 16: UI — Comportamento humano
+- [x] Em `Ops.tsx` adicionar seção "Comportamento humano" com sliders e toggle
+- [x] Procedure `agents.updateBehavior` com validações zod
+
+## Fase 17: Polimento e entrega
+- [x] Testes vitest para cálculo de tempo de digitação e debounce (10 novos testes, total 26)
+- [x] Atualizar SELF_HOSTING.md (seção 5C "Comportamento humano")
+- [x] Atualizar README.md
+- [x] Checkpoint v3
