@@ -2,13 +2,16 @@
  * Wrapper sobre o helper invokeLLM do template para permitir
  * SELEÇÃO DE MODELO por chamada (cada etapa do script pode usar um modelo).
  *
- * O endpoint Forge aceita o campo `model` no payload OpenAI-compatível.
- * Se o modelo não for fornecido, cai no padrão do helper.
+ * Também grava cada chamada em llm_usage com tokens e custo calculado a
+ * partir da tabela llm_prices (com fallback para os preços de referência
+ * em server/ai/pricing.ts).
  */
 
 import { ENV } from "../_core/env";
 import type { Message, ResponseFormat } from "../_core/llm";
 import { DEFAULT_LLM_MODEL } from "../../shared/llm-models";
+import { computeCostMicroUsd, REFERENCE_PRICES } from "./pricing";
+import { getLlmPrice, recordLlmUsage } from "../db";
 
 export type InvokeWithModelParams = {
   model?: string;
@@ -16,6 +19,13 @@ export type InvokeWithModelParams = {
   responseFormat?: ResponseFormat;
   maxTokens?: number;
   temperature?: number;
+  /** Contexto de cobrança — quando informado, grava em llm_usage. */
+  tracking?: {
+    purpose: "orchestrator" | "qualifier" | "followup" | "simulator" | "other";
+    agentId?: number;
+    conversationId?: number;
+    leadId?: number;
+  };
 };
 
 const resolveApiUrl = () =>
@@ -69,5 +79,51 @@ export async function invokeWithModel(params: InvokeWithModelParams): Promise<{
           .map((p: any) => (typeof p === "string" ? p : p?.text ?? ""))
           .join("")
       : "";
+
+  // Tracking de custos (best-effort — falhas são logadas, não propagam)
+  if (params.tracking) {
+    try {
+      const usage = data?.usage || {};
+      const promptTokens = Number(usage.prompt_tokens ?? 0);
+      const completionTokens = Number(usage.completion_tokens ?? 0);
+      const totalTokens = Number(usage.total_tokens ?? promptTokens + completionTokens);
+
+      // Resolver preço (DB primeiro; fallback para tabela de referência)
+      let inputPer1M = 0;
+      let outputPer1M = 0;
+      const dbPrice = await getLlmPrice(model).catch(() => undefined);
+      if (dbPrice) {
+        inputPer1M = dbPrice.inputPer1M;
+        outputPer1M = dbPrice.outputPer1M;
+      } else {
+        const ref = REFERENCE_PRICES.find(p => p.model === model);
+        if (ref) {
+          inputPer1M = ref.inputPer1M;
+          outputPer1M = ref.outputPer1M;
+        }
+      }
+      const costMicroUsd = computeCostMicroUsd(
+        promptTokens,
+        completionTokens,
+        inputPer1M,
+        outputPer1M
+      );
+
+      await recordLlmUsage({
+        agentId: params.tracking.agentId ?? null,
+        conversationId: params.tracking.conversationId ?? null,
+        leadId: params.tracking.leadId ?? null,
+        model,
+        purpose: params.tracking.purpose,
+        promptTokens,
+        completionTokens,
+        totalTokens,
+        costMicroUsd,
+      });
+    } catch (e) {
+      console.warn("[llm-usage] failed to record usage:", e);
+    }
+  }
+
   return { text, raw: data };
 }

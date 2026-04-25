@@ -45,6 +45,7 @@ import {
   Users,
   Settings,
   Sparkles,
+  DollarSign,
 } from "lucide-react";
 import { useEffect } from "react";
 import { Link, useLocation } from "wouter";
@@ -62,6 +63,7 @@ const groups: Array<{
       { icon: Inbox, label: "Inbox", path: "/inbox" },
       { icon: Users, label: "Leads", path: "/leads" },
       { icon: TestTube2, label: "Simulador", path: "/simulator" },
+      { icon: DollarSign, label: "Custos", path: "/costs" },
     ],
   },
   {

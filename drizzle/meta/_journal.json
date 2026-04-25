@@ -43,6 +43,13 @@
       "when": 1777129159183,
       "tag": "0005_useful_zarek",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "5",
+      "when": 1777129520254,
+      "tag": "0006_yellow_spiral",
+      "breakpoints": true
     }
   ]
 }

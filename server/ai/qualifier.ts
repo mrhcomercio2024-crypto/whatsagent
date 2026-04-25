@@ -9,6 +9,7 @@ export type Temperature = "hot" | "warm" | "cold" | "unknown";
 export async function qualifyLead(opts: {
   history: Array<{ role: "user" | "assistant"; text: string }>;
   model?: string;
+  tracking?: { agentId?: number; conversationId?: number; leadId?: number };
 }): Promise<{ temperature: Temperature; reason: string }> {
   if (opts.history.length === 0) {
     return { temperature: "unknown", reason: "Sem histórico." };
@@ -34,6 +35,7 @@ Responda APENAS com JSON: {"temperature":"hot|warm|cold|unknown","reason":"breve
       responseFormat: { type: "json_object" },
       maxTokens: 200,
       temperature: 0,
+      tracking: opts.tracking ? { purpose: "qualifier", ...opts.tracking } : undefined,
     });
     const parsed = JSON.parse(text);
     const t = parsed.temperature as Temperature;

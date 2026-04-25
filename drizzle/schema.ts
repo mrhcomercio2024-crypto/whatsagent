@@ -524,3 +524,73 @@ export const qrSessions = mysqlTable("qr_sessions", {
 });
 export type QrSession = typeof qrSessions.$inferSelect;
 export type InsertQrSession = typeof qrSessions.$inferInsert;
+
+
+/**
+ * ────────────────────────────────────────────────────────────
+ * LLM PRICES — tabela editável de preços por modelo (USD por 1M tokens)
+ * ────────────────────────────────────────────────────────────
+ */
+export const llmPrices = mysqlTable("llm_prices", {
+  id: int("id").autoincrement().primaryKey(),
+  model: varchar("model", { length: 120 }).notNull().unique(),
+  // Preço por 1.000.000 tokens, em micro-USD (USD * 1_000_000) para precisão
+  inputPer1M: int("inputPer1M").notNull(),
+  outputPer1M: int("outputPer1M").notNull(),
+  notes: varchar("notes", { length: 250 }),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type LlmPrice = typeof llmPrices.$inferSelect;
+export type InsertLlmPrice = typeof llmPrices.$inferInsert;
+
+/**
+ * ────────────────────────────────────────────────────────────
+ * LLM USAGE — uma linha por chamada de LLM, com tokens e custo calculado
+ * ────────────────────────────────────────────────────────────
+ */
+export const llmUsage = mysqlTable(
+  "llm_usage",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    agentId: int("agentId"),
+    conversationId: int("conversationId"),
+    leadId: int("leadId"),
+    model: varchar("model", { length: 120 }).notNull(),
+    purpose: varchar("purpose", { length: 60 }).notNull(), // orchestrator|qualifier|followup|simulator|other
+    promptTokens: int("promptTokens").notNull().default(0),
+    completionTokens: int("completionTokens").notNull().default(0),
+    totalTokens: int("totalTokens").notNull().default(0),
+    // Custo em micro-USD (USD * 1_000_000) para precisão
+    costMicroUsd: int("costMicroUsd").notNull().default(0),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => ({
+    agentDateIdx: index("usage_agent_date_idx").on(table.agentId, table.createdAt),
+    leadIdx: index("usage_lead_idx").on(table.leadId),
+    conversationIdx: index("usage_conv_idx").on(table.conversationId),
+    modelIdx: index("usage_model_idx").on(table.model),
+  })
+);
+export type LlmUsage = typeof llmUsage.$inferSelect;
+export type InsertLlmUsage = typeof llmUsage.$inferInsert;
+
+/**
+ * ────────────────────────────────────────────────────────────
+ * COST EXTRAS — outras taxas operacionais lançadas manualmente pelo usuário
+ * (ex: WABA, BSP, hospedagem). Somadas no total da aba Custos.
+ * ────────────────────────────────────────────────────────────
+ */
+export const costExtras = mysqlTable("cost_extras", {
+  id: int("id").autoincrement().primaryKey(),
+  agentId: int("agentId"),
+  label: varchar("label", { length: 200 }).notNull(),
+  // Valor em micro-USD (USD * 1_000_000)
+  amountMicroUsd: int("amountMicroUsd").notNull(),
+  // Periodicidade: 'one_time' | 'monthly'
+  period: mysqlEnum("period", ["one_time", "monthly"]).default("monthly").notNull(),
+  occurredOn: timestamp("occurredOn").defaultNow().notNull(),
+  notes: varchar("notes", { length: 300 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+export type CostExtra = typeof costExtras.$inferSelect;
+export type InsertCostExtra = typeof costExtras.$inferInsert;

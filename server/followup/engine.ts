@@ -269,6 +269,12 @@ async function generateFollowupText(
     ],
     maxTokens: 300,
     temperature: 0.6,
+    tracking: {
+      purpose: "followup",
+      agentId,
+      conversationId,
+      leadId: lead?.id,
+    },
   });
   const parsed = parseAgentOutput(r.text);
   return parsed.cleanText || "Olá! Posso continuar nosso papo?";

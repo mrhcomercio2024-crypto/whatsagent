@@ -174,6 +174,12 @@ export async function processInboundForReply(opts: {
       messages,
       maxTokens: 800,
       temperature: 0.5,
+      tracking: {
+        purpose: "orchestrator",
+        agentId: agent.id,
+        conversationId,
+        leadId: lead?.id,
+      },
     });
     aiOutput = r.text;
     console.log(

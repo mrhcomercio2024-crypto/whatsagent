@@ -23,6 +23,15 @@ import {
   whatsappConfig,
   whatsappTemplates,
   qrSessions,
+  llmPrices,
+  llmUsage,
+  costExtras,
+  type LlmPrice,
+  type LlmUsage,
+  type CostExtra,
+  type InsertLlmPrice,
+  type InsertLlmUsage,
+  type InsertCostExtra,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
@@ -868,4 +877,224 @@ export async function concatRecentInbound(
     .map(r => (r.body || "").trim())
     .filter(Boolean)
     .join("\n");
+}
+
+
+/* ============================================================
+ * LLM PRICES — preços editáveis por modelo
+ * ============================================================ */
+// (sql/and/eq/desc/inArray já importados no topo do arquivo)
+
+export async function listLlmPrices(): Promise<LlmPrice[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return await db.select().from(llmPrices);
+}
+
+export async function getLlmPrice(model: string): Promise<LlmPrice | undefined> {
+  const db = await getDb();
+  if (!db) return undefined;
+  const rows = await db.select().from(llmPrices).where(eq(llmPrices.model, model)).limit(1);
+  return rows[0];
+}
+
+export async function upsertLlmPrice(input: InsertLlmPrice): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .insert(llmPrices)
+    .values(input)
+    .onDuplicateKeyUpdate({
+      set: {
+        inputPer1M: input.inputPer1M,
+        outputPer1M: input.outputPer1M,
+        notes: input.notes ?? null,
+      },
+    });
+}
+
+export async function seedLlmPricesIfEmpty(rows: InsertLlmPrice[]): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  const existing = await db.select({ id: llmPrices.id }).from(llmPrices).limit(1);
+  if (existing.length > 0) return;
+  if (rows.length === 0) return;
+  await db.insert(llmPrices).values(rows);
+}
+
+/* ============================================================
+ * LLM USAGE — uma linha por chamada
+ * ============================================================ */
+export async function recordLlmUsage(input: InsertLlmUsage): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(llmUsage).values(input);
+}
+
+export type CostsSummary = {
+  totalMicroUsd: number;
+  totalCalls: number;
+  totalTokens: number;
+  totalLeads: number;
+  avgPerLeadMicroUsd: number;
+  byModel: Array<{
+    model: string;
+    calls: number;
+    tokens: number;
+    micro: number;
+  }>;
+  byDay: Array<{ date: string; micro: number; calls: number }>;
+};
+
+export async function getCostsSummary(opts: {
+  agentId?: number;
+  daysBack: number;
+}): Promise<CostsSummary> {
+  const db = await getDb();
+  const empty: CostsSummary = {
+    totalMicroUsd: 0,
+    totalCalls: 0,
+    totalTokens: 0,
+    totalLeads: 0,
+    avgPerLeadMicroUsd: 0,
+    byModel: [],
+    byDay: [],
+  };
+  if (!db) return empty;
+
+  const since = new Date(Date.now() - opts.daysBack * 24 * 60 * 60 * 1000);
+  const where: any[] = [sql`${llmUsage.createdAt} >= ${since}`];
+  if (opts.agentId) where.push(eq(llmUsage.agentId, opts.agentId));
+  const cond = where.length > 1 ? and(...where) : where[0];
+
+  const rows = await db.select().from(llmUsage).where(cond);
+  const totalMicroUsd = rows.reduce((a, r) => a + (r.costMicroUsd ?? 0), 0);
+  const totalCalls = rows.length;
+  const totalTokens = rows.reduce((a, r) => a + (r.totalTokens ?? 0), 0);
+  const leadsSet = new Set<number>();
+  rows.forEach(r => r.leadId && leadsSet.add(r.leadId));
+  const totalLeads = leadsSet.size;
+  const avgPerLeadMicroUsd = totalLeads > 0 ? Math.round(totalMicroUsd / totalLeads) : 0;
+
+  const byModelMap = new Map<string, { calls: number; tokens: number; micro: number }>();
+  for (const r of rows) {
+    const k = r.model;
+    const cur = byModelMap.get(k) || { calls: 0, tokens: 0, micro: 0 };
+    cur.calls++;
+    cur.tokens += r.totalTokens ?? 0;
+    cur.micro += r.costMicroUsd ?? 0;
+    byModelMap.set(k, cur);
+  }
+  const byModel = Array.from(byModelMap.entries())
+    .map(([model, v]) => ({ model, ...v }))
+    .sort((a, b) => b.micro - a.micro);
+
+  const byDayMap = new Map<string, { micro: number; calls: number }>();
+  for (const r of rows) {
+    const d = new Date(r.createdAt!);
+    const key = d.toISOString().slice(0, 10);
+    const cur = byDayMap.get(key) || { micro: 0, calls: 0 };
+    cur.micro += r.costMicroUsd ?? 0;
+    cur.calls++;
+    byDayMap.set(key, cur);
+  }
+  const byDay = Array.from(byDayMap.entries())
+    .map(([date, v]) => ({ date, ...v }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  return {
+    totalMicroUsd,
+    totalCalls,
+    totalTokens,
+    totalLeads,
+    avgPerLeadMicroUsd,
+    byModel,
+    byDay,
+  };
+}
+
+export type LeadCostRow = {
+  leadId: number;
+  leadName: string | null;
+  phone: string;
+  micro: number;
+  tokens: number;
+  calls: number;
+  lastUsedAt: Date | null;
+};
+
+export async function getCostsByLead(opts: {
+  agentId?: number;
+  daysBack: number;
+  limit?: number;
+}): Promise<LeadCostRow[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const since = new Date(Date.now() - opts.daysBack * 24 * 60 * 60 * 1000);
+  const where: any[] = [sql`${llmUsage.createdAt} >= ${since}`];
+  if (opts.agentId) where.push(eq(llmUsage.agentId, opts.agentId));
+  const cond = where.length > 1 ? and(...where) : where[0];
+
+  const rows = await db.select().from(llmUsage).where(cond);
+  const map = new Map<number, LeadCostRow>();
+  for (const r of rows) {
+    if (!r.leadId) continue;
+    const cur = map.get(r.leadId) || {
+      leadId: r.leadId,
+      leadName: null,
+      phone: "",
+      micro: 0,
+      tokens: 0,
+      calls: 0,
+      lastUsedAt: null,
+    };
+    cur.micro += r.costMicroUsd ?? 0;
+    cur.tokens += r.totalTokens ?? 0;
+    cur.calls++;
+    const d = r.createdAt ? new Date(r.createdAt) : null;
+    if (d && (!cur.lastUsedAt || d > cur.lastUsedAt)) cur.lastUsedAt = d;
+    map.set(r.leadId, cur);
+  }
+  if (map.size === 0) return [];
+
+  const ids = Array.from(map.keys());
+  const leadRows = await db.select().from(leads).where(inArray(leads.id, ids));
+  for (const l of leadRows) {
+    const c = map.get(l.id)!;
+    c.leadName = l.name;
+    c.phone = l.phoneNumber;
+  }
+  return Array.from(map.values())
+    .sort((a, b) => b.micro - a.micro)
+    .slice(0, opts.limit ?? 200);
+}
+
+/* ============================================================
+ * COST EXTRAS — outras taxas operacionais (manuais)
+ * ============================================================ */
+export async function listCostExtras(opts: {
+  agentId?: number;
+}): Promise<CostExtra[]> {
+  const db = await getDb();
+  if (!db) return [];
+  if (opts.agentId === undefined) {
+    return await db.select().from(costExtras).orderBy(desc(costExtras.occurredOn));
+  }
+  return await db
+    .select()
+    .from(costExtras)
+    .where(eq(costExtras.agentId, opts.agentId))
+    .orderBy(desc(costExtras.occurredOn));
+}
+
+export async function addCostExtra(input: InsertCostExtra): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(costExtras).values(input);
+}
+
+export async function deleteCostExtra(id: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(costExtras).where(eq(costExtras.id, id));
 }

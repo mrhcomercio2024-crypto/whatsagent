@@ -57,6 +57,14 @@ import {
   upsertBusinessHours,
   upsertWhatsappConfig,
   getQrSession,
+  listLlmPrices,
+  upsertLlmPrice,
+  seedLlmPricesIfEmpty,
+  getCostsSummary,
+  getCostsByLead,
+  listCostExtras,
+  addCostExtra,
+  deleteCostExtra,
 } from "./db";
 import {
   startQrSession,
@@ -68,6 +76,7 @@ import { processInboundForReply } from "./ai/orchestrator";
 import { dispatchActions } from "./whatsapp/dispatcher";
 import { qualifyLead } from "./ai/qualifier";
 import { AVAILABLE_LLM_MODELS } from "../shared/llm-models";
+import { REFERENCE_PRICES } from "./ai/pricing";
 
 const idSchema = z.object({ id: z.number().int().positive() });
 const agentScopedSchema = z.object({ agentId: z.number().int().positive() });
@@ -717,6 +726,67 @@ export const appRouter = router({
           sentMediaIds: [],
         });
       }),
+  }),
+
+  // ============================================================
+  // CUSTOS
+  // ============================================================
+  costs: router({
+    summary: protectedProcedure
+      .input(z.object({ agentId: z.number().int().positive().optional(), daysBack: z.number().int().min(1).max(365).default(30) }))
+      .query(async ({ input }) => getCostsSummary(input)),
+
+    byLead: protectedProcedure
+      .input(z.object({ agentId: z.number().int().positive().optional(), daysBack: z.number().int().min(1).max(365).default(30), limit: z.number().int().min(1).max(500).default(100) }))
+      .query(async ({ input }) => getCostsByLead(input)),
+
+    prices: router({
+      list: protectedProcedure.query(async () => {
+        // Garante seed das tabelas de referência na primeira leitura
+        await seedLlmPricesIfEmpty(REFERENCE_PRICES);
+        return await listLlmPrices();
+      }),
+      upsert: protectedProcedure
+        .input(z.object({
+          model: z.string().min(1).max(120),
+          inputPer1M: z.number().int().nonnegative(),
+          outputPer1M: z.number().int().nonnegative(),
+          notes: z.string().max(250).optional(),
+        }))
+        .mutation(async ({ input }) => {
+          await upsertLlmPrice(input);
+          return { ok: true } as const;
+        }),
+      reseed: protectedProcedure.mutation(async () => {
+        // Reset rápido: insere o que faltar (não sobrescreve preferida do usuário)
+        for (const p of REFERENCE_PRICES) await upsertLlmPrice(p);
+        return { ok: true } as const;
+      }),
+    }),
+
+    extras: router({
+      list: protectedProcedure
+        .input(z.object({ agentId: z.number().int().positive().optional() }))
+        .query(async ({ input }) => listCostExtras(input)),
+      add: protectedProcedure
+        .input(z.object({
+          agentId: z.number().int().positive().optional(),
+          label: z.string().min(1).max(200),
+          amountMicroUsd: z.number().int().nonnegative(),
+          period: z.enum(["one_time", "monthly"]).default("monthly"),
+          notes: z.string().max(300).optional(),
+        }))
+        .mutation(async ({ input }) => {
+          await addCostExtra({ ...input, occurredOn: new Date() });
+          return { ok: true } as const;
+        }),
+      remove: protectedProcedure
+        .input(idSchema)
+        .mutation(async ({ input }) => {
+          await deleteCostExtra(input.id);
+          return { ok: true } as const;
+        }),
+    }),
   }),
 });
 
