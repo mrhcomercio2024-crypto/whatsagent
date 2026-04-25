@@ -124,3 +124,14 @@
 - [x] Atualizar SELF_HOSTING.md (seção 5C "Comportamento humano")
 - [x] Atualizar README.md
 - [x] Checkpoint v3
+
+
+## Fase 18: Bug — agente não responde após conectar QR Code
+- [x] Diagnosticar via logs e leitura de código
+- [x] Bug 1: filtro `listConversationsDueForProcessing` aceitava NULL → corrigido com `isNotNull`
+- [x] Bug 2: filesystem efêmero do ambiente publicado apaga `creds.json` no restart → mitigado salvando snapshot do auth state em coluna `authBlob` (DB)
+- [x] Bug 3: servidor não religava sessões Baileys após restart → `reconnectAllQrSessions()` no boot
+- [x] Logs detalhados em baileys/debounce/orchestrator para diagnóstico futuro
+- [x] Migration 0004 aplicada (`qr_sessions.authBlob`)
+- [x] Testes vitest (31 passando: snapshot ida-e-volta + filtro debounce)
+- [ ] Checkpoint v4 (próximo)

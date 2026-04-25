@@ -40,26 +40,44 @@ export function stopDebounceWorker() {
 async function processDueConversations() {
   const now = new Date();
   const due = await listConversationsDueForProcessing(now, 25);
+  if (due.length > 0) {
+    console.log(`[debounce] picked up ${due.length} due conversation(s)`);
+  }
   for (const conv of due) {
     // Limpa o pending logo de cara para evitar processamento duplicado.
     await setConversationPendingProcessAt(conv.id, null);
     try {
       if (conv.aiPaused || conv.status === "human_handoff" || conv.status === "closed") {
+        console.log(
+          `[debounce] conv ${conv.id} skipped (aiPaused=${conv.aiPaused}, status=${conv.status})`
+        );
         continue;
       }
       const agent = await getAgentById(conv.agentId);
-      if (!agent) continue;
+      if (!agent) {
+        console.warn(`[debounce] conv ${conv.id} agent not found`);
+        continue;
+      }
       const inboundText = await concatRecentInbound(conv.id, 5 * 60_000);
-      if (!inboundText) continue;
+      if (!inboundText) {
+        console.log(`[debounce] conv ${conv.id} no recent inbound text`);
+        continue;
+      }
 
       const fresh = await getConversationById(conv.id);
       if (!fresh) continue;
 
+      console.log(
+        `[debounce] processing conv ${conv.id} agent=${agent.id} text="${inboundText.slice(0, 80)}"`
+      );
       const result = await processInboundForReply({
         agent,
         conversationId: conv.id,
         inboundText,
       });
+      console.log(
+        `[debounce] conv ${conv.id} result: actions=${result.actions.length} handoff=${result.handoff} outOfHours=${result.outOfHours}`
+      );
       if (result.actions.length > 0) {
         await dispatchActions({
           agent,
@@ -67,6 +85,9 @@ async function processDueConversations() {
           actions: result.actions,
           sender: "ai",
         });
+        console.log(
+          `[debounce] conv ${conv.id} dispatched ${result.actions.length} action(s)`
+        );
       }
     } catch (e) {
       console.error(`[debounce] failed conv ${conv.id}:`, e);

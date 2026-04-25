@@ -103,6 +103,9 @@ export async function processInboundForReply(opts: {
   // 2. Horário de atendimento
   const bh = await getBusinessHours(agent.id);
   if (!isWithinBusinessHours(bh)) {
+    console.log(
+      `[orchestrator] agent ${agent.id} conv ${conversationId}: OUT OF HOURS (bh.enabled=${bh?.enabled}, tz=${bh?.timezone})`
+    );
     if (bh?.outOfHoursMessage && bh.outOfHoursMessage.trim()) {
       return {
         actions: [{ type: "text", text: bh.outOfHoursMessage }],
@@ -163,6 +166,9 @@ export async function processInboundForReply(opts: {
   const startedAt = Date.now();
   let aiOutput = "";
   try {
+    console.log(
+      `[orchestrator] agent ${agent.id} conv ${conversationId}: invoking LLM model=${model} (msgs=${messages.length})`
+    );
     const r = await invokeWithModel({
       model,
       messages,
@@ -170,7 +176,14 @@ export async function processInboundForReply(opts: {
       temperature: 0.5,
     });
     aiOutput = r.text;
+    console.log(
+      `[orchestrator] LLM ok (${aiOutput.length} chars): ${aiOutput.slice(0, 120).replace(/\n/g, " ")}`
+    );
   } catch (e) {
+    console.error(
+      `[orchestrator] LLM error for agent ${agent.id} model=${model}:`,
+      (e as Error).message
+    );
     aiOutput = "Desculpe, tive uma falha técnica. Pode repetir, por favor?";
   }
   await recordMetric({

@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, inArray, isNull, lt, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   agentBrain,
@@ -767,6 +767,29 @@ export async function deleteQrSession(agentId: number) {
   await db.delete(qrSessions).where(eq(qrSessions.agentId, agentId));
 }
 
+/**
+ * Lista sessões QR que estavam conectadas (para religar no boot do servidor).
+ */
+export async function listReconnectableQrSessions() {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(qrSessions)
+    .where(
+      and(
+        isNotNull(qrSessions.authDir),
+        // tudo menos logged_out e banned
+        or(
+          eq(qrSessions.status, "connected"),
+          eq(qrSessions.status, "awaiting_qr"),
+          eq(qrSessions.status, "connecting"),
+          eq(qrSessions.status, "disconnected")
+        )
+      )
+    );
+}
+
 export async function getAgentByJid(jid: string) {
   const db = await getDb();
   if (!db) return undefined;
@@ -812,7 +835,7 @@ export async function listConversationsDueForProcessing(now: Date, limit = 25) {
     .from(conversations)
     .where(
       and(
-        // pendingProcessAt não é nulo e já passou
+        isNotNull(conversations.pendingProcessAt),
         lt(conversations.pendingProcessAt, now)
       )
     )

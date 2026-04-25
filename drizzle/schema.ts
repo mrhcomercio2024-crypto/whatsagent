@@ -505,6 +505,9 @@ export const qrSessions = mysqlTable("qr_sessions", {
     .notNull(),
   // Diretório onde o multi-file auth state é persistido em disco
   authDir: varchar("authDir", { length: 500 }),
+  // Cópia compactada (JSON base64) das credenciais Baileys, persistida em DB.
+  // Sobrevive a restarts do container quando o filesystem é efêmero.
+  authBlob: text("authBlob"),
   // QR code mais recente (data URL PNG base64) — limpo quando conecta
   lastQr: text("lastQr"),
   // JID do número conectado (ex: 5511999999999@s.whatsapp.net)

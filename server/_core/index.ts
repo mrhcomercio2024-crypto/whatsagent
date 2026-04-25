@@ -11,6 +11,7 @@ import { serveStatic, setupVite } from "./vite";
 import { registerWhatsappWebhook } from "../whatsapp/webhook";
 import { startFollowupEngine } from "../followup/engine";
 import { startDebounceWorker } from "../ai/debounceWorker";
+import { reconnectAllQrSessions } from "../whatsapp/baileys";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -66,6 +67,10 @@ async function startServer() {
     console.log(`Server running on http://localhost:${port}/`);
     startFollowupEngine();
     startDebounceWorker();
+    // Religa sessões Baileys que estavam ativas antes do restart
+    reconnectAllQrSessions().catch((e: unknown) =>
+      console.warn("[baileys] reconnectAllQrSessions failed:", (e as Error)?.message)
+    );
   });
 }
 
