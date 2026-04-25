@@ -152,6 +152,27 @@ export const appRouter = router({
         })
       )
       .mutation(({ input }) => updateAgent(input.id, input.patch)),
+    updateSummaryConfig: protectedProcedure
+      .input(
+        z.object({
+          id: z.number().int().positive(),
+          patch: z.object({
+            // a cada N mensagens, o resumidor evolutivo é acionado
+            summaryEveryN: z.number().int().min(3).max(30).optional(),
+            // null = usa o defaultLlmModel do agente; quando string, precisa ser um modelo conhecido
+            summaryLlmModel: z
+              .string()
+              .min(1)
+              .max(80)
+              .refine(v => AVAILABLE_LLM_MODELS.some(m => m.id === v), {
+                message: "Modelo de LLM desconhecido",
+              })
+              .nullable()
+              .optional(),
+          }),
+        })
+      )
+      .mutation(({ input }) => updateAgent(input.id, input.patch)),
   }),
 
   // ─── BRAIN ───

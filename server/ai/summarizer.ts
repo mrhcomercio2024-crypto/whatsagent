@@ -74,7 +74,7 @@ export async function refreshConversationSummary(
 
   try {
     const r = await invokeWithModel({
-      model: agent.defaultLlmModel,
+      model: (agent.summaryLlmModel && agent.summaryLlmModel.trim()) || agent.defaultLlmModel,
       messages: [
         { role: "system", content: sys },
         { role: "user", content: user },

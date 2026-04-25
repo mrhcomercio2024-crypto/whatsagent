@@ -66,6 +66,28 @@ describe("shouldRefreshSummary", () => {
       shouldRefreshSummary({ totalMessages: 12, lastSummaryAtMessages: 6 })
     ).toBe(true);
   });
+
+  it("aceita `every` customizado por agente (3)", () => {
+    expect(shouldRefreshSummary({ totalMessages: 2, every: 3 })).toBe(false);
+    expect(shouldRefreshSummary({ totalMessages: 3, every: 3 })).toBe(true);
+    expect(
+      shouldRefreshSummary({ totalMessages: 5, lastSummaryAtMessages: 3, every: 3 })
+    ).toBe(false);
+    expect(
+      shouldRefreshSummary({ totalMessages: 6, lastSummaryAtMessages: 3, every: 3 })
+    ).toBe(true);
+  });
+
+  it("aceita `every` customizado por agente (15)", () => {
+    expect(shouldRefreshSummary({ totalMessages: 14, every: 15 })).toBe(false);
+    expect(shouldRefreshSummary({ totalMessages: 15, every: 15 })).toBe(true);
+    expect(
+      shouldRefreshSummary({ totalMessages: 29, lastSummaryAtMessages: 15, every: 15 })
+    ).toBe(false);
+    expect(
+      shouldRefreshSummary({ totalMessages: 30, lastSummaryAtMessages: 15, every: 15 })
+    ).toBe(true);
+  });
 });
 
 describe("buildSystemPrompt — bloco RESUMO + regras anti-repetição", () => {

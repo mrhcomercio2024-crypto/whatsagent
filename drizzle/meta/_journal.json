@@ -64,6 +64,13 @@
       "when": 1777132023625,
       "tag": "0008_common_prima",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "5",
+      "when": 1777132578196,
+      "tag": "0009_thin_franklin_richards",
+      "breakpoints": true
     }
   ]
 }

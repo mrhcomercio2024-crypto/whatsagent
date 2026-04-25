@@ -68,6 +68,12 @@ export const agents = mysqlTable("agents", {
   // Tamanho máximo (chars) de cada balão antes de forçar quebra
   splitMaxChars: int("splitMaxChars").default(220).notNull(),
 
+  // — Memória evolutiva da conversa (resumo) —
+  // A cada quantas mensagens o resumidor é acionado.
+  summaryEveryN: int("summaryEveryN").default(6).notNull(),
+  // Modelo LLM usado pelo resumidor; quando null, usa `defaultLlmModel`.
+  summaryLlmModel: varchar("summaryLlmModel", { length: 80 }),
+
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

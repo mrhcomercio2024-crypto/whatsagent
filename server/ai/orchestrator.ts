@@ -386,7 +386,7 @@ export async function processInboundForReply(opts: {
       shouldRefreshSummary({
         totalMessages: total,
         lastSummaryAtMessages: conv.summary ? total - 1 : null,
-        every: 6,
+        every: agent.summaryEveryN ?? 6,
       })
     ) {
       void refreshConversationSummary({

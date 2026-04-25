@@ -230,3 +230,12 @@
 - [x] Comando `/limpar` no orchestrator, simulator (front + back) e sendHumanMessage
 - [x] Vitest `memory.test.ts` (9 cenários) — 78/78 verde
 - [x] Checkpoint v10
+
+## Fase 40: Configuração por agente do resumidor
+- [x] `summaryEveryN` (default 6) e `summaryLlmModel` (nullable) em `agents` (migration 0009 aplicada)
+- [x] Procedure `agents.updateSummaryConfig` (every 3..30, modelo opcional)
+- [x] `summarizer` usa `summaryLlmModel || defaultLlmModel`
+- [x] `orchestrator` usa `agent.summaryEveryN` no `shouldRefreshSummary`
+- [x] UI Operação: seção "Memória da conversa" com slider 3–30 + select de modelo ("Usar modelo padrão do agente" incluído)
+- [x] Vitest: 2 novos casos para `every` customizado (suite 80/80 verde)
+- [x] Checkpoint v11

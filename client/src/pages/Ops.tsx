@@ -8,8 +8,16 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Slider } from "@/components/ui/slider";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { AVAILABLE_LLM_MODELS } from "@shared/llm-models";
 import { trpc } from "@/lib/trpc";
-import { Plus, Sparkles, Trash2 } from "lucide-react";
+import { Brain as BrainIcon, Plus, Sparkles, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -94,6 +102,35 @@ function Inner({ agentId }: { agentId: number }) {
   }, [agent]);
   function saveBehavior() {
     updateBehavior.mutate({ id: agentId, patch: behavior });
+  }
+
+  // — Memória da conversa (resumo evolutivo) —
+  const updateSummary = trpc.agents.updateSummaryConfig.useMutation({
+    onSuccess: () => {
+      utils.agents.get.invalidate({ id: agentId });
+      toast.success("Memória da conversa atualizada");
+    },
+    onError: e =>
+      toast.error("Falha ao salvar memória: " + (e.message || "erro desconhecido")),
+  });
+  const SUMMARY_DEFAULT_SENTINEL = "__default__";
+  const [summaryEveryN, setSummaryEveryN] = useState<number>(6);
+  const [summaryModel, setSummaryModel] = useState<string>(SUMMARY_DEFAULT_SENTINEL);
+  useEffect(() => {
+    if (agent) {
+      setSummaryEveryN(agent.summaryEveryN ?? 6);
+      setSummaryModel(agent.summaryLlmModel ?? SUMMARY_DEFAULT_SENTINEL);
+    }
+  }, [agent]);
+  function saveSummary() {
+    updateSummary.mutate({
+      id: agentId,
+      patch: {
+        summaryEveryN,
+        summaryLlmModel:
+          summaryModel === SUMMARY_DEFAULT_SENTINEL ? null : summaryModel,
+      },
+    });
   }
 
   const [enabled, setEnabled] = useState(true);
@@ -331,6 +368,78 @@ function Inner({ agentId }: { agentId: number }) {
         <div className="flex justify-end">
           <Button onClick={saveBehavior} disabled={updateBehavior.isPending}>
             Salvar comportamento
+          </Button>
+        </div>
+      </section>
+
+      {/* ─── Memória da conversa ─── */}
+      <section className="elevated-card rounded-2xl p-6 space-y-5">
+        <div className="flex items-center justify-between">
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5 rounded-md bg-primary/10 p-2 text-primary">
+              <BrainIcon className="h-4 w-4" />
+            </div>
+            <div>
+              <h3 className="font-medium">Memória da conversa</h3>
+              <p className="text-xs text-muted-foreground max-w-xl">
+                O agente mantém um <strong>resumo evolutivo</strong> de cada conversa
+                e o lê antes de cada resposta para não repetir perguntas e não
+                perder o contexto. Você pode escolher a frequência da atualização
+                e qual modelo de LLM faz esse resumo.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label>Atualizar resumo a cada</Label>
+              <span className="text-sm tabular-nums text-muted-foreground">
+                {summaryEveryN} mensagens
+              </span>
+            </div>
+            <Slider
+              min={3}
+              max={30}
+              step={1}
+              value={[summaryEveryN]}
+              onValueChange={v => setSummaryEveryN(v[0] ?? 6)}
+            />
+            <p className="text-xs text-muted-foreground">
+              Valores menores deixam o resumo mais fresco mas consomem mais
+              créditos de LLM. Recomendado entre 5 e 10.
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Modelo do resumidor</Label>
+            <Select value={summaryModel} onValueChange={setSummaryModel}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Selecione um modelo" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={SUMMARY_DEFAULT_SENTINEL}>
+                  Usar modelo padrão do agente{" "}
+                  {agent?.defaultLlmModel ? `(${agent.defaultLlmModel})` : ""}
+                </SelectItem>
+                {AVAILABLE_LLM_MODELS.map(m => (
+                  <SelectItem key={m.id} value={m.id}>
+                    {m.label} — {m.provider}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              Modelos pequenos (gpt-4o-mini, haiku, gemini-flash) costumam ser
+              suficientes e mais baratos para resumir.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex justify-end">
+          <Button onClick={saveSummary} disabled={updateSummary.isPending}>
+            Salvar memória
           </Button>
         </div>
       </section>
