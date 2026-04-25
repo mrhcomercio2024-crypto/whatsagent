@@ -104,15 +104,19 @@ async function processOneJob(job: typeof followupJobs.$inferSelect, now: Date) {
     return;
   }
 
-  // Decisão de janela
+  // Decisão de janela / template
+  const isQrMode = agent.connectionMode === "qr";
   const insideWindow = isInside24hWindow(conv, now);
   let useTemplate = false;
-  if (rule.windowPolicy === "force_template") useTemplate = true;
-  else if (rule.windowPolicy === "force_free") useTemplate = false;
-  else useTemplate = !insideWindow; // auto
-
-  // Se modo é "template" ou janela exige template, força usar template
-  if (rule.messageMode === "template") useTemplate = true;
+  if (isQrMode) {
+    // No modo QR (não oficial) não existem templates HSM nem janela 24h → envio sempre livre
+    useTemplate = false;
+  } else {
+    if (rule.windowPolicy === "force_template") useTemplate = true;
+    else if (rule.windowPolicy === "force_free") useTemplate = false;
+    else useTemplate = !insideWindow; // auto
+    if (rule.messageMode === "template") useTemplate = true;
+  }
 
   const creds: WaCredentials | null = config?.phoneNumberId && config?.accessToken
     ? {
@@ -170,7 +174,16 @@ async function processOneJob(job: typeof followupJobs.$inferSelect, now: Date) {
       // ai_generated
       text = await generateFollowupText(agent.id, conv.id, rule.aiInstruction || rule.fixedText || "");
     }
-    if (creds) {
+    if (isQrMode) {
+      // Envia via Baileys; se desconectado, dispatchViaBaileys persiste
+      const { dispatchViaBaileys } = await import("../whatsapp/baileys");
+      await dispatchViaBaileys({
+        agent,
+        conversationId: conv.id,
+        actions: [{ type: "text", text }],
+        sender: "ai",
+      });
+    } else if (creds) {
       const r = await sendText(creds, lead.phoneNumber, text);
       await appendMessage({
         conversationId: conv.id,

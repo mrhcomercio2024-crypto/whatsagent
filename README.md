@@ -1,6 +1,6 @@
 # WhatsAgent
 
-Plataforma **self-hosted** de Agente de IA para atendimento via **WhatsApp Cloud API oficial (Meta)**.
+Plataforma **self-hosted** de Agente de IA para atendimento via WhatsApp — com **dois modos de conexão por agente**: **API Cloud Oficial (Meta)** ou **QR Code (não oficial, via Baileys)**.
 
 A ferramenta foi desenhada para parecer o mais humanizada possível, **amarrando** o agente a seguir estritamente o cérebro configurado, as etapas obrigatórias do script, a base de conhecimento e os gatilhos de mídia que você definir — tudo gerenciável pela interface, sem editar uma linha de código.
 
@@ -11,6 +11,7 @@ A ferramenta foi desenhada para parecer o mais humanizada possível, **amarrando
 - **Base de conhecimento (RAG)** consultada antes de cada resposta para evitar alucinação.
 - **Biblioteca de mídias** (imagens e vídeos) com gatilhos por **palavra-chave do lead**, por **etapa** ou por **decisão da IA**.
 - **WhatsApp Cloud API oficial**: webhook + envio de texto, imagem, vídeo e templates HSM.
+- **WhatsApp via QR Code** (modo alternativo): conecte um número escaneando o QR pelo celular, sem precisar aprovar BM/templates na Meta. ⚠️ Viola os Termos da Meta e o número pode ser banido — use por sua conta e risco.
 - **Follow-up totalmente configurável**: intervalos, tentativas, mensagem fixa ou gerada pela IA, e política da janela 24h (livre, sempre template ou auto).
 - **Inbox em tempo real** com possibilidade de pausar a IA e assumir o atendimento manualmente (handoff humano).
 - **Qualificação automática de leads** (quente / morno / frio) e exportação CSV.

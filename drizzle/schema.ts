@@ -47,6 +47,8 @@ export const agents = mysqlTable("agents", {
   persona: text("persona"),
   // Idioma principal
   language: varchar("language", { length: 10 }).default("pt-BR").notNull(),
+  // Modo de conexão WhatsApp: 'official' (Meta Cloud API) ou 'qr' (Baileys não oficial)
+  connectionMode: mysqlEnum("connectionMode", ["official", "qr"]).default("official").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -464,3 +466,37 @@ export const metricsEvents = mysqlTable(
 );
 export type MetricsEvent = typeof metricsEvents.$inferSelect;
 export type InsertMetricsEvent = typeof metricsEvents.$inferInsert;
+
+/**
+ * ────────────────────────────────────────────────────────────
+ * QR SESSIONS — estado de autenticação Baileys (modo não oficial)
+ * Um por agente.
+ * ────────────────────────────────────────────────────────────
+ */
+export const qrSessions = mysqlTable("qr_sessions", {
+  id: int("id").autoincrement().primaryKey(),
+  agentId: int("agentId").notNull().unique(),
+  status: mysqlEnum("status", [
+    "disconnected",
+    "connecting",
+    "awaiting_qr",
+    "connected",
+    "logged_out",
+    "banned",
+  ])
+    .default("disconnected")
+    .notNull(),
+  // Diretório onde o multi-file auth state é persistido em disco
+  authDir: varchar("authDir", { length: 500 }),
+  // QR code mais recente (data URL PNG base64) — limpo quando conecta
+  lastQr: text("lastQr"),
+  // JID do número conectado (ex: 5511999999999@s.whatsapp.net)
+  jid: varchar("jid", { length: 120 }),
+  // Nome exibido pela conta WhatsApp conectada
+  displayName: varchar("displayName", { length: 200 }),
+  lastConnectedAt: timestamp("lastConnectedAt"),
+  lastError: text("lastError"),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type QrSession = typeof qrSessions.$inferSelect;
+export type InsertQrSession = typeof qrSessions.$inferInsert;

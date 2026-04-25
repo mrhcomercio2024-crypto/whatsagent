@@ -55,7 +55,13 @@ import {
   upsertBrain,
   upsertBusinessHours,
   upsertWhatsappConfig,
+  getQrSession,
 } from "./db";
+import {
+  startQrSession,
+  disconnectQrSession,
+  isAgentConnected,
+} from "./whatsapp/baileys";
 import { storagePut } from "./storage";
 import { processInboundForReply } from "./ai/orchestrator";
 import { dispatchActions } from "./whatsapp/dispatcher";
@@ -94,6 +100,7 @@ export const appRouter = router({
           defaultLlmModel: z.string().default("gpt-4.1"),
           status: z.enum(["draft", "active", "paused"]).default("draft"),
           language: z.string().default("pt-BR"),
+          connectionMode: z.enum(["official", "qr"]).default("official"),
         })
       )
       .mutation(({ input }) => createAgent(input)),
@@ -108,6 +115,7 @@ export const appRouter = router({
             defaultLlmModel: z.string().optional(),
             status: z.enum(["draft", "active", "paused"]).optional(),
             language: z.string().optional(),
+            connectionMode: z.enum(["official", "qr"]).optional(),
           }),
         })
       )
@@ -323,6 +331,41 @@ export const appRouter = router({
     deleteTemplate: protectedProcedure
       .input(idSchema)
       .mutation(({ input }) => deleteTemplate(input.id)),
+  }),
+
+  // ─── QR (Baileys, modo não oficial) ───
+  qr: router({
+    status: protectedProcedure
+      .input(agentScopedSchema)
+      .query(async ({ input }) => {
+        const s = await getQrSession(input.agentId);
+        return {
+          status: s?.status ?? "disconnected",
+          lastQr: s?.lastQr ?? null,
+          jid: s?.jid ?? null,
+          displayName: s?.displayName ?? null,
+          lastConnectedAt: s?.lastConnectedAt ?? null,
+          lastError: s?.lastError ?? null,
+          live: isAgentConnected(input.agentId),
+        };
+      }),
+    start: protectedProcedure
+      .input(agentScopedSchema)
+      .mutation(async ({ input }) => {
+        await startQrSession(input.agentId);
+        return { ok: true };
+      }),
+    disconnect: protectedProcedure
+      .input(
+        z.object({
+          agentId: z.number().int().positive(),
+          wipe: z.boolean().default(false),
+        })
+      )
+      .mutation(async ({ input }) => {
+        await disconnectQrSession(input.agentId, input.wipe);
+        return { ok: true };
+      }),
   }),
 
   // ─── BUSINESS HOURS / HANDOFF ───

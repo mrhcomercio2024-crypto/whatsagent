@@ -5,9 +5,23 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { trpc } from "@/lib/trpc";
-import { Copy, PhoneCall, Save } from "lucide-react";
-import { useEffect, useState } from "react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Copy,
+  Loader2,
+  PhoneCall,
+  QrCode,
+  RefreshCw,
+  Save,
+  Smartphone,
+  Unplug,
+  XCircle,
+} from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+
+type Mode = "official" | "qr";
 
 export default function WhatsappPage() {
   return (
@@ -18,6 +32,116 @@ export default function WhatsappPage() {
 }
 
 function Inner({ agentId }: { agentId: number }) {
+  const utils = trpc.useUtils();
+  const { data: agent } = trpc.agents.get.useQuery({ id: agentId });
+  const updateAgent = trpc.agents.update.useMutation({
+    onSuccess: () => {
+      utils.agents.get.invalidate({ id: agentId });
+      utils.agents.list.invalidate();
+    },
+  });
+
+  const mode: Mode = (agent?.connectionMode as Mode) ?? "official";
+
+  const setMode = (m: Mode) => {
+    if (m === mode) return;
+    updateAgent.mutate(
+      { id: agentId, patch: { connectionMode: m } },
+      {
+        onSuccess: () => {
+          toast.success(
+            m === "official"
+              ? "Modo oficial selecionado"
+              : "Modo QR Code selecionado (não oficial)"
+          );
+        },
+      }
+    );
+  };
+
+  return (
+    <div className="container py-10 max-w-3xl">
+      <PageHeader
+        eyebrow="Integração"
+        title="WhatsApp"
+        description="Escolha como o agente vai se conectar ao WhatsApp."
+      />
+
+      <div className="elevated-card rounded-2xl p-2 mb-6 grid grid-cols-2 gap-2">
+        <ModeCard
+          active={mode === "official"}
+          onClick={() => setMode("official")}
+          icon={<PhoneCall className="h-5 w-5" />}
+          title="API Oficial (Meta)"
+          subtitle="Recomendado para produção"
+          tone="emerald"
+        />
+        <ModeCard
+          active={mode === "qr"}
+          onClick={() => setMode("qr")}
+          icon={<QrCode className="h-5 w-5" />}
+          title="QR Code (não oficial)"
+          subtitle="Conecta via celular, sem aprovação"
+          tone="amber"
+        />
+      </div>
+
+      {mode === "official" ? (
+        <OfficialPanel agentId={agentId} />
+      ) : (
+        <QrPanel agentId={agentId} />
+      )}
+    </div>
+  );
+}
+
+function ModeCard({
+  active,
+  onClick,
+  icon,
+  title,
+  subtitle,
+  tone,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  title: string;
+  subtitle: string;
+  tone: "emerald" | "amber";
+}) {
+  const ring = active
+    ? tone === "emerald"
+      ? "ring-2 ring-accent/60"
+      : "ring-2 ring-amber-500/60"
+    : "ring-1 ring-border/50";
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`text-left rounded-xl px-4 py-3 transition bg-card/60 hover:bg-card/80 ${ring}`}
+    >
+      <div className="flex items-center gap-3">
+        <div
+          className={`h-9 w-9 rounded-lg grid place-items-center ${
+            tone === "emerald" ? "bg-accent/15 text-accent" : "bg-amber-500/15 text-amber-400"
+          }`}
+        >
+          {icon}
+        </div>
+        <div className="min-w-0">
+          <div className="font-medium leading-tight">{title}</div>
+          <div className="text-xs text-muted-foreground truncate">{subtitle}</div>
+        </div>
+      </div>
+    </button>
+  );
+}
+
+/* ──────────────────────────────────────────────────────────────
+ *  PAINEL: API OFICIAL META
+ * ────────────────────────────────────────────────────────────── */
+function OfficialPanel({ agentId }: { agentId: number }) {
   const utils = trpc.useUtils();
   const { data } = trpc.whatsapp.getConfig.useQuery({ agentId });
   const save = trpc.whatsapp.saveConfig.useMutation({
@@ -49,16 +173,13 @@ function Inner({ agentId }: { agentId: number }) {
     }
   }, [data]);
 
-  const webhookUrl = typeof window !== "undefined" ? `${window.location.origin}/api/whatsapp/webhook` : "";
+  const webhookUrl =
+    typeof window !== "undefined"
+      ? `${window.location.origin}/api/whatsapp/webhook`
+      : "";
 
   return (
-    <div className="container py-10 max-w-3xl">
-      <PageHeader
-        eyebrow="Integração"
-        title="WhatsApp Cloud API"
-        description="Conecte seu número WhatsApp Business através da API oficial da Meta. As credenciais ficam armazenadas com segurança."
-      />
-
+    <>
       <div className="elevated-card rounded-2xl p-6 space-y-5">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <Field
@@ -102,7 +223,10 @@ function Inner({ agentId }: { agentId: number }) {
         />
 
         <div className="pt-2 flex justify-end">
-          <Button onClick={() => save.mutate({ agentId, ...form })} disabled={save.isPending}>
+          <Button
+            onClick={() => save.mutate({ agentId, ...form })}
+            disabled={save.isPending}
+          >
             <Save className="h-4 w-4 mr-1.5" />
             Salvar
           </Button>
@@ -140,6 +264,227 @@ function Inner({ agentId }: { agentId: number }) {
           <p>3. Após verificar, suas mensagens passarão pelo agente automaticamente.</p>
         </div>
       </div>
+    </>
+  );
+}
+
+/* ──────────────────────────────────────────────────────────────
+ *  PAINEL: QR CODE (Baileys)
+ * ────────────────────────────────────────────────────────────── */
+function QrPanel({ agentId }: { agentId: number }) {
+  const utils = trpc.useUtils();
+  const { data, isLoading } = trpc.qr.status.useQuery(
+    { agentId },
+    { refetchInterval: 2000 }
+  );
+  const start = trpc.qr.start.useMutation({
+    onSuccess: () => utils.qr.status.invalidate({ agentId }),
+  });
+  const disconnect = trpc.qr.disconnect.useMutation({
+    onSuccess: () => {
+      utils.qr.status.invalidate({ agentId });
+      toast.success("Sessão encerrada");
+    },
+  });
+
+  const status = data?.status ?? "disconnected";
+  const lastQr = data?.lastQr ?? null;
+  const jid = data?.jid ?? null;
+  const displayName = data?.displayName ?? null;
+
+  const phone = useMemo(() => {
+    if (!jid) return null;
+    const raw = jid.split("@")[0]?.split(":")[0] ?? "";
+    if (!raw) return null;
+    // formata BR se possível (12-13 dígitos)
+    if (raw.length >= 12 && raw.startsWith("55")) {
+      const cc = raw.slice(0, 2);
+      const ddd = raw.slice(2, 4);
+      const p1 = raw.slice(4, raw.length - 4);
+      const p2 = raw.slice(-4);
+      return `+${cc} (${ddd}) ${p1}-${p2}`;
+    }
+    return `+${raw}`;
+  }, [jid]);
+
+  return (
+    <>
+      <div className="rounded-2xl border border-amber-500/40 bg-amber-500/5 p-4 mb-6 flex gap-3">
+        <AlertTriangle className="h-5 w-5 text-amber-400 shrink-0 mt-0.5" />
+        <div className="text-sm text-amber-100/90">
+          <p className="font-medium text-amber-200 mb-1">Atenção: modo não oficial</p>
+          <p className="text-xs leading-relaxed">
+            Esta conexão usa engenharia reversa do WhatsApp Web (biblioteca
+            Baileys) e <strong>viola os Termos de Serviço da Meta</strong>. O
+            número conectado pode ser bloqueado, especialmente em alto volume,
+            disparos em massa ou comportamento automatizado evidente. Para
+            produção séria, prefira a API Oficial.
+          </p>
+        </div>
+      </div>
+
+      <div className="elevated-card rounded-2xl p-6">
+        <div className="flex items-center justify-between mb-5">
+          <div>
+            <h3 className="font-medium">Conexão por celular</h3>
+            <p className="text-xs text-muted-foreground">
+              Escaneie o QR Code abaixo no seu WhatsApp em
+              <span className="text-foreground"> Configurações → Aparelhos conectados → Conectar um aparelho</span>.
+            </p>
+          </div>
+          <StatusBadge status={status} />
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-[280px,1fr] gap-6">
+          <div className="rounded-xl border border-border/60 bg-card/60 aspect-square grid place-items-center overflow-hidden">
+            {status === "connected" ? (
+              <div className="text-center p-6">
+                <CheckCircle2 className="h-14 w-14 text-accent mx-auto mb-3" />
+                <p className="text-sm font-medium">Conectado</p>
+                {phone && <p className="text-xs text-muted-foreground mt-1">{phone}</p>}
+                {displayName && (
+                  <p className="text-xs text-muted-foreground">{displayName}</p>
+                )}
+              </div>
+            ) : lastQr ? (
+              <img
+                src={lastQr}
+                alt="QR Code WhatsApp"
+                className="w-full h-full object-contain p-3 bg-white rounded-xl"
+              />
+            ) : status === "connecting" || status === "awaiting_qr" ? (
+              <div className="text-center p-6 text-muted-foreground">
+                <Loader2 className="h-10 w-10 animate-spin mx-auto mb-3" />
+                <p className="text-sm">Gerando QR Code...</p>
+              </div>
+            ) : status === "banned" ? (
+              <div className="text-center p-6">
+                <XCircle className="h-12 w-12 text-destructive mx-auto mb-3" />
+                <p className="text-sm font-medium text-destructive">Número banido</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  O WhatsApp encerrou a sessão.
+                </p>
+              </div>
+            ) : (
+              <div className="text-center p-6 text-muted-foreground">
+                <QrCode className="h-12 w-12 mx-auto mb-3 opacity-40" />
+                <p className="text-sm">
+                  {isLoading ? "Carregando..." : "Nenhuma sessão ativa"}
+                </p>
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-4">
+            <div className="text-sm space-y-2">
+              <Step n={1}>Toque em <strong>Iniciar conexão</strong>.</Step>
+              <Step n={2}>
+                Abra o WhatsApp no celular do número que vai atender.
+              </Step>
+              <Step n={3}>
+                Vá em <em>Configurações → Aparelhos conectados → Conectar um aparelho</em>.
+              </Step>
+              <Step n={4}>Aponte a câmera para o QR Code ao lado.</Step>
+              <Step n={5}>
+                Quando conectar, o agente passa a responder automaticamente
+                pelo seu número.
+              </Step>
+            </div>
+
+            <div className="flex flex-wrap gap-2 pt-2">
+              {status === "connected" ? (
+                <>
+                  <Button
+                    variant="outline"
+                    onClick={() => disconnect.mutate({ agentId, wipe: false })}
+                    disabled={disconnect.isPending}
+                  >
+                    <Unplug className="h-4 w-4 mr-1.5" />
+                    Desconectar
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => disconnect.mutate({ agentId, wipe: true })}
+                    disabled={disconnect.isPending}
+                    className="text-destructive hover:text-destructive"
+                  >
+                    <XCircle className="h-4 w-4 mr-1.5" />
+                    Encerrar e apagar sessão
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Button onClick={() => start.mutate({ agentId })} disabled={start.isPending}>
+                    {start.isPending ? (
+                      <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+                    ) : (
+                      <Smartphone className="h-4 w-4 mr-1.5" />
+                    )}
+                    Iniciar conexão
+                  </Button>
+                  {(status === "logged_out" || status === "banned" || status === "disconnected") && (
+                    <Button
+                      variant="outline"
+                      onClick={() => disconnect.mutate({ agentId, wipe: true })}
+                      disabled={disconnect.isPending}
+                    >
+                      <RefreshCw className="h-4 w-4 mr-1.5" />
+                      Apagar sessão antiga
+                    </Button>
+                  )}
+                </>
+              )}
+            </div>
+
+            {data?.lastError && status !== "connected" && (
+              <p className="text-xs text-destructive/80 mt-2">
+                Último erro: {data.lastError}
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-6 elevated-card rounded-2xl p-5 text-xs text-muted-foreground space-y-2">
+        <p>
+          • A sessão é mantida no servidor. Se reiniciar, o agente reconecta
+          sozinho — você não precisa escanear de novo.
+        </p>
+        <p>
+          • Mensagens recebidas e enviadas usam o mesmo cérebro, etapas, mídias
+          e regras de follow-up que você configurou.
+        </p>
+        <p>
+          • Em modo QR Code, <strong>templates HSM e janela de 24h não se
+          aplicam</strong> — o follow-up envia a mensagem livremente.
+        </p>
+      </div>
+    </>
+  );
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const map: Record<string, { label: string; cls: string }> = {
+    connected: { label: "Conectado", cls: "bg-accent/15 text-accent border-accent/30" },
+    awaiting_qr: { label: "Aguardando leitura", cls: "bg-amber-500/15 text-amber-300 border-amber-500/30" },
+    connecting: { label: "Conectando", cls: "bg-amber-500/15 text-amber-300 border-amber-500/30" },
+    disconnected: { label: "Desconectado", cls: "bg-muted text-muted-foreground border-border" },
+    logged_out: { label: "Sessão expirada", cls: "bg-muted text-muted-foreground border-border" },
+    banned: { label: "Banido", cls: "bg-destructive/15 text-destructive border-destructive/30" },
+  };
+  const m = map[status] ?? map.disconnected;
+  return (
+    <span className={`text-xs px-2.5 py-1 rounded-full border ${m.cls}`}>{m.label}</span>
+  );
+}
+
+function Step({ n, children }: { n: number; children: React.ReactNode }) {
+  return (
+    <div className="flex gap-2.5">
+      <span className="h-5 w-5 rounded-full bg-accent/15 text-accent text-[10px] font-semibold grid place-items-center shrink-0 mt-0.5">
+        {n}
+      </span>
+      <div className="text-sm text-muted-foreground leading-relaxed">{children}</div>
     </div>
   );
 }

@@ -111,6 +111,39 @@ No painel da Meta:
 
 ---
 
+## 5B. Conexão alternativa: WhatsApp via QR Code (Baileys, não oficial)
+
+Além da API Cloud oficial, o WhatsAgent suporta conectar um número de WhatsApp **escaneando um QR Code pelo celular** — igual ao WhatsApp Web. É útil para validar a ferramenta sem precisar aprovar número, BM ou templates na Meta.
+
+> **Aviso importante.** Esse modo usa engenharia reversa do WhatsApp Web através da biblioteca [Baileys](https://github.com/WhiskeySockets/Baileys). Ele **viola os Termos de Serviço do WhatsApp** e o número conectado pode ser banido a qualquer momento, especialmente em alto volume, disparos em massa ou comportamento automatizado evidente. Use por sua conta e risco. Para produção séria, prefira a API Oficial.
+
+### 5B.1. Como funciona
+
+- Cada agente tem um campo `connectionMode` que pode ser `official` ou `qr`.
+- Em modo `qr`, o servidor abre uma sessão Baileys persistente em disco (`.wa-sessions/agent-<id>`) e a mantém viva enquanto o processo Node estiver no ar.
+- Mensagens recebidas são entregues ao **mesmo motor de IA** (cérebro, etapas, RAG, memória).
+- Mensagens enviadas (texto, imagem, vídeo) são roteadas pelo cliente Baileys em vez da Graph API.
+- Templates HSM e a janela de 24h **não se aplicam** — follow-ups disparam livremente.
+- A reconexão após queda é automática (5s); em caso de logout/banimento o status fica visível no painel.
+
+### 5B.2. Passo a passo de uso
+
+1. No painel, vá em **WhatsApp** (com o agente selecionado).
+2. Escolha o cartão **“QR Code (não oficial)”**.
+3. Clique em **Iniciar conexão** — um QR Code aparece em poucos segundos.
+4. No celular do número a ser usado, abra **WhatsApp → Configurações → Aparelhos conectados → Conectar um aparelho**.
+5. Aponte a câmera para o QR. O status muda para **Conectado** e o agente passa a responder automaticamente.
+6. Para encerrar, use **Desconectar** (mantém credencial salva) ou **Encerrar e apagar sessão** (apaga `.wa-sessions/agent-<id>`).
+
+### 5B.3. Considerações de produção (modo QR)
+
+- A pasta `.wa-sessions/` precisa ter permissão de escrita pelo processo Node e ser persistente entre reinicializações (não use volumes efêmeros).
+- Não rode duas instâncias do servidor apontando para a mesma pasta de sessão — isso desconecta o número.
+- Mantenha volume baixo, intervalos generosos entre mensagens e textos humanóides (não em massa) para reduzir risco de ban.
+- Em caso de queda permanente, basta apagar `.wa-sessions/agent-<id>` e gerar um novo QR.
+
+---
+
 ## 6. Configurando o agente passo a passo
 
 ### 6.1. Cérebro

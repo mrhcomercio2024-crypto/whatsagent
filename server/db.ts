@@ -22,6 +22,7 @@ import {
   users,
   whatsappConfig,
   whatsappTemplates,
+  qrSessions,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 
@@ -733,4 +734,47 @@ export {
   scriptSteps,
   whatsappConfig,
   whatsappTemplates,
+  qrSessions,
 };
+
+/* ============================================================
+ * QR SESSIONS (Baileys) — modo não oficial
+ * ============================================================ */
+export async function getQrSession(agentId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const r = await db.select().from(qrSessions).where(eq(qrSessions.agentId, agentId)).limit(1);
+  return r[0];
+}
+
+export async function upsertQrSession(
+  agentId: number,
+  patch: Partial<typeof qrSessions.$inferInsert>
+) {
+  const db = await getDb();
+  if (!db) return;
+  const existing = await getQrSession(agentId);
+  if (existing) {
+    await db.update(qrSessions).set(patch).where(eq(qrSessions.agentId, agentId));
+  } else {
+    await db.insert(qrSessions).values({ agentId, ...patch });
+  }
+}
+
+export async function deleteQrSession(agentId: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(qrSessions).where(eq(qrSessions.agentId, agentId));
+}
+
+export async function getAgentByJid(jid: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const r = await db
+    .select({ agent: agents })
+    .from(qrSessions)
+    .innerJoin(agents, eq(qrSessions.agentId, agents.id))
+    .where(eq(qrSessions.jid, jid))
+    .limit(1);
+  return r[0]?.agent;
+}

@@ -21,7 +21,29 @@ import {
 } from "./client";
 import type { OutboundAction } from "../ai/orchestrator";
 
+/**
+ * Roteia o envio para o transporte correto conforme o modo do agente:
+ * - 'official' → Meta Cloud API
+ * - 'qr'       → Baileys (não oficial)
+ */
 export async function dispatchActions(opts: {
+  agent: Agent;
+  conversationId: number;
+  actions: OutboundAction[];
+  sender: "ai" | "human";
+}): Promise<void> {
+  if (opts.agent.connectionMode === "qr") {
+    const { dispatchViaBaileys } = await import("./baileys");
+    await dispatchViaBaileys(opts);
+    // ainda agenda follow-ups (mesma lógica)
+    const { scheduleFollowupJobs } = await import("../db");
+    await scheduleFollowupJobs(opts.agent.id, opts.conversationId, new Date());
+    return;
+  }
+  await dispatchActionsOfficial(opts);
+}
+
+export async function dispatchActionsOfficial(opts: {
   agent: Agent;
   conversationId: number;
   actions: OutboundAction[];
