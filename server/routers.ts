@@ -65,6 +65,10 @@ import {
   listCostExtras,
   addCostExtra,
   deleteCostExtra,
+  listRestrictedTerms,
+  addRestrictedTerm,
+  deleteRestrictedTerm,
+  updateStepLiteralMode,
 } from "./db";
 import {
   startQrSession,
@@ -199,10 +203,23 @@ export const appRouter = router({
             completionCriteria: z.string().nullable().optional(),
             llmModel: z.string().nullable().optional(),
             isMandatory: z.boolean().optional(),
+            literalMode: z.boolean().optional(),
+            literalText: z.string().nullable().optional(),
           }),
         })
       )
-      .mutation(({ input }) => updateStep(input.id, input.patch)),
+      .mutation(({ input }) => updateStep(input.id, input.patch as any)),
+    setLiteralMode: protectedProcedure
+      .input(
+        z.object({
+          id: z.number().int().positive(),
+          literalMode: z.boolean(),
+          literalText: z.string().nullable(),
+        })
+      )
+      .mutation(({ input }) =>
+        updateStepLiteralMode(input.id, input.literalMode, input.literalText)
+      ),
     delete: protectedProcedure.input(idSchema).mutation(({ input }) => deleteStep(input.id)),
     reorder: protectedProcedure
       .input(
@@ -797,6 +814,32 @@ export const appRouter = router({
           return { ok: true } as const;
         }),
     }),
+  }),
+
+  // ─── RESTRICTED TERMS ───
+  restrictedTerms: router({
+    list: protectedProcedure
+      .input(agentScopedSchema)
+      .query(({ input }) => listRestrictedTerms(input.agentId)),
+    add: protectedProcedure
+      .input(
+        z.object({
+          agentId: z.number().int().positive(),
+          term: z.string().min(1).max(200),
+          action: z.enum(["block", "rewrite"]).default("block"),
+          notes: z.string().max(300).nullable().optional(),
+        })
+      )
+      .mutation(async ({ input }) => {
+        await addRestrictedTerm(input);
+        return { ok: true } as const;
+      }),
+    remove: protectedProcedure
+      .input(z.object({ id: z.number().int().positive(), agentId: z.number().int().positive() }))
+      .mutation(async ({ input }) => {
+        await deleteRestrictedTerm(input.id, input.agentId);
+        return { ok: true } as const;
+      }),
   }),
 });
 

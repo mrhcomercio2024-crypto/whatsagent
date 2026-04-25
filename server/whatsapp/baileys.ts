@@ -21,6 +21,7 @@ import {
 import type { Agent } from "../../drizzle/schema";
 import { processInboundForReply } from "../ai/orchestrator";
 import { persistOutboundActions, type OutboundAction } from "../ai/orchestrator";
+import { recognizeMedia, absoluteStorageUrl } from "../ai/mediaRecognition";
 import path from "path";
 import fs from "fs";
 import qrcode from "qrcode";
@@ -234,28 +235,83 @@ async function handleInbound(agentId: number, sock: WASocket, msg: any) {
   let mediaUrl: string | null = null;
 
   const m = msg.message;
+  let mediaInfo:
+    | { kind: "image" | "audio" | "video" | "document"; caption: string; mimeType: string }
+    | null = null;
   if (m.conversation) {
     inboundText = m.conversation;
   } else if (m.extendedTextMessage?.text) {
     inboundText = m.extendedTextMessage.text;
   } else if (m.imageMessage) {
     contentType = "image";
-    inboundText = m.imageMessage.caption || "[imagem recebida]";
+    mediaInfo = {
+      kind: "image",
+      caption: m.imageMessage.caption || "",
+      mimeType: m.imageMessage.mimetype || "image/jpeg",
+    };
+    inboundText = mediaInfo.caption || "[imagem recebida]";
   } else if (m.videoMessage) {
     contentType = "video";
-    inboundText = m.videoMessage.caption || "[vídeo recebido]";
+    mediaInfo = {
+      kind: "video",
+      caption: m.videoMessage.caption || "",
+      mimeType: m.videoMessage.mimetype || "video/mp4",
+    };
+    inboundText = mediaInfo.caption || "[vídeo recebido]";
   } else if (m.audioMessage) {
     contentType = "audio";
+    mediaInfo = {
+      kind: "audio",
+      caption: "",
+      mimeType: m.audioMessage.mimetype || "audio/ogg",
+    };
     inboundText = "[áudio recebido]";
   } else if (m.documentMessage) {
     contentType = "document";
-    inboundText = m.documentMessage.caption || "[documento recebido]";
+    mediaInfo = {
+      kind: "document",
+      caption: m.documentMessage.caption || "",
+      mimeType: m.documentMessage.mimetype || "application/octet-stream",
+    };
+    inboundText = mediaInfo.caption || "[documento recebido]";
   } else if (m.buttonsResponseMessage?.selectedDisplayText) {
     inboundText = m.buttonsResponseMessage.selectedDisplayText;
   } else if (m.listResponseMessage?.title) {
     inboundText = m.listResponseMessage.title;
   } else {
     inboundText = "[mensagem recebida]";
+  }
+
+  // Tenta baixar e reconhecer mídia (Whisper/Vision) — apenas áudio e imagem disparam reconhecimento
+  if (mediaInfo) {
+    try {
+      const baileys = await import("@whiskeysockets/baileys");
+      const downloadFn: any = (baileys as any).downloadMediaMessage;
+      if (typeof downloadFn === "function") {
+        const buf: Buffer = await downloadFn(
+          msg,
+          "buffer",
+          {},
+          { reuploadRequest: sock.updateMediaMessage }
+        );
+        const ext = (mediaInfo.mimeType.split("/")[1] || "bin").split(";")[0] || "bin";
+        const lead = await findOrCreateLead(agentId, phone, pushName ?? undefined);
+        const conv = await findOrCreateConversation(agentId, lead);
+        const rec = await recognizeMedia(buf, mediaInfo.mimeType, ext, {
+          agentId,
+          conversationId: conv,
+          leadId: lead,
+        });
+        if (rec.storedUrl) mediaUrl = absoluteStorageUrl(rec.storedUrl);
+        if (rec.text) {
+          inboundText = mediaInfo.caption
+            ? `${mediaInfo.caption}\n\n${rec.text}`
+            : rec.text;
+        }
+      }
+    } catch (err) {
+      console.error("[baileys] media recognition failed:", err);
+    }
   }
 
   const agent = await getAgentById(agentId);

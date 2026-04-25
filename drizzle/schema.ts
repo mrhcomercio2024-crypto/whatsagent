@@ -122,6 +122,9 @@ export const scriptSteps = mysqlTable(
     llmModel: varchar("llmModel", { length: 80 }),
     // Se true, agente NUNCA pode pular esta etapa
     isMandatory: boolean("isMandatory").default(true).notNull(),
+    // Se true, agente envia EXATAMENTE o texto literal abaixo (sem reescrever)
+    literalMode: boolean("literalMode").default(false).notNull(),
+    literalText: text("literalText"),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
   },
   table => ({
@@ -594,3 +597,28 @@ export const costExtras = mysqlTable("cost_extras", {
 });
 export type CostExtra = typeof costExtras.$inferSelect;
 export type InsertCostExtra = typeof costExtras.$inferInsert;
+
+
+/**
+ * ────────────────────────────────────────────────────────────
+ * RESTRICTED TERMS — termos/expressões que o agente NÃO pode usar.
+ * Validados após a geração da resposta.
+ * ────────────────────────────────────────────────────────────
+ */
+export const restrictedTerms = mysqlTable(
+  "restricted_terms",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    agentId: int("agentId").notNull(),
+    term: varchar("term", { length: 200 }).notNull(),
+    // Ação: bloquear (regenerar) ou apenas remover/reescrever
+    action: mysqlEnum("action", ["block", "rewrite"]).default("block").notNull(),
+    notes: varchar("notes", { length: 300 }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => ({
+    agentIdx: index("restricted_agent_idx").on(table.agentId),
+  })
+);
+export type RestrictedTerm = typeof restrictedTerms.$inferSelect;
+export type InsertRestrictedTerm = typeof restrictedTerms.$inferInsert;

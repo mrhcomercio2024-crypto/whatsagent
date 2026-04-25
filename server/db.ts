@@ -26,6 +26,9 @@ import {
   llmPrices,
   llmUsage,
   costExtras,
+  restrictedTerms,
+  type RestrictedTerm,
+  type InsertRestrictedTerm,
   type LlmPrice,
   type LlmUsage,
   type CostExtra,
@@ -1129,4 +1132,48 @@ export async function deleteCostExtra(id: number): Promise<void> {
   const db = await getDb();
   if (!db) return;
   await db.delete(costExtras).where(eq(costExtras.id, id));
+}
+
+
+/* ============================================================
+ * RESTRICTED TERMS — termos proibidos por agente
+ * ============================================================ */
+export async function listRestrictedTerms(agentId: number): Promise<RestrictedTerm[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return await db
+    .select()
+    .from(restrictedTerms)
+    .where(eq(restrictedTerms.agentId, agentId))
+    .orderBy(desc(restrictedTerms.createdAt));
+}
+
+export async function addRestrictedTerm(input: InsertRestrictedTerm): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(restrictedTerms).values(input);
+}
+
+export async function deleteRestrictedTerm(id: number, agentId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .delete(restrictedTerms)
+    .where(and(eq(restrictedTerms.id, id), eq(restrictedTerms.agentId, agentId)));
+}
+
+/* ============================================================
+ * SCRIPT STEP — literal mode update
+ * ============================================================ */
+export async function updateStepLiteralMode(
+  stepId: number,
+  literalMode: boolean,
+  literalText: string | null
+): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .update(scriptSteps)
+    .set({ literalMode, literalText })
+    .where(eq(scriptSteps.id, stepId));
 }

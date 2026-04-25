@@ -203,3 +203,33 @@ export function verifyWebhookSignature(
     return false;
   }
 }
+
+
+/**
+ * Baixa o conteúdo binário de uma mídia recebida via Cloud API.
+ * Fluxo Meta: 1) GET /{media-id} → retorna `{url}`; 2) GET nessa URL com Bearer.
+ */
+export async function downloadMedia(
+  creds: WaCredentials,
+  mediaId: string
+): Promise<{ buffer: Buffer; mimeType: string; ext: string } | { error: string }> {
+  if (!creds.accessToken) return { error: "Token Cloud API ausente" };
+  try {
+    const metaRes = await fetch(`${GRAPH_BASE}/${mediaId}`, {
+      headers: { Authorization: `Bearer ${creds.accessToken}` },
+    });
+    if (!metaRes.ok) return { error: `meta ${metaRes.status}` };
+    const meta = (await metaRes.json()) as { url?: string; mime_type?: string };
+    if (!meta.url) return { error: "URL ausente" };
+    const binRes = await fetch(meta.url, {
+      headers: { Authorization: `Bearer ${creds.accessToken}` },
+    });
+    if (!binRes.ok) return { error: `bin ${binRes.status}` };
+    const buf = Buffer.from(await binRes.arrayBuffer());
+    const mimeType = meta.mime_type || binRes.headers.get("content-type") || "application/octet-stream";
+    const ext = (mimeType.split("/")[1] || "bin").split(";")[0] || "bin";
+    return { buffer: buf, mimeType, ext };
+  } catch (e: any) {
+    return { error: e?.message || String(e) };
+  }
+}

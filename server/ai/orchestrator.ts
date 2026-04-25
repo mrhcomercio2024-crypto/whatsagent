@@ -34,10 +34,13 @@ import type { Agent } from "../../drizzle/schema";
 import { invokeWithModel } from "./invoke";
 import {
   buildMessages,
+  buildSystemPrompt,
+  findRestrictedHits,
   parseAgentOutput,
   selectKnowledge,
   type PromptContext,
 } from "./prompt";
+import { listRestrictedTerms } from "../db";
 import {
   detectKeywordTriggers,
   detectStepTriggers,
@@ -119,19 +122,38 @@ export async function processInboundForReply(opts: {
   }
 
   // 3. Carrega contexto
-  const [brain, steps, allKnowledge, allMedia, triggers, history] = await Promise.all([
-    getBrainByAgent(agent.id),
-    listSteps(agent.id),
-    listKnowledge(agent.id),
-    listMedia(agent.id),
-    listTriggers(agent.id),
-    listMessages(conversationId, { limit: 60 }),
-  ]);
+  const [brain, steps, allKnowledge, allMedia, triggers, history, restrictedRows] =
+    await Promise.all([
+      getBrainByAgent(agent.id),
+      listSteps(agent.id),
+      listKnowledge(agent.id),
+      listMedia(agent.id),
+      listTriggers(agent.id),
+      listMessages(conversationId, { limit: 60 }),
+      listRestrictedTerms(agent.id),
+    ]);
 
   let currentStep = conv.currentStepId
     ? steps.find(s => s.id === conv.currentStepId)
     : steps[0];
   if (!currentStep && steps.length > 0) currentStep = steps[0];
+
+  // 3.b MODO LITERAL: se a etapa atual define texto literal, despacha sem LLM
+  if (currentStep?.literalMode && currentStep.literalText && currentStep.literalText.trim()) {
+    const literal = currentStep.literalText.trim();
+    const updates: any = {};
+    if (!conv.currentStepId) updates.currentStepId = currentStep.id;
+    // avança automaticamente se for obrigatória — mantemos comportamento simples
+    if (Object.keys(updates).length > 0) await updateConversation(conversationId, updates);
+    return {
+      actions: [{ type: "text", text: literal }],
+      handoff: false,
+      stepAdvanced: false,
+      outOfHours: false,
+    };
+  }
+
+  const restricted = restrictedRows.map(r => ({ term: r.term, action: r.action as "block" | "rewrite" }));
 
   // 4. Mídias disparadas por gatilho explícito
   const sentIds = (conv.sentMediaIds as number[] | null) ?? [];
@@ -158,6 +180,7 @@ export async function processInboundForReply(opts: {
     history,
     leadName: lead?.name ?? null,
     leadPhone: lead?.phoneNumber ?? null,
+    restrictedTerms: restricted,
   };
 
   const messages = buildMessages(ctx);
@@ -198,6 +221,57 @@ export async function processInboundForReply(opts: {
     eventType: "response_time_ms",
     valueNumber: Date.now() - startedAt,
   });
+
+  // VALIDADOR de termos proibidos: até 2 retentativas, depois sanitiza por substituição
+  if (restricted.length > 0) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const hits = findRestrictedHits(aiOutput, restricted);
+      if (hits.length === 0) break;
+      const list = hits.map(h => `"${h.term}"`).join(", ");
+      console.log(
+        `[orchestrator] restricted terms detected (${list}); regenerating (attempt ${attempt + 1}/2)`
+      );
+      try {
+        const r2 = await invokeWithModel({
+          model,
+          messages: [
+            ...messages,
+            { role: "assistant", content: aiOutput },
+            {
+              role: "user",
+              content:
+                `Sua última resposta contém termos proibidos: ${list}. ` +
+                `REESCREVA exatamente a mesma intenção sem usar nenhuma dessas palavras (nem variantes). ` +
+                `Mantenha o tom e o formato. Não explique a correção.`,
+            },
+          ],
+          maxTokens: 600,
+          temperature: 0.4,
+          tracking: {
+            purpose: "validator",
+            agentId: agent.id,
+            conversationId,
+            leadId: lead?.id,
+          },
+        });
+        aiOutput = r2.text || aiOutput;
+      } catch (e) {
+        console.warn("[orchestrator] validator regenerate failed:", (e as Error).message);
+        break;
+      }
+    }
+    // Último recurso: censura por substituição
+    const stillHits = findRestrictedHits(aiOutput, restricted);
+    if (stillHits.length > 0) {
+      for (const h of stillHits) {
+        const re = new RegExp(
+          h.term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+          "gi"
+        );
+        aiOutput = aiOutput.replace(re, "—");
+      }
+    }
+  }
 
   const parsed = parseAgentOutput(aiOutput);
 

@@ -50,6 +50,13 @@
       "when": 1777129520254,
       "tag": "0006_yellow_spiral",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "5",
+      "when": 1777130673355,
+      "tag": "0007_organic_ikaris",
+      "breakpoints": true
     }
   ]
 }

@@ -60,7 +60,7 @@ const groups: Array<{
     label: "Operação",
     items: [
       { icon: LayoutDashboard, label: "Dashboard", path: "/dashboard" },
-      { icon: Inbox, label: "Inbox", path: "/inbox" },
+      { icon: MessageSquare, label: "Chat", path: "/chat" },
       { icon: Users, label: "Leads", path: "/leads" },
       { icon: TestTube2, label: "Simulador", path: "/simulator" },
       { icon: DollarSign, label: "Custos", path: "/costs" },

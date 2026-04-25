@@ -24,7 +24,8 @@ import { whatsappConfig } from "../../drizzle/schema";
 import { eq } from "drizzle-orm";
 import { processInboundForReply } from "../ai/orchestrator";
 import { dispatchActions } from "./dispatcher";
-import { verifyWebhookSignature } from "./client";
+import { downloadMedia, verifyWebhookSignature } from "./client";
+import { recognizeMedia, absoluteStorageUrl } from "../ai/mediaRecognition";
 
 export function registerWhatsappWebhook(app: Express) {
   // Capture raw body para verificação de assinatura (HMAC)
@@ -131,10 +132,45 @@ async function handleIncoming(req: Request) {
         let mediaUrl: string | null = null;
         if (m.type === "text") {
           inboundText = m.text?.body || "";
-        } else if (m.type === "image" || m.type === "video" || m.type === "audio" || m.type === "document") {
+        } else if (
+          m.type === "image" ||
+          m.type === "video" ||
+          m.type === "audio" ||
+          m.type === "document"
+        ) {
           contentType = m.type;
-          inboundText = m[m.type]?.caption || `[${m.type} recebida]`;
-          mediaUrl = m[m.type]?.id ? `wa-media:${m[m.type].id}` : null;
+          const waMediaId = m[m.type]?.id;
+          const caption = m[m.type]?.caption || "";
+          inboundText = caption || `[${m.type} recebida]`;
+          mediaUrl = waMediaId ? `wa-media:${waMediaId}` : null;
+          // Baixa, salva no storage e reconhece (áudio: Whisper, imagem: Vision)
+          if (waMediaId && config?.accessToken && config?.phoneNumberId) {
+            try {
+              const lead = await findOrCreateLead(agent.id, fromPhone, contactName);
+              const conv = await findOrCreateConversation(agent.id, lead);
+              const dl = await downloadMedia(
+                {
+                  phoneNumberId: config.phoneNumberId,
+                  accessToken: config.accessToken,
+                  appSecret: config.appSecret,
+                },
+                waMediaId
+              );
+              if ("buffer" in dl) {
+                const rec = await recognizeMedia(dl.buffer, dl.mimeType, dl.ext, {
+                  agentId: agent.id,
+                  conversationId: conv,
+                  leadId: lead,
+                });
+                mediaUrl = rec.storedUrl ? absoluteStorageUrl(rec.storedUrl) : mediaUrl;
+                inboundText = caption ? `${caption}\n\n${rec.text}` : rec.text;
+              } else {
+                console.warn("[webhook] media download failed:", dl.error);
+              }
+            } catch (err) {
+              console.error("[webhook] media recognition failed:", err);
+            }
+          }
         } else if (m.type === "interactive") {
           inboundText =
             m.interactive?.button_reply?.title ||

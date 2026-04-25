@@ -30,6 +30,7 @@ export type PromptContext = {
   history: DbMessage[];
   leadName?: string | null;
   leadPhone?: string | null;
+  restrictedTerms?: Array<{ term: string; action: "block" | "rewrite" }>;
 };
 
 const HARD_RULES = `
@@ -99,6 +100,13 @@ ${availableMedia
 `
       : "";
 
+  const restrictedBlock =
+    (ctx.restrictedTerms ?? []).length > 0
+      ? `\n## TERMOS PROIBIDOS (NUNCA usar; reescreva ou omita)\n${ctx.restrictedTerms!
+          .map(t => `- "${t.term}"${t.action === "rewrite" ? " (pode reescrever)" : " (não pode aparecer de forma alguma)"}`)
+          .join("\n")}\n`
+      : "";
+
   return `Você é "${agent.name}", agente de vendas via WhatsApp.
 
 # CÉREBRO DO AGENTE
@@ -110,6 +118,7 @@ ${stepsList || "(sem etapas configuradas)"}
 ${currentStepBlock}
 ${knowledgeBlock}
 ${mediaBlock}
+${restrictedBlock}
 # DADOS DO LEAD
 - Nome: ${leadName || "(desconhecido — pergunte se necessário pela etapa)"}
 - Telefone: ${leadPhone || "(oculto)"}
@@ -196,4 +205,43 @@ export function parseAgentOutput(raw: string): {
     .trim();
 
   return { cleanText, mediaIds, stepAdvance, handoff };
+}
+
+
+/**
+ * Verifica se o texto contém algum termo proibido (case-insensitive, sem acentos).
+ * Retorna a lista de termos encontrados (vazio = ok).
+ */
+export function findRestrictedHits(
+  text: string,
+  terms: Array<{ term: string; action: "block" | "rewrite" }>
+): Array<{ term: string; action: "block" | "rewrite" }> {
+  if (!text || terms.length === 0) return [];
+  const norm = (s: string) =>
+    s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const haystack = norm(text);
+  return terms.filter(t => {
+    const needle = norm(t.term).trim();
+    return needle.length > 0 && haystack.includes(needle);
+  });
+}
+
+/**
+ * Substitui ocorrências (case-insensitive) dos termos `rewrite`/`block` no
+ * texto por travessão "—". Usado como fallback quando a IA não obedece à
+ * regra após uma re-tentativa.
+ */
+export function maskRestrictedTerms(
+  text: string,
+  terms: Array<{ term: string }>
+): string {
+  if (!text || terms.length === 0) return text;
+  let out = text;
+  for (const t of terms) {
+    const term = t.term.trim();
+    if (!term) continue;
+    const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    out = out.replace(new RegExp(escaped, "gi"), "—");
+  }
+  return out;
 }

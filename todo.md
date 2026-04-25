@@ -172,3 +172,41 @@
 - [x] Item "Custos" no menu lateral
 - [x] 12 testes vitest do cálculo de custo
 - [x] Checkpoint v7 (6489c2cf)
+
+
+## Fase 32: Schema reconhecimento + blindagem
+- [x] Tabela `restricted_terms` (id, agentId, term, action 'block'|'rewrite', createdAt)
+- [x] Coluna `literalMode` (e `literalText`) em `script_steps`
+- [x] Migration aplicada
+
+## Fase 33: Reconhecimento de áudio e imagem do lead
+- [x] Helper `transcribeFromUrl` (Whisper) e `describeImage` (Vision) em `server/ai/mediaRecognition.ts`
+- [x] Webhook oficial: detectar audio/image/document, baixar via Graph API, processar
+- [x] Baileys: detectar audioMessage/imageMessage/documentMessage, baixar buffer, processar
+- [x] Custos registrados (purpose=transcription / vision)
+
+## Fase 34: Blindagem do agente ao cérebro
+- [x] System prompt reforçado com regras estritas (cérebro/RAG > resposta livre)
+- [x] Modo literal por etapa: envia copy textual sem reescrever
+- [x] Validador pós-geração: bloqueia/regenera + masking fallback
+- [x] UI: editor de termos proibidos em Brain
+- [x] UI: toggle "Modo literal" + campo de texto literal em Steps
+
+## Fase 35: Tempo real (polling agressivo + indicadores)
+- [x] Polling 1.5s da conversa selecionada
+- [x] Indicador "IA digitando…" baseado em `pendingProcessAt`
+- [x] Indicador "você está digitando…" para o operador humano
+
+## Fase 36: Aba Chat em tempo real (substitui Inbox)
+- [x] Rota /chat criada (Inbox preservado em /inbox como fallback)
+- [x] Lista lateral de conversas com busca por nome/telefone
+- [x] Painel central WhatsApp Web ao vivo (balões verde/cinza, mídia inline, áudio com player)
+- [x] Indicador "digitando…" para a IA (typing dots animado)
+- [x] Pausar IA / Assumir conversa: composer humano funcional
+
+## Fase 37: Testes + checkpoint v8
+- [x] Testes vitest do validador de termos proibidos (`findRestrictedHits`)
+- [x] Testes vitest do mascaramento (`maskRestrictedTerms`)
+- [x] Suite completa verde (64/64)
+- [x] Checkpoint v8
+

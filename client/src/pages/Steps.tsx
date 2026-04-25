@@ -66,11 +66,21 @@ function StepsEditor({ agentId }: { agentId: number }) {
     completionCriteria: "",
     llmModel: "",
     isMandatory: true,
+    literalMode: false,
+    literalText: "",
   });
 
   function openCreate() {
     setEditing(null);
-    setForm({ name: "", instructions: "", completionCriteria: "", llmModel: "", isMandatory: true });
+    setForm({
+      name: "",
+      instructions: "",
+      completionCriteria: "",
+      llmModel: "",
+      isMandatory: true,
+      literalMode: false,
+      literalText: "",
+    });
     setOpen(true);
   }
   function openEdit(s: any) {
@@ -81,6 +91,8 @@ function StepsEditor({ agentId }: { agentId: number }) {
       completionCriteria: s.completionCriteria ?? "",
       llmModel: s.llmModel ?? "",
       isMandatory: s.isMandatory,
+      literalMode: !!s.literalMode,
+      literalText: s.literalText ?? "",
     });
     setOpen(true);
   }
@@ -94,6 +106,7 @@ function StepsEditor({ agentId }: { agentId: number }) {
       ...form,
       llmModel: form.llmModel || null,
       completionCriteria: form.completionCriteria || null,
+      literalText: form.literalMode ? form.literalText : null,
     };
     if (editing) {
       update.mutate(
@@ -164,6 +177,11 @@ function StepsEditor({ agentId }: { agentId: number }) {
                     {!s.llmModel && agent && (
                       <span className="text-[10px] text-muted-foreground">
                         usa modelo padrão · {agent.defaultLlmModel}
+                      </span>
+                    )}
+                    {s.literalMode && (
+                      <span className="text-[10px] uppercase tracking-wider text-amber-400/90 bg-amber-400/10 px-1.5 py-0.5 rounded">
+                        literal
                       </span>
                     )}
                   </div>
@@ -272,6 +290,29 @@ function StepsEditor({ agentId }: { agentId: number }) {
                   <Label className="cursor-pointer">Etapa obrigatória</Label>
                 </div>
               </div>
+            </div>
+
+            <div className="rounded-xl border border-border/60 p-4 space-y-3 bg-muted/20">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <Label className="cursor-pointer">Modo literal</Label>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Quando ativado, o agente envia exatamente o texto abaixo nesta etapa, sem reescrever via LLM.
+                  </p>
+                </div>
+                <Switch
+                  checked={form.literalMode}
+                  onCheckedChange={v => setForm({ ...form, literalMode: v })}
+                />
+              </div>
+              {form.literalMode && (
+                <Textarea
+                  rows={4}
+                  value={form.literalText}
+                  onChange={e => setForm({ ...form, literalText: e.target.value })}
+                  placeholder="Texto exato que o agente vai enviar nesta etapa."
+                />
+              )}
             </div>
           </div>
           <DialogFooter>
