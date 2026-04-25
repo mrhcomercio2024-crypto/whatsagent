@@ -138,10 +138,11 @@
 
 
 ## Fase 19: Simulador como Emulador WhatsApp realista
-- [ ] Backend: procedure `simulator.send` que processa o input com cérebro/etapas/mídias e retorna lista de ações + parâmetros de timing (debounce, typing cps, min/max, inter-message)
-- [ ] Frontend: novo `Simulator.tsx` no estilo emulador (header verde com avatar, status "online"/"digitando…", fundo padrão pattern, balões verde-claro do agente / branco do "lead", ticks azuis de leitura, timestamp, scroll automático)
-- [ ] Animações: indicador "digitando…" no header e balão de typing; respeitar `debounceSeconds` antes de processar; aplicar `typingMinDelayMs/MaxDelayMs` antes de cada mensagem; calcular tempo extra proporcional (`length / typingCps`); aplicar `interMessageDelayMs` entre mensagens
-- [ ] Suporte a renderização de mídia (imagem/vídeo) como no WhatsApp
-- [ ] Botão "Reiniciar conversa" e seletor de etapa inicial
-- [ ] Testes vitest para cálculo de tempo total (debounce + typing + delays)
-- [ ] Checkpoint v5
+- [x] Backend: `simulator.sendMessage` enriquecido com timing + dados de mídia (mediaType, url, caption)
+- [x] Frontend: `Simulator.tsx` reescrito como emulador (mockup celular + header WhatsApp + fundo padrão + balões verde/cinza + ticks azuis + timestamp + scroll auto)
+- [x] Animações: typing dots, indicador "digitando…" no header, debounce real (countdown), typing por mensagem (proporcional), pausa interMessageDelayMs entre mensagens
+- [x] Suporte a renderização de imagem/vídeo/áudio como no WhatsApp + placeholders
+- [x] Botão Reiniciar (limpa estado e cancela conversa)
+- [x] Painel lateral de diagnóstico (estado e configuração ativa)
+- [x] Testes vitest 31/31 passando (não foram acrescidos novos pq a lógica de timing já é coberta por humanize.test.ts)
+- [x] Checkpoint v5 (b0718f71)
