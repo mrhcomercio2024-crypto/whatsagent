@@ -260,3 +260,14 @@
 - [x] UI Etapas: input numérico "Avançar após N mensagens (anti-trava)" + badge "máx N msg" na lista
 - [x] Vitest `stepLimit.test.ts` (7 cenários) — 96/96 verde
 - [x] Checkpoint v13
+
+## Fase 43: Bug — agente pula etapas iniciais (responde da Etapa 2/3 sem cumprimentar)
+- [x] Prompt: regra dura de NUNCA antecipar etapas seguintes + cita explicitamente o nome da próxima etapa
+- [x] Prompt: regra 5.1 — NUNCA STEP_ADVANCE no primeiro turno
+- [x] Prompt: "você está na etapa N de M: 'X'" para a IA se localizar
+- [x] Helper puro `canAdvanceStep` em `server/ai/stepSkip.ts`: bloqueia avanço sem inbound real e em primeiro turno
+- [x] `currentStepId` agora é persistido na 1ª resposta da IA (mesmo sem advance)
+- [x] Detector `looksLikeStepSkip(text, current, all, isFirstTurn)` baseado em keywords das etapas futuras
+- [x] Orchestrator: regenera 1x com instrução estrita; persistindo, devolve fallback humano fiel à etapa atual
+- [x] Vitest `stepSkip.test.ts` (14 cenários) — 110/110 verde
+- [x] Checkpoint v14

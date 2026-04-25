@@ -36,6 +36,7 @@ import {
   countAiMessagesInCurrentStep,
   shouldAutoAdvanceByCount,
 } from "./stepLimit";
+import { canAdvanceStep, looksLikeStepSkip } from "./stepSkip";
 import { refreshConversationSummary, shouldRefreshSummary } from "./summarizer";
 import type { Agent } from "../../drizzle/schema";
 import { invokeWithModel } from "./invoke";
@@ -332,6 +333,11 @@ export async function processInboundForReply(opts: {
     }
   }
 
+  // Detecta primeiro turno: nenhuma mensagem outbound da IA até agora
+  const isFirstTurn = !history.some(
+    h => h.direction === "outbound" && h.sender === "ai"
+  );
+
   // VALIDADOR anti-vazamento de etapa: se a IA começou a "narrar" o script,
   // pedimos uma reescrita curta. Se persistir, devolvemos um fallback humano.
   {
@@ -384,7 +390,68 @@ export async function processInboundForReply(opts: {
     }
   }
 
+  // VALIDADOR anti-pular-etapa: se a IA antecipou conteúdo de etapa
+  // posterior, regenera 1x forçando ficar na etapa atual.
+  if (currentStep && steps.length > 1) {
+    const skip = looksLikeStepSkip(aiOutput, currentStep, steps as any, isFirstTurn);
+    if (skip.skipped) {
+      console.log(
+        `[orchestrator] step skip detectado (${skip.reason}; matched=${(skip.matchedKeywords||[]).join(",")}); regenerando 1x`
+      );
+      try {
+        const stricterMessages = [
+          ...messages,
+          {
+            role: "system" as const,
+            content: `⚠️ Sua resposta anterior antecipou "${skip.jumpedTo}". Reescreva FOCANDO APENAS na etapa "${currentStep.name}". Sem mencionar produto/preço/próximos passos. UMA pergunta só.`,
+          },
+        ];
+        const r2 = await invokeWithModel({
+          model,
+          messages: stricterMessages,
+          maxTokens: 600,
+          temperature: 0.4,
+          tracking: {
+            purpose: "orchestrator",
+            agentId: agent.id,
+            conversationId,
+          },
+        });
+        const text2 = (r2.text || "").trim();
+        const skip2 = looksLikeStepSkip(text2, currentStep, steps as any, isFirstTurn);
+        if (text2 && !skip2.skipped) {
+          aiOutput = text2;
+        } else if (text2) {
+          // segunda tentativa ainda antecipou: usa fallback humano da etapa atual
+          console.warn(
+            `[orchestrator] step skip persistiu após reescrita (${skip2.reason})`
+          );
+          aiOutput = isFirstTurn
+            ? "Oi! Tudo bem? Antes da gente falar dos detalhes, posso saber seu nome?"
+            : "Antes de seguir, me confirma rapidinho o que você já sabe sobre isso?";
+        }
+      } catch (e) {
+        console.warn("[orchestrator] regen step skip falhou:", (e as Error).message);
+      }
+    }
+  }
+
   const parsed = parseAgentOutput(aiOutput);
+
+  // Bloqueia STEP_ADVANCE em primeiro turno (regra dura)
+  const inboundCountInStep = history.filter(
+    h => h.direction === "inbound" && h.sender === "lead"
+  ).length;
+  const allowAdvance = canAdvanceStep({
+    parsedAdvance: parsed.stepAdvance,
+    isFirstTurn,
+    inboundCountInStep,
+  });
+  if (parsed.stepAdvance && !allowAdvance) {
+    console.log(
+      `[orchestrator] STEP_ADVANCE bloqueado (firstTurn=${isFirstTurn}, inbound=${inboundCountInStep})`
+    );
+  }
 
   // 6. Compor ações
   const actions: OutboundAction[] = [];
@@ -407,14 +474,14 @@ export async function processInboundForReply(opts: {
   }
   if (newSentIds.length !== sentIds.length) updates.sentMediaIds = newSentIds;
 
-  if (parsed.stepAdvance && currentStep) {
+  if (allowAdvance && currentStep) {
     const idx = steps.findIndex(s => s.id === currentStep!.id);
     const next = idx >= 0 && idx + 1 < steps.length ? steps[idx + 1] : null;
     if (next) updates.currentStepId = next.id;
   } else if (!conv.currentStepId && currentStep) {
+    // Persiste a etapa atual desde a 1ª resposta da IA, mesmo sem advance
     updates.currentStepId = currentStep.id;
   } else if (stepAutoAdvancedByLimit && currentStep) {
-    // garante persistência caso nenhuma outra atualização tenha alterado o stepId
     updates.currentStepId = currentStep.id;
   }
 
@@ -491,7 +558,7 @@ export async function processInboundForReply(opts: {
   return {
     actions,
     handoff: parsed.handoff || !!handoffMatch,
-    stepAdvanced: parsed.stepAdvance,
+    stepAdvanced: allowAdvance,
     outOfHours: false,
   };
 }
