@@ -415,7 +415,8 @@ export async function findConversationByLead(
 export async function findOrCreateLead(
   agentId: number,
   phoneNumber: string,
-  name?: string
+  name?: string,
+  opts?: { isLid?: boolean }
 ): Promise<number> {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
@@ -425,8 +426,13 @@ export async function findOrCreateLead(
     .where(and(eq(leads.agentId, agentId), eq(leads.phoneNumber, phoneNumber)))
     .limit(1);
   if (existing[0]) {
-    if (name && !existing[0].name) {
-      await db.update(leads).set({ name }).where(eq(leads.id, existing[0].id));
+    const updates: Partial<InsertLead> = {};
+    if (name && !existing[0].name) updates.name = name;
+    if (opts?.isLid !== undefined && existing[0].isLid !== opts.isLid) {
+      updates.isLid = opts.isLid;
+    }
+    if (Object.keys(updates).length > 0) {
+      await db.update(leads).set(updates).where(eq(leads.id, existing[0].id));
     }
     return existing[0].id;
   }
@@ -434,6 +440,7 @@ export async function findOrCreateLead(
     agentId,
     phoneNumber,
     name: name ?? null,
+    isLid: opts?.isLid ?? false,
   } satisfies InsertLead);
   return (r as any)[0]?.insertId as number;
 }

@@ -1,0 +1,1 @@
+ALTER TABLE `leads` ADD `isLid` boolean DEFAULT false NOT NULL;

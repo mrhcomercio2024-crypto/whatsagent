@@ -294,6 +294,9 @@ export const leads = mysqlTable(
     // correspondente tem isBlocking=true, o orchestrator trava o atendimento e envia replyWhenBlocked.
     statusTag: varchar("statusTag", { length: 80 }),
     statusTagSetAt: timestamp("statusTagSetAt"),
+    // Indica se phoneNumber é um LID (@lid) do WhatsApp em vez de um número real.
+    // Quando true, o dispatcher envia para `<id>@lid` em vez de `<id>@s.whatsapp.net`.
+    isLid: boolean("isLid").default(false).notNull(),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
     updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   },

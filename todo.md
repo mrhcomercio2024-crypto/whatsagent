@@ -391,3 +391,18 @@
 ## Fase 57: Refinar tratamento de "Stream Errored (restart required)"
 - [x] Separar erros recuperáveis (restart-only) de terminais (wipe) no handler de close do Baileys (agora restart=515 reconecta em 1.5s sem apagar creds; erros realmente terminais continuam disparando wipe)
 - [x] Suite 174/174 verde + checkpoint v27
+
+
+## Fase 58: Refazer Chat — painel "Detalhes do Lead"
+- [ ] Alinhar escopo com o usuário (campos, prioridades)
+- [ ] Schema: lead.email, lead.notes, lead.saleValueCents + tabelas leadTags + leadHistoryEvents
+- [ ] Backend: procedures CRUD tags/notas/valor/histórico/mudar canal
+- [ ] Frontend: layout 3 colunas (lista convs | chat | detalhes), todas as seções da referência
+- [ ] Testes vitest
+- [ ] Checkpoint v28
+
+
+## Fase 59 (BLOQUEANTE): Mensagem AI não chega ao WhatsApp real
+- [ ] Investigar dispatcher + jid (lead Marcelo Menezes com phoneNumber=233268589332983 - 15 dígitos, prefix 233)
+- [ ] Verificar persistOutboundActions vs sock.sendMessage
+- [ ] Corrigir + checkpoint

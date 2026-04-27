@@ -259,6 +259,62 @@ async function bootSocket(agentId: number): Promise<void> {
  * Decide se uma mensagem inbound deve ser processada ou descartada.
  * Exposta para teste (unit test).
  */
+/**
+ * Resolve o número de telefone real (E.164 sem +) a partir dos campos de uma mensagem.
+ * Lida com o novo formato @lid do WhatsApp Multi-Device, onde remoteJid pode ser um LID interno
+ * e o número real fica em senderPn / participantPn.
+ */
+export function resolveRealPhone(params: {
+  remoteJid: string | undefined | null;
+  senderPn?: string | undefined | null;
+  participant?: string | undefined | null;
+  participantPn?: string | undefined | null;
+}): { phone: string | null; jidForSend: string | null; isLid: boolean } {
+  const remoteJid = (params.remoteJid || "").trim();
+  const isLid = remoteJid.endsWith("@lid");
+  // Tentar fontes na ordem: senderPn (mais confiável), participantPn, participant, remoteJid
+  const candidates = [
+    params.senderPn,
+    params.participantPn,
+    params.participant,
+    remoteJid,
+  ].filter((x): x is string => !!x && typeof x === "string");
+  for (const c of candidates) {
+    const local = (c.split("@")[0] ?? c).split(":")[0] ?? c;
+    const digits = local.replace(/\D/g, "");
+    if (!digits) continue;
+    // Se o JID original é @lid e essa fonte também é @lid, não serve como número real
+    if (c.endsWith("@lid") && isLid) continue;
+    // Heurística: telefones reais têm 8–15 dígitos. LIDs costumam ter 14–16.
+    // Só aceitamos como "real" se vier de uma fonte não-LID.
+    if (!c.endsWith("@lid")) {
+      return {
+        phone: digits,
+        jidForSend: `${digits}@s.whatsapp.net`,
+        isLid: false,
+      };
+    }
+  }
+  // Nenhuma fonte não-LID disponível. Se temos um LID, usamos ele para envio (Baileys aceita @lid).
+  if (isLid) {
+    const local = (remoteJid.split("@")[0] ?? remoteJid).split(":")[0] ?? remoteJid;
+    const digits = local.replace(/\D/g, "");
+    return {
+      phone: digits || null,
+      jidForSend: digits ? `${digits}@lid` : null,
+      isLid: true,
+    };
+  }
+  // Último fallback: extrair do remoteJid mesmo
+  const local = (remoteJid.split("@")[0] ?? remoteJid).split(":")[0] ?? remoteJid;
+  const digits = local.replace(/\D/g, "");
+  return {
+    phone: digits || null,
+    jidForSend: digits ? `${digits}@s.whatsapp.net` : null,
+    isLid: false,
+  };
+}
+
 export function shouldProcessInbound(params: {
   fromMe: boolean | undefined;
   remoteJid: string | undefined | null;
@@ -307,7 +363,19 @@ async function handleInbound(agentId: number, sock: WASocket, msg: any) {
     return;
   }
   const remoteJid: string = msg.key?.remoteJid || "";
-  const phone = decision.phone!;
+  // Resolve o número REAL: lida com remoteJid @lid e prefere senderPn se disponível
+  const resolved = resolveRealPhone({
+    remoteJid,
+    senderPn: msg.key?.senderPn,
+    participant: msg.key?.participant,
+    participantPn: msg.key?.participantPn,
+  });
+  const phone = resolved.phone || decision.phone!;
+  if (resolved.isLid) {
+    console.warn(
+      `[baileys] agent ${agentId}: lead salvo a partir de @lid (sem senderPn) — phone=${phone}. Mensagem será enviada usando @lid.`
+    );
+  }
   const pushName: string | null = msg.pushName || null;
 
   // Extrai conteúdo
@@ -376,7 +444,7 @@ async function handleInbound(agentId: number, sock: WASocket, msg: any) {
           { reuploadRequest: sock.updateMediaMessage }
         );
         const ext = (mediaInfo.mimeType.split("/")[1] || "bin").split(";")[0] || "bin";
-        const lead = await findOrCreateLead(agentId, phone, pushName ?? undefined);
+        const lead = await findOrCreateLead(agentId, phone, pushName ?? undefined, { isLid: resolved.isLid });
         const conv = await findOrCreateConversation(agentId, lead);
         const rec = await recognizeMedia(buf, mediaInfo.mimeType, ext, {
           agentId,
@@ -405,7 +473,7 @@ async function handleInbound(agentId: number, sock: WASocket, msg: any) {
     `[baileys] inbound from ${phone} for agent ${agentId}: ${inboundText.slice(0, 80)}`
   );
 
-  const leadId = await findOrCreateLead(agentId, phone, pushName ?? undefined);
+  const leadId = await findOrCreateLead(agentId, phone, pushName ?? undefined, { isLid: resolved.isLid });
   const convId = await findOrCreateConversation(agentId, leadId);
 
   await appendMessage({
@@ -416,7 +484,13 @@ async function handleInbound(agentId: number, sock: WASocket, msg: any) {
     body: inboundText,
     mediaUrl,
     waMessageId: msg.key?.id ?? null,
-    metadata: { from: phone, transport: "baileys" },
+    metadata: {
+      from: phone,
+      transport: "baileys",
+      remoteJid,
+      isLid: resolved.isLid,
+      senderPn: msg.key?.senderPn ?? null,
+    },
   });
   await recordMetric({
     agentId,
@@ -488,7 +562,17 @@ export async function dispatchViaBaileys(opts: {
     console.warn(`[baileys] dispatch aborted: lead sem número válido (conv=${conversationId})`);
     return;
   }
-  const jid = `${leadDigits}@s.whatsapp.net`;
+  // Usa flag isLid persistida no lead pelo handleInbound: se a conversa veio de um @lid,
+  // o envio deve ser para `<id>@lid`, não para `<id>@s.whatsapp.net` (que o WhatsApp descarta).
+  const isLidLead = await getLeadIsLid(conv.leadId);
+  const jid = isLidLead
+    ? `${leadDigits}@lid`
+    : `${leadDigits}@s.whatsapp.net`;
+  if (isLidLead) {
+    console.log(
+      `[baileys] dispatch: lead.isLid=true; enviando para ${jid}`
+    );
+  }
   // Blindagem final: jamais envia para o próprio JID (evita loop de auto-resposta)
   const selfJid: string | null = sock?.user?.id ?? null;
   if (selfJid) {
@@ -604,6 +688,12 @@ async function getLeadPhone(leadId: number): Promise<string | null> {
   const { getLeadById } = await import("../db");
   const lead = await getLeadById(leadId);
   return lead?.phoneNumber ?? null;
+}
+
+async function getLeadIsLid(leadId: number): Promise<boolean> {
+  const { getLeadById } = await import("../db");
+  const lead = await getLeadById(leadId);
+  return !!(lead as any)?.isLid;
 }
 
 function absolutize(url: string): string {
