@@ -372,3 +372,10 @@
 - [x] 7 testes vitest novos em `statusClassifier.test.ts`
 - [x] Suite total 163/163 verde
 - [x] Regra `membro_wedrop` pré-cadastrada para o agente "Ravi teste"
+
+## Fase 55: Bug crítico Baileys/QR — agente se auto-responde
+- [x] Diagnosticar: encontradas 2 armadilhas (newsletter/@lid e self-message quando remoteJid == selfJid)
+- [x] Corrigir: função `shouldProcessInbound` centralizada + blindagem no dispatcher antes de enviar
+- [x] Testes vitest de regressão (11 novos em `baileys.inboundFilter.test.ts`)
+- [x] Suite 174/174 verde
+- [x] Checkpoint v25 + instruções de re-teste

@@ -218,15 +218,59 @@ async function bootSocket(agentId: number): Promise<void> {
   console.log(`[baileys] agent ${agentId} socket booted, listening for messages`);
 }
 
-async function handleInbound(agentId: number, sock: WASocket, msg: any) {
-  if (!msg.message) return;
-  if (msg.key?.fromMe) return; // ignora ecos
-  const remoteJid: string = msg.key?.remoteJid || "";
-  if (!remoteJid || remoteJid.endsWith("@g.us")) return; // ignora grupos por padrão
-  if (remoteJid.endsWith("@broadcast")) return;
-  if (remoteJid === "status@broadcast") return;
+/**
+ * Decide se uma mensagem inbound deve ser processada ou descartada.
+ * Exposta para teste (unit test).
+ */
+export function shouldProcessInbound(params: {
+  fromMe: boolean | undefined;
+  remoteJid: string | undefined | null;
+  selfJid: string | undefined | null;
+  hasMessage: boolean;
+}): { accept: boolean; reason?: string; phone?: string } {
+  if (!params.hasMessage) return { accept: false, reason: "no_message" };
+  if (params.fromMe) return { accept: false, reason: "from_me" };
+  const remoteJid = (params.remoteJid || "").trim();
+  if (!remoteJid) return { accept: false, reason: "empty_remote_jid" };
+  // Bloqueia grupos, broadcasts, status, newsletters, canais
+  if (remoteJid.endsWith("@g.us")) return { accept: false, reason: "group" };
+  if (remoteJid === "status@broadcast") return { accept: false, reason: "status" };
+  if (remoteJid.endsWith("@broadcast")) return { accept: false, reason: "broadcast" };
+  if (remoteJid.endsWith("@newsletter")) return { accept: false, reason: "newsletter" };
+  // Extrai telefone normalizado
+  const phone = (remoteJid.split("@")[0] ?? remoteJid).split(":")[0] ?? remoteJid;
+  const phoneDigits = phone.replace(/\D/g, "");
+  if (!phoneDigits) return { accept: false, reason: "no_digits" };
+  // Bloqueia self-message: se o remoteJid (ou só o número) bate com o JID do próprio dono
+  const selfJid = (params.selfJid || "").trim();
+  if (selfJid) {
+    const selfPhone = (selfJid.split("@")[0] ?? selfJid).split(":")[0] ?? selfJid;
+    const selfDigits = selfPhone.replace(/\D/g, "");
+    if (selfDigits && selfDigits === phoneDigits) {
+      return { accept: false, reason: "self_message" };
+    }
+  }
+  return { accept: true, phone: phoneDigits };
+}
 
-  const phone = remoteJid.split("@")[0]?.split(":")[0] ?? remoteJid;
+async function handleInbound(agentId: number, sock: WASocket, msg: any) {
+  const selfJid: string | null = sock?.user?.id ?? null;
+  const decision = shouldProcessInbound({
+    fromMe: msg.key?.fromMe,
+    remoteJid: msg.key?.remoteJid,
+    selfJid,
+    hasMessage: !!msg.message,
+  });
+  if (!decision.accept) {
+    if (decision.reason && decision.reason !== "no_message" && decision.reason !== "from_me") {
+      console.log(
+        `[baileys] inbound rejected (agent=${agentId}, reason=${decision.reason}, remoteJid=${msg.key?.remoteJid})`
+      );
+    }
+    return;
+  }
+  const remoteJid: string = msg.key?.remoteJid || "";
+  const phone = decision.phone!;
   const pushName: string | null = msg.pushName || null;
 
   // Extrai conteúdo
@@ -402,7 +446,29 @@ export async function dispatchViaBaileys(opts: {
   // Recupera o jid do lead a partir do telefone
   const phone = await getLeadPhone(conv.leadId);
   if (!phone) return;
-  const jid = `${phone.replace(/\D/g, "")}@s.whatsapp.net`;
+  const leadDigits = phone.replace(/\D/g, "");
+  if (!leadDigits) {
+    console.warn(`[baileys] dispatch aborted: lead sem número válido (conv=${conversationId})`);
+    return;
+  }
+  const jid = `${leadDigits}@s.whatsapp.net`;
+  // Blindagem final: jamais envia para o próprio JID (evita loop de auto-resposta)
+  const selfJid: string | null = sock?.user?.id ?? null;
+  if (selfJid) {
+    const selfDigits = ((selfJid.split("@")[0] ?? selfJid).split(":")[0] ?? selfJid).replace(/\D/g, "");
+    if (selfDigits && selfDigits === leadDigits) {
+      console.error(
+        `[baileys] DISPATCH ABORTADO: lead=${leadDigits} igual ao self=${selfDigits} (auto-resposta evitada; conv=${conversationId})`
+      );
+      await persistOutboundActions({
+        conversationId,
+        agentId: agent.id,
+        actions,
+        sender,
+      });
+      return;
+    }
+  }
 
   // Helper de typing via Baileys (presence)
   const setTyping =
