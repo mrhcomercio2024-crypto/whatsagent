@@ -290,6 +290,10 @@ export const leads = mysqlTable(
     qualificationNotes: text("qualificationNotes"),
     tags: varchar("tags", { length: 500 }),
     customFields: json("customFields"),
+    // Status automático detectado pela IA (slug de uma lead_status_rule). Quando a regra
+    // correspondente tem isBlocking=true, o orchestrator trava o atendimento e envia replyWhenBlocked.
+    statusTag: varchar("statusTag", { length: 80 }),
+    statusTagSetAt: timestamp("statusTagSetAt"),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
     updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   },
@@ -478,6 +482,53 @@ export const handoffKeywords = mysqlTable(
 );
 export type HandoffKeyword = typeof handoffKeywords.$inferSelect;
 export type InsertHandoffKeyword = typeof handoffKeywords.$inferInsert;
+
+/**
+ * ───────────────────────────────────────────────────────────────
+ * LEAD STATUS RULES — tags automáticas de status do lead
+ *
+ * Quando o lead revela algo sobre sua situação ("já sou aluno", "já pedi reembolso",
+ * "sou afiliado"), um classificador IA roda em paralelo à resposta normal e
+ * atribui `lead.statusTag = slug`.
+ *
+ * Se `isBlocking=true`, o orchestrator no próximo turno NÃO chama o LLM
+ * principal: envia `replyWhenBlocked` e pausa a IA (aiPaused=true).
+ * ───────────────────────────────────────────────────────────────
+ */
+export const leadStatusRules = mysqlTable(
+  "lead_status_rules",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    agentId: int("agentId").notNull(),
+    // Slug curto, início estrito com letras (ex: "membro_wedrop", "afiliado")
+    slug: varchar("slug", { length: 80 }).notNull(),
+    // Nome legível exibido no painel
+    label: varchar("label", { length: 120 }).notNull(),
+    // Descrição usada pelo classificador IA para identificar esse status na fala do lead
+    description: text("description").notNull(),
+    // Se true, o orchestrator trava o atendimento ao detectar essa tag
+    isBlocking: boolean("isBlocking").default(true).notNull(),
+    // Mensagem padrão enviada ao lead quando esta tag bloqueante é atribuída
+    replyWhenBlocked: text("replyWhenBlocked"),
+    // Se true, faz handoff para humano (marca conversation.status = human_handoff)
+    handoffOnMatch: boolean("handoffOnMatch").default(true).notNull(),
+    // Se true, notifica o dono via notifyOwner
+    notifyOwnerOnMatch: boolean("notifyOwnerOnMatch").default(true).notNull(),
+    // Cor da badge na UI
+    badgeColor: varchar("badgeColor", { length: 20 }).default("amber").notNull(),
+    isActive: boolean("isActive").default(true).notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    agentSlugUnique: uniqueIndex("lead_status_rules_agent_slug_unique").on(
+      table.agentId,
+      table.slug
+    ),
+  })
+);
+export type LeadStatusRule = typeof leadStatusRules.$inferSelect;
+export type InsertLeadStatusRule = typeof leadStatusRules.$inferInsert;
 
 /**
  * ────────────────────────────────────────────────────────────

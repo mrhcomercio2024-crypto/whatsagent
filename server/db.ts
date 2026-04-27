@@ -27,8 +27,11 @@ import {
   llmUsage,
   costExtras,
   restrictedTerms,
+  leadStatusRules,
   type RestrictedTerm,
   type InsertRestrictedTerm,
+  type LeadStatusRule,
+  type InsertLeadStatusRule,
   type LlmPrice,
   type LlmUsage,
   type CostExtra,
@@ -1250,6 +1253,61 @@ export async function deleteRestrictedTerm(id: number, agentId: number): Promise
   await db
     .delete(restrictedTerms)
     .where(and(eq(restrictedTerms.id, id), eq(restrictedTerms.agentId, agentId)));
+}
+
+/* ============================================================
+ * LEAD STATUS RULES — tags automáticas de status do lead
+ * ============================================================ */
+export async function listLeadStatusRules(agentId: number): Promise<LeadStatusRule[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return await db
+    .select()
+    .from(leadStatusRules)
+    .where(eq(leadStatusRules.agentId, agentId))
+    .orderBy(desc(leadStatusRules.createdAt));
+}
+
+export async function getLeadStatusRuleBySlug(
+  agentId: number,
+  slug: string
+): Promise<LeadStatusRule | undefined> {
+  const db = await getDb();
+  if (!db) return undefined;
+  const rows = await db
+    .select()
+    .from(leadStatusRules)
+    .where(and(eq(leadStatusRules.agentId, agentId), eq(leadStatusRules.slug, slug)))
+    .limit(1);
+  return rows[0];
+}
+
+export async function createLeadStatusRule(input: InsertLeadStatusRule): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  const [res] = await db.insert(leadStatusRules).values(input);
+  return (res as unknown as { insertId: number }).insertId;
+}
+
+export async function updateLeadStatusRule(
+  id: number,
+  agentId: number,
+  patch: Partial<InsertLeadStatusRule>
+): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .update(leadStatusRules)
+    .set(patch)
+    .where(and(eq(leadStatusRules.id, id), eq(leadStatusRules.agentId, agentId)));
+}
+
+export async function deleteLeadStatusRule(id: number, agentId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .delete(leadStatusRules)
+    .where(and(eq(leadStatusRules.id, id), eq(leadStatusRules.agentId, agentId)));
 }
 
 /* ============================================================

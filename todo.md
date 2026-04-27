@@ -329,16 +329,16 @@
 - [x] Checkpoint v21
 
 ## Fase 51: Auditoria de fluxo do agente
-- [ ] Mapear pipeline (orchestrator, prompt, dispatcher, db, webhook, baileys)
-- [ ] Rodar suite vitest completa e revisar cobertura
-- [ ] Compilar fragilidades por criticidade
-- [ ] Entregar relatório priorizado com recomendações
+- [x] Mapear pipeline (orchestrator, prompt, dispatcher, db, webhook, baileys) — concluído na auditoria (AUDIT_REPORT.md)
+- [x] Rodar suite vitest completa e revisar cobertura — 156/156 verde
+- [x] Compilar fragilidades por criticidade — entregue em AUDIT_REPORT.md
+- [x] Entregar relatório priorizado com recomendações — entregue ao usuário
 
 ## Fase 52: Investigar variação do agente "Ravi teste" no Simulador
-- [ ] Inspecionar agent_brain e script_steps do agente Ravi para identificar a causa
-- [ ] Diagnosticar: script vs cérebro vs orchestrator
-- [ ] Reportar diagnóstico com recomendação
-- [ ] Bug: "(Sem resposta — verifique cérebro/etapas)" — corrigir orchestrator quando agente não tem etapas
+- [x] Inspecionar agent_brain e script_steps do agente Ravi para identificar a causa — diagnóstico entregue
+- [x] Diagnosticar: script vs cérebro vs orchestrator — script (Etapa 4 monolítica) identificada como causa
+- [x] Reportar diagnóstico com recomendação — entregue (proposta opção B: 2 etapas largas)
+- [x] Bug: "(Sem resposta — verifique cérebro/etapas)" — corrigido na Fase 53 (anti-repetição não suprime + safety net)
 
 
 ## Fase 53: Bug "(Sem resposta — verifique cérebro/etapas)" no Simulador
@@ -347,3 +347,28 @@
 - [x] Correção 2: safety net no fim do orchestrator — se `actions=[]` em conversa normal (não handoff/out-of-hours), envia frase neutra "Pode me contar um pouco mais? Quero te entender melhor pra te ajudar do jeito certo."
 - [x] Testes vitest: `orchestratorSafety.test.ts` (6 testes) cobre buildSystemPrompt sem etapas + parseAgentOutput vazio
 - [x] Suite completa verde (156/156)
+
+
+## Fase 54: Tags automáticas de status do lead + trava por tag bloqueante
+- [ ] Alinhar desenho com o usuário (tags, tag bloqueante, mensagem padrão)
+- [ ] Schema: nova tabela `lead_status_rules` (agentId, slug, label, description, isBlocking, replyWhenBlocked) + campo `statusTag` em `leads`
+- [ ] Migration aplicada
+- [ ] Classificador IA: detecta status ao processar inbound e atualiza `lead.statusTag`
+- [ ] Orchestrator: ao entrar, se lead.statusTag == tag bloqueante → responde replyWhenBlocked + pausa IA (aiPaused=true) + handoff opcional
+- [ ] UI: aba "Status automático" em Brain ou em Agents (CRUD de regras)
+- [ ] UI: badge do statusTag em Chat e Leads
+- [ ] Testes vitest
+- [ ] Checkpoint
+
+
+## Fase 54: Tags automáticas de status do lead (membro_wedrop etc.)
+- [x] Schema: nova tabela `lead_status_rules` + campos `statusTag`/`statusTagSetAt` em `leads`
+- [x] Migration 0011 aplicada
+- [x] Classificador IA `statusClassifier.ts` com JSON estrito (none em caso de dúvida)
+- [x] Middleware no orchestrator: trava, envia replyWhenBlocked, pausa IA, handoff, notifyOwner
+- [x] Router tRPC `leadStatusRules` (list/create/update/remove/clearLeadTag)
+- [x] UI em Brain.tsx — seção "Status automático do lead" com CRUD
+- [x] UI em Leads.tsx — coluna "Status auto" com badge bloqueante + botão limpar
+- [x] 7 testes vitest novos em `statusClassifier.test.ts`
+- [x] Suite total 163/163 verde
+- [x] Regra `membro_wedrop` pré-cadastrada para o agente "Ravi teste"

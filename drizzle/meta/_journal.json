@@ -78,6 +78,13 @@
       "when": 1777133332077,
       "tag": "0010_slim_triton",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "5",
+      "when": 1777315690973,
+      "tag": "0011_chemical_sauron",
+      "breakpoints": true
     }
   ]
 }

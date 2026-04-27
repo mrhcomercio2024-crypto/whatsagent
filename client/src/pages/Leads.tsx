@@ -12,7 +12,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { trpc } from "@/lib/trpc";
-import { Download, Flame, Snowflake, Sun, Users } from "lucide-react";
+import { Download, Flame, Lock, Snowflake, Sun, Users, X } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -91,6 +91,7 @@ function Inner({ agentId }: { agentId: number }) {
                 <th className="text-left px-4 py-3">Nome</th>
                 <th className="text-left px-4 py-3">Telefone</th>
                 <th className="text-left px-4 py-3">Temperatura</th>
+                <th className="text-left px-4 py-3">Status auto</th>
                 <th className="text-left px-4 py-3">Tags</th>
                 <th className="text-left px-4 py-3">Criado</th>
                 <th className="text-left px-4 py-3">Notas</th>
@@ -127,6 +128,9 @@ function Inner({ agentId }: { agentId: number }) {
                         <SelectItem value="unknown">Sem qualificação</SelectItem>
                       </SelectContent>
                     </Select>
+                  </td>
+                  <td className="px-4 py-3">
+                    <StatusTagCell lead={l} agentId={agentId} />
                   </td>
                   <td className="px-4 py-3">
                     <Input
@@ -182,5 +186,45 @@ function TempBadge({ t }: { t: string }) {
     <Badge variant="outline" className="text-[10px] text-muted-foreground">
       sem qualif.
     </Badge>
+  );
+}
+
+function StatusTagCell({ lead, agentId }: { lead: any; agentId: number }) {
+  const utils = trpc.useUtils();
+  const { data: rules } = trpc.leadStatusRules.list.useQuery({ agentId });
+  const clear = trpc.leadStatusRules.clearLeadTag.useMutation({
+    onSuccess: () => {
+      utils.leads.list.invalidate({ agentId });
+      toast.success("Tag removida — IA reabre o atendimento no próximo turno");
+    },
+  });
+  if (!lead.statusTag) {
+    return <span className="text-[11px] text-muted-foreground">—</span>;
+  }
+  const rule = (rules ?? []).find((r: any) => r.slug === lead.statusTag);
+  const label = rule?.label || lead.statusTag;
+  const blocking = rule?.isBlocking ?? false;
+  return (
+    <div className="flex items-center gap-1">
+      <Badge
+        className={
+          blocking
+            ? "bg-destructive/15 text-destructive border-destructive/20 text-[10px]"
+            : "bg-blue-500/15 text-blue-300 border-blue-500/20 text-[10px]"
+        }
+      >
+        {blocking && <Lock className="h-2.5 w-2.5 mr-1" />}
+        {label}
+      </Badge>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-6 w-6 p-0"
+        title="Remover tag e reabrir atendimento"
+        onClick={() => clear.mutate({ leadId: lead.id })}
+      >
+        <X className="h-3 w-3" />
+      </Button>
+    </div>
   );
 }

@@ -49,7 +49,13 @@ import {
   selectKnowledge,
   type PromptContext,
 } from "./prompt";
-import { listRestrictedTerms } from "../db";
+import {
+  listRestrictedTerms,
+  listLeadStatusRules,
+  getLeadStatusRuleBySlug,
+} from "../db";
+import { classifyLeadStatus } from "./statusClassifier";
+import { notifyOwner } from "../_core/notification";
 import {
   detectKeywordTriggers,
   detectStepTriggers,
@@ -97,6 +103,31 @@ export async function processInboundForReply(opts: {
 
   // 0. Cancela follow-ups pendentes (lead respondeu)
   await cancelPendingJobsForConversation(conversationId);
+
+  // 0.b TRAVA POR STATUS AUTOMÁTICO já atribuído previamente.
+  // Se o lead já foi marcado com uma tag bloqueante em um turno anterior,
+  // não gastamos mais tokens — só repetimos a mensagem configurada.
+  if (lead?.statusTag) {
+    const existingRule = await getLeadStatusRuleBySlug(agent.id, lead.statusTag);
+    if (existingRule && existingRule.isBlocking) {
+      const reply = (existingRule.replyWhenBlocked || "").trim();
+      if (reply) {
+        return {
+          actions: [{ type: "text", text: reply }],
+          handoff: existingRule.handoffOnMatch,
+          stepAdvanced: false,
+          outOfHours: false,
+        };
+      }
+      // Sem mensagem configurada: silencia (IA pausada, nada a dizer)
+      return {
+        actions: [],
+        handoff: existingRule.handoffOnMatch,
+        stepAdvanced: false,
+        outOfHours: false,
+      };
+    }
+  }
 
   // 1. Handoff por palavra-chave
   const handoffKws = await listHandoffKeywords(agent.id);
@@ -158,6 +189,78 @@ export async function processInboundForReply(opts: {
     ? steps.find(s => s.id === conv.currentStepId)
     : steps[0];
   if (!currentStep && steps.length > 0) currentStep = steps[0];
+
+  // 3.0 CLASSIFICADOR DE STATUS AUTOMÁTICO (IA paralela)
+  // Roda antes da geração normal. Se detectar uma regra, atualiza o lead e
+  // — se for bloqueante — substitui a resposta pela replyWhenBlocked.
+  try {
+    const statusRules = await listLeadStatusRules(agent.id);
+    if (statusRules.length > 0) {
+      const histForClassifier = history.map(m => ({
+        role: (m.direction === "inbound" ? "user" : "assistant") as "user" | "assistant",
+        text: m.body || "",
+      }));
+      const classif = await classifyLeadStatus({
+        rules: statusRules,
+        history: histForClassifier,
+        lastInboundText: inboundText,
+        model: agent.defaultLlmModel,
+        tracking: { agentId: agent.id, conversationId, leadId: lead?.id },
+      });
+      if (classif.slug) {
+        const rule = statusRules.find(r => r.slug === classif.slug);
+        if (rule) {
+          // Atualiza o lead com a tag
+          if (lead && lead.statusTag !== rule.slug) {
+            await updateLead(lead.id, {
+              statusTag: rule.slug,
+              statusTagSetAt: new Date(),
+            });
+            console.log(
+              `[orchestrator] lead ${lead.id} marcado com statusTag=${rule.slug} (${classif.reason})`
+            );
+          }
+          if (rule.isBlocking) {
+            // Handoff e pausa
+            const convUpdate: any = { aiPaused: true };
+            if (rule.handoffOnMatch) convUpdate.status = "human_handoff";
+            await updateConversation(conversationId, convUpdate);
+            await recordMetric({
+              agentId: agent.id,
+              conversationId,
+              eventType: "status_block",
+              metadata: { slug: rule.slug, reason: classif.reason },
+            });
+            if (rule.notifyOwnerOnMatch) {
+              notifyOwner({
+                title: `Lead marcado como '${rule.label}'`,
+                content: `Lead ${lead?.name || lead?.phoneNumber || "desconhecido"} (agente ${agent.name}) foi classificado como '${rule.label}'. Motivo: ${classif.reason}. A IA foi pausada.`,
+              }).catch(e =>
+                console.warn("[orchestrator] notifyOwner falhou:", (e as Error).message)
+              );
+            }
+            const reply = (rule.replyWhenBlocked || "").trim();
+            if (reply) {
+              return {
+                actions: [{ type: "text", text: reply }],
+                handoff: rule.handoffOnMatch,
+                stepAdvanced: false,
+                outOfHours: false,
+              };
+            }
+            return {
+              actions: [],
+              handoff: rule.handoffOnMatch,
+              stepAdvanced: false,
+              outOfHours: false,
+            };
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.warn("[orchestrator] status classifier falhou:", (e as Error).message);
+  }
 
   // 3.a Auto-avanço por teto de mensagens da etapa: se a etapa atual tem
   // `maxMessages` configurado e a IA já enviou esse total nesta etapa, avança

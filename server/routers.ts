@@ -67,6 +67,10 @@ import {
   deleteCostExtra,
   listRestrictedTerms,
   addRestrictedTerm,
+  listLeadStatusRules,
+  createLeadStatusRule,
+  updateLeadStatusRule,
+  deleteLeadStatusRule,
   deleteRestrictedTerm,
   updateStepLiteralMode,
 } from "./db";
@@ -905,6 +909,69 @@ export const appRouter = router({
       .input(z.object({ id: z.number().int().positive(), agentId: z.number().int().positive() }))
       .mutation(async ({ input }) => {
         await deleteRestrictedTerm(input.id, input.agentId);
+        return { ok: true } as const;
+      }),
+  }),
+
+  // ─── LEAD STATUS RULES (tags automáticas) ───
+  leadStatusRules: router({
+    list: protectedProcedure
+      .input(agentScopedSchema)
+      .query(({ input }) => listLeadStatusRules(input.agentId)),
+    create: protectedProcedure
+      .input(
+        z.object({
+          agentId: z.number().int().positive(),
+          slug: z.string().min(2).max(80).regex(/^[a-z][a-z0-9_]*$/, {
+            message: "Slug deve começar com letra minúscula e conter apenas [a-z0-9_]",
+          }),
+          label: z.string().min(1).max(120),
+          description: z.string().min(10).max(2000),
+          isBlocking: z.boolean().default(true),
+          replyWhenBlocked: z.string().max(2000).nullable().optional(),
+          handoffOnMatch: z.boolean().default(true),
+          notifyOwnerOnMatch: z.boolean().default(true),
+          badgeColor: z.enum(["amber", "red", "blue", "green", "purple", "slate"]).default("amber"),
+          isActive: z.boolean().default(true),
+        })
+      )
+      .mutation(async ({ input }) => {
+        const id = await createLeadStatusRule(input);
+        return { id, ok: true } as const;
+      }),
+    update: protectedProcedure
+      .input(
+        z.object({
+          id: z.number().int().positive(),
+          agentId: z.number().int().positive(),
+          patch: z.object({
+            label: z.string().min(1).max(120).optional(),
+            description: z.string().min(10).max(2000).optional(),
+            isBlocking: z.boolean().optional(),
+            replyWhenBlocked: z.string().max(2000).nullable().optional(),
+            handoffOnMatch: z.boolean().optional(),
+            notifyOwnerOnMatch: z.boolean().optional(),
+            badgeColor: z.enum(["amber", "red", "blue", "green", "purple", "slate"]).optional(),
+            isActive: z.boolean().optional(),
+          }),
+        })
+      )
+      .mutation(async ({ input }) => {
+        await updateLeadStatusRule(input.id, input.agentId, input.patch);
+        return { ok: true } as const;
+      }),
+    remove: protectedProcedure
+      .input(z.object({ id: z.number().int().positive(), agentId: z.number().int().positive() }))
+      .mutation(async ({ input }) => {
+        await deleteLeadStatusRule(input.id, input.agentId);
+        return { ok: true } as const;
+      }),
+    // Remove manualmente a tag do lead (para reabrir o fluxo)
+    clearLeadTag: protectedProcedure
+      .input(z.object({ leadId: z.number().int().positive() }))
+      .mutation(async ({ input }) => {
+        const { updateLead } = await import("./db");
+        await updateLead(input.leadId, { statusTag: null, statusTagSetAt: null });
         return { ok: true } as const;
       }),
   }),
