@@ -422,7 +422,10 @@ function QrPanel({ agentId }: { agentId: number }) {
                     )}
                     Iniciar conexão
                   </Button>
-                  {(status === "logged_out" || status === "banned" || status === "disconnected") && (
+                  {(status === "logged_out" ||
+                    status === "banned" ||
+                    status === "disconnected" ||
+                    !!data?.lastError) && (
                     <Button
                       variant="outline"
                       onClick={() => disconnect.mutate({ agentId, wipe: true })}
@@ -437,9 +440,20 @@ function QrPanel({ agentId }: { agentId: number }) {
             </div>
 
             {data?.lastError && status !== "connected" && (
-              <p className="text-xs text-destructive/80 mt-2">
-                Último erro: {data.lastError}
-              </p>
+              <div className="mt-2 text-xs space-y-1">
+                <p className="text-destructive/80">
+                  Último erro: {data.lastError}
+                </p>
+                {/connection failure|stream error|conflict|timeout|forbidden/i.test(
+                  data.lastError
+                ) && (
+                  <p className="text-muted-foreground">
+                    Sessão anterior expirou ou foi invalidada pelo WhatsApp.
+                    Clique em <strong>Apagar sessão antiga</strong> e depois
+                    em <strong>Iniciar conexão</strong> para gerar um novo QR.
+                  </p>
+                )}
+              </div>
             )}
           </div>
         </div>

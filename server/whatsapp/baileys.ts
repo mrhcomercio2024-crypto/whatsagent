@@ -189,13 +189,35 @@ async function bootSocket(agentId: number): Promise<void> {
       const reason = lastDisconnect?.error?.message || "closed";
       const loggedOut = code === DisconnectReason?.loggedOut;
       const banned = code === 403 || /banned/i.test(reason);
+      // 'Connection Failure' e códigos 401/440/515 indicam credenciais inválidas/sessão expirada — tratar como logout
+      const sessionExpired =
+        /connection failure|stream error|conflict|forbidden/i.test(reason) ||
+        code === 401 ||
+        code === 440 ||
+        code === 515;
+      const treatAsLogout = loggedOut || sessionExpired;
       await upsertQrSession(agentId, {
-        status: banned ? "banned" : loggedOut ? "logged_out" : "disconnected",
+        status: banned ? "banned" : treatAsLogout ? "logged_out" : "disconnected",
         lastError: reason,
       });
-      console.warn(`[baileys] agent ${agentId} closed: ${reason} (code=${code})`);
-      if (!loggedOut && !banned) {
-        // tenta reconectar em 5s
+      console.warn(
+        `[baileys] agent ${agentId} closed: ${reason} (code=${code}, sessionExpired=${sessionExpired})`
+      );
+      // Se a sessão expirou ou foi deslogada, limpa automáticamente o snapshot para o próximo Iniciar Conexão gerar QR novo sem ressuscitar credenciais quebradas
+      if (treatAsLogout || banned) {
+        try {
+          const dir = authDirFor(agentId);
+          fs.rmSync(dir, { recursive: true, force: true });
+          await upsertQrSession(agentId, { authBlob: null });
+          console.log(`[baileys] agent ${agentId}: auth wiped after ${banned ? "ban" : "session expired"}`);
+        } catch (err) {
+          console.warn(
+            `[baileys] auto-wipe failed for agent ${agentId}:`,
+            (err as Error).message
+          );
+        }
+      } else if (!loggedOut && !banned) {
+        // tenta reconectar em 5s apenas em quedas temporárias
         setTimeout(() => {
           startQrSession(agentId).catch(e =>
             console.warn("[baileys] reconnect failed", (e as Error).message)
@@ -602,6 +624,9 @@ export async function disconnectQrSession(agentId: number, wipe = false): Promis
     lastQr: null,
     jid: null,
     displayName: null,
+    lastError: null,
+    // Quando wipe=true, também apaga o snapshot do banco para não restaurar credenciais antigas no próximo boot
+    ...(wipe ? { authBlob: null } : {}),
   });
   const off = onOff.get(agentId);
   if (off) {

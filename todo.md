@@ -379,3 +379,10 @@
 - [x] Testes vitest de regressão (11 novos em `baileys.inboundFilter.test.ts`)
 - [x] Suite 174/174 verde
 - [x] Checkpoint v25 + instruções de re-teste
+
+
+## Fase 56: Bug "Connection Failure / Sessão expirada" no QR
+- [x] Diagnosticar: snapshot do banco ressuscitava creds inválidos a cada Iniciar Conexão + botão de wipe estava escondido
+- [x] Corrigir: wipe automático quando WhatsApp fecha com Connection Failure/401/440/515; wipe manual agora limpa authBlob; botão de wipe sempre visível quando há lastError; mensagem orientativa
+- [x] Suite 174/174 verde
+- [x] Checkpoint v26 + instruções
