@@ -386,3 +386,8 @@
 - [x] Corrigir: wipe automático quando WhatsApp fecha com Connection Failure/401/440/515; wipe manual agora limpa authBlob; botão de wipe sempre visível quando há lastError; mensagem orientativa
 - [x] Suite 174/174 verde
 - [x] Checkpoint v26 + instruções
+
+
+## Fase 57: Refinar tratamento de "Stream Errored (restart required)"
+- [x] Separar erros recuperáveis (restart-only) de terminais (wipe) no handler de close do Baileys (agora restart=515 reconecta em 1.5s sem apagar creds; erros realmente terminais continuam disparando wipe)
+- [x] Suite 174/174 verde + checkpoint v27

@@ -190,39 +190,54 @@ async function bootSocket(agentId: number): Promise<void> {
       const loggedOut = code === DisconnectReason?.loggedOut;
       const banned = code === 403 || /banned/i.test(reason);
       // 'Connection Failure' e códigos 401/440/515 indicam credenciais inválidas/sessão expirada — tratar como logout
+      // Erros recuperáveis: apenas reconectar, manter creds intactas
+      const isRestartRequired =
+        /restart required|stream errored \(restart required\)/i.test(reason) ||
+        code === 515; // 515 = restart required
+      // Erros terminais: credenciais inválidas, sessão realmente expirou
       const sessionExpired =
-        /connection failure|stream error|conflict|forbidden/i.test(reason) ||
-        code === 401 ||
-        code === 440 ||
-        code === 515;
+        !isRestartRequired &&
+        (/connection failure|conflict|forbidden|unauthorized/i.test(reason) ||
+          code === 401 ||
+          code === 403 ||
+          code === 440);
       const treatAsLogout = loggedOut || sessionExpired;
       await upsertQrSession(agentId, {
-        status: banned ? "banned" : treatAsLogout ? "logged_out" : "disconnected",
-        lastError: reason,
+        status: banned
+          ? "banned"
+          : treatAsLogout
+          ? "logged_out"
+          : isRestartRequired
+          ? "connecting"
+          : "disconnected",
+        lastError: isRestartRequired ? null : reason,
       });
       console.warn(
-        `[baileys] agent ${agentId} closed: ${reason} (code=${code}, sessionExpired=${sessionExpired})`
+        `[baileys] agent ${agentId} closed: ${reason} (code=${code}, restartRequired=${isRestartRequired}, sessionExpired=${sessionExpired})`
       );
-      // Se a sessão expirou ou foi deslogada, limpa automáticamente o snapshot para o próximo Iniciar Conexão gerar QR novo sem ressuscitar credenciais quebradas
       if (treatAsLogout || banned) {
+        // Apenas em casos terminais: apaga snapshot para não ressuscitar credenciais quebradas
         try {
           const dir = authDirFor(agentId);
           fs.rmSync(dir, { recursive: true, force: true });
           await upsertQrSession(agentId, { authBlob: null });
-          console.log(`[baileys] agent ${agentId}: auth wiped after ${banned ? "ban" : "session expired"}`);
+          console.log(
+            `[baileys] agent ${agentId}: auth wiped after ${banned ? "ban" : "session expired"}`
+          );
         } catch (err) {
           console.warn(
             `[baileys] auto-wipe failed for agent ${agentId}:`,
             (err as Error).message
           );
         }
-      } else if (!loggedOut && !banned) {
-        // tenta reconectar em 5s apenas em quedas temporárias
+      } else {
+        // Quedas temporárias e Stream Errored (restart required): apenas reconectar
+        const delay = isRestartRequired ? 1500 : 5000;
         setTimeout(() => {
-          startQrSession(agentId).catch(e =>
+          startQrSession(agentId).catch((e) =>
             console.warn("[baileys] reconnect failed", (e as Error).message)
           );
-        }, 5000);
+        }, delay);
       }
     }
   });
