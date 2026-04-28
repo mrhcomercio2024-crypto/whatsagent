@@ -449,3 +449,19 @@
 - [x] Página `/external-events` com 3 abas: Fontes (URL+secret revelável+rotate+enable), Regras (builder visual de ações com reorder), Log (filtro por status, expand payload, reprocessar)
 - [x] 29 testes vitest novos (identify 13, hmac 8, engine 8) — suite total 265/265 verde
 - [x] Checkpoint v32
+
+
+## Fase 68: Janela de horário em reengajamentos + mídias anexáveis + fix do agente
+- [ ] Diagnosticar: agente parou de responder no WhatsApp real e no chat interno (Simulator)
+- [ ] Aplicar correção do bug encontrado
+- [ ] Schema: adicionar `allowedStartHour` (0-23) e `allowedEndHour` (0-23) em `followup_rules` (UTC ou TZ do agente?)
+- [ ] Migration aplicada
+- [ ] Parser `@midia[nome]` no servidor: detecta tags no texto, resolve `mediaAssetId` por nome (case-insensitive) dentro do agente
+- [ ] Procedure tRPC para listar mídias do agente (já existe via `media.list`)
+- [ ] UI Followups: campos de Hora inicial e Hora final no editor
+- [ ] UI Followups: autocomplete de @midia (popover ao digitar @) com lista de mídias do agente
+- [ ] UI Followups: chip removível na prévia mostrando o nome da mídia inserida
+- [ ] Backend de disparo: ao executar followup, se hora atual fora da janela permitida → reagendar para próxima janela
+- [ ] Backend de disparo: extrair `@midia[nome]`, enviar mídia depois do texto (ou junto), remover marcadores do texto final
+- [ ] Testes vitest: parser de @midia + cálculo de janela de horário
+- [ ] Checkpoint v33

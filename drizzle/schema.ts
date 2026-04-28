@@ -421,6 +421,11 @@ export const followupRules = mysqlTable(
       .notNull(),
     // Se a conversa receber mensagem do lead, cancela follow-ups pendentes
     cancelOnReply: boolean("cancelOnReply").default(true).notNull(),
+    // Janela de horário permitido para o disparo (0..23). Se a hora atual
+    // estiver fora da janela, o job é reagendado para o próximo allowedStartHour.
+    // null = sem restrição.
+    allowedStartHour: int("allowedStartHour"),
+    allowedEndHour: int("allowedEndHour"),
     isActive: boolean("isActive").default(true).notNull(),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
   },

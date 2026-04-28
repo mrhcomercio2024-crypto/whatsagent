@@ -12,7 +12,6 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import {
   Select,
@@ -23,12 +22,22 @@ import {
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { trpc } from "@/lib/trpc";
-import { AlarmClockCheck, Plus, Trash2 } from "lucide-react";
-import { useState } from "react";
+import {
+  AlarmClockCheck,
+  Clock,
+  HelpCircle,
+  Image as ImageIcon,
+  Info,
+  Plus,
+  Trash2,
+} from "lucide-react";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
+import { MediaTagTextarea } from "@/components/MediaTagTextarea";
 
 type WindowPolicy = "auto" | "force_template" | "force_free";
 type MessageMode = "ai_generated" | "fixed_text" | "template";
+type DelayUnit = "minutes" | "hours" | "days";
 
 export default function FollowupsPage() {
   return (
@@ -42,6 +51,8 @@ function Inner({ agentId }: { agentId: number }) {
   const utils = trpc.useUtils();
   const { data: rules } = trpc.followup.listRules.useQuery({ agentId });
   const { data: templates } = trpc.whatsapp.listTemplates.useQuery({ agentId });
+  const { data: mediaList } = trpc.media.list.useQuery({ agentId });
+
   const create = trpc.followup.createRule.useMutation({
     onSuccess: () => {
       utils.followup.listRules.invalidate({ agentId });
@@ -58,9 +69,13 @@ function Inner({ agentId }: { agentId: number }) {
 
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<any>(null);
+  const [showHelp, setShowHelp] = useState(false);
   const [form, setForm] = useState<{
     name: string;
-    delayMinutes: number;
+    delayValue: number;
+    delayUnit: DelayUnit;
+    allowedStartHour: number;
+    allowedEndHour: number;
     messageMode: MessageMode;
     fixedText: string;
     aiInstruction: string;
@@ -71,8 +86,11 @@ function Inner({ agentId }: { agentId: number }) {
     isActive: boolean;
   }>({
     name: "",
-    delayMinutes: 60,
-    messageMode: "fixed_text",
+    delayValue: 2,
+    delayUnit: "hours",
+    allowedStartHour: 8,
+    allowedEndHour: 21,
+    messageMode: "ai_generated",
     fixedText: "",
     aiInstruction: "",
     windowPolicy: "auto",
@@ -82,14 +100,35 @@ function Inner({ agentId }: { agentId: number }) {
     isActive: true,
   });
 
+  const tentativaIndex = useMemo(() => {
+    if (!editing) return (rules?.length ?? 0) + 1;
+    const idx = (rules ?? []).findIndex((r: any) => r.id === editing.id);
+    return idx >= 0 ? idx + 1 : 1;
+  }, [editing, rules]);
+
+  function delayToValueUnit(min: number): { v: number; u: DelayUnit } {
+    if (min % 1440 === 0 && min >= 1440) return { v: min / 1440, u: "days" };
+    if (min % 60 === 0 && min >= 60) return { v: min / 60, u: "hours" };
+    return { v: min, u: "minutes" };
+  }
+  function valueUnitToMinutes(v: number, u: DelayUnit) {
+    if (u === "days") return v * 1440;
+    if (u === "hours") return v * 60;
+    return v;
+  }
+
   function openCreate() {
     setEditing(null);
     setForm({
-      name: "Reengajamento 1h",
-      delayMinutes: 60,
-      messageMode: "fixed_text",
-      fixedText: "Oi! Continua por aí?",
-      aiInstruction: "",
+      name: `Reengajamento ${(rules?.length ?? 0) + 1}`,
+      delayValue: 2,
+      delayUnit: "hours",
+      allowedStartHour: 8,
+      allowedEndHour: 21,
+      messageMode: "ai_generated",
+      fixedText: "",
+      aiInstruction:
+        "Crie um follow-up inteligente para trazer a atenção do usuário de volta com algo relevante baseado na última conversa.",
       windowPolicy: "auto",
       templateId: null,
       templateVariables: "",
@@ -100,9 +139,13 @@ function Inner({ agentId }: { agentId: number }) {
   }
   function openEdit(r: any) {
     setEditing(r);
+    const { v, u } = delayToValueUnit(r.delayMinutes);
     setForm({
       name: r.name,
-      delayMinutes: r.delayMinutes,
+      delayValue: v,
+      delayUnit: u,
+      allowedStartHour: r.allowedStartHour ?? 8,
+      allowedEndHour: r.allowedEndHour ?? 21,
       messageMode: r.messageMode,
       fixedText: r.fixedText ?? "",
       aiInstruction: r.aiInstruction ?? "",
@@ -114,7 +157,6 @@ function Inner({ agentId }: { agentId: number }) {
     });
     setOpen(true);
   }
-
   function submit() {
     if (!form.name.trim()) return toast.error("Nome é obrigatório");
     if (form.messageMode === "fixed_text" && !form.fixedText.trim())
@@ -125,10 +167,13 @@ function Inner({ agentId }: { agentId: number }) {
       return toast.error("Selecione um template");
     if (form.windowPolicy === "force_template" && !form.templateId)
       return toast.error("Para 'forçar template' você precisa escolher um template aprovado");
+    if (form.delayValue < 1) return toast.error("Tempo de espera precisa ser ≥ 1");
+    if (form.allowedStartHour === form.allowedEndHour)
+      return toast.error("Hora inicial e final não podem ser iguais");
 
     const payload = {
       name: form.name,
-      delayMinutes: form.delayMinutes,
+      delayMinutes: valueUnitToMinutes(form.delayValue, form.delayUnit),
       messageMode: form.messageMode,
       fixedText: form.fixedText || null,
       aiInstruction: form.aiInstruction || null,
@@ -139,6 +184,8 @@ function Inner({ agentId }: { agentId: number }) {
         .map(v => v.trim())
         .filter(Boolean),
       cancelOnReply: form.cancelOnReply,
+      allowedStartHour: form.allowedStartHour,
+      allowedEndHour: form.allowedEndHour,
       isActive: form.isActive,
     };
 
@@ -162,7 +209,7 @@ function Inner({ agentId }: { agentId: number }) {
       <PageHeader
         eyebrow="Reengajamento"
         title="Follow-ups automáticos"
-        description="Configure exatamente quando e como o agente deve reengajar leads silenciosos. Cada tentativa pode usar a janela 24h (mensagem livre) ou um template aprovado, com texto fixo ou gerado pela IA."
+        description="Configure como o agente reengaja leads silenciosos. Defina tempo de espera, janela de horário permitido e mensagem (texto, IA contextual ou template). Você pode anexar mídias da biblioteca usando @midia[nome]."
         actions={
           <Button onClick={openCreate}>
             <Plus className="h-4 w-4 mr-1.5" />
@@ -175,7 +222,7 @@ function Inner({ agentId }: { agentId: number }) {
         <EmptyState
           icon={<AlarmClockCheck className="h-5 w-5" />}
           title="Nenhuma regra de follow-up"
-          description="Sugestão: tentativa 1 após 1h (sessão), tentativa 2 após 24h (template), tentativa 3 após 72h (template)."
+          description="Sugestão: tentativa 1 após 2h (sessão), tentativa 2 após 24h, tentativa 3 após 72h."
           action={<Button onClick={openCreate}>Criar primeira regra</Button>}
         />
       ) : (
@@ -192,15 +239,16 @@ function Inner({ agentId }: { agentId: number }) {
                     <Badge variant="outline" className="text-xs">
                       após {formatMinutes(r.delayMinutes)}
                     </Badge>
+                    {(r.allowedStartHour != null || r.allowedEndHour != null) && (
+                      <Badge variant="outline" className="text-xs gap-1">
+                        <Clock className="h-3 w-3" />
+                        {pad(r.allowedStartHour ?? 0)}:00–{pad(r.allowedEndHour ?? 23)}:00
+                      </Badge>
+                    )}
                     <Badge variant="outline" className="text-xs">
                       {r.messageMode === "ai_generated" && "IA gera mensagem"}
                       {r.messageMode === "fixed_text" && "texto fixo"}
                       {r.messageMode === "template" && "via template"}
-                    </Badge>
-                    <Badge variant="outline" className="text-xs">
-                      {r.windowPolicy === "auto" && "auto (livre dentro de 24h, senão template)"}
-                      {r.windowPolicy === "force_free" && "só dentro de 24h"}
-                      {r.windowPolicy === "force_template" && "sempre template"}
                     </Badge>
                     {r.cancelOnReply && (
                       <Badge variant="outline" className="text-xs">
@@ -212,7 +260,7 @@ function Inner({ agentId }: { agentId: number }) {
                     <p className="text-sm text-muted-foreground line-clamp-2">{r.fixedText}</p>
                   )}
                   {r.aiInstruction && (
-                    <p className="text-xs text-muted-foreground italic">
+                    <p className="text-xs text-muted-foreground italic line-clamp-2">
                       <span className="font-medium not-italic">IA:</span> {r.aiInstruction}
                     </p>
                   )}
@@ -245,51 +293,120 @@ function Inner({ agentId }: { agentId: number }) {
       )}
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-3xl">
           <DialogHeader>
-            <DialogTitle>{editing ? "Editar regra" : "Nova regra de follow-up"}</DialogTitle>
+            <DialogTitle>
+              {editing
+                ? `Editar Reengajamento — Tentativa nº ${tentativaIndex}`
+                : `Novo Reengajamento — Tentativa nº ${tentativaIndex}`}
+            </DialogTitle>
             <DialogDescription>
-              Defina o intervalo, a origem da mensagem e a política de janela 24h.
+              Quando, em qual janela do dia, e qual mensagem (livre, com IA, ou template).
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="col-span-2">
-                <Label>Nome interno</Label>
+            {/* Linha 1: Tempo + Hora ini + Hora fim */}
+            <div className="grid grid-cols-12 gap-3">
+              <div className="col-span-5">
+                <Label className="flex items-center gap-1">
+                  Tempo de espera
+                  <HelpCircle className="h-3 w-3 text-muted-foreground" />
+                </Label>
+                <div className="flex gap-2">
+                  <Input
+                    type="number"
+                    min={1}
+                    className="w-20"
+                    value={form.delayValue}
+                    onChange={e =>
+                      setForm({ ...form, delayValue: Math.max(1, parseInt(e.target.value || "1", 10)) })
+                    }
+                  />
+                  <Select
+                    value={form.delayUnit}
+                    onValueChange={(v: DelayUnit) => setForm({ ...form, delayUnit: v })}
+                  >
+                    <SelectTrigger className="flex-1">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="minutes">Minutos</SelectItem>
+                      <SelectItem value="hours">Horas</SelectItem>
+                      <SelectItem value="days">Dias</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="col-span-3">
+                <Label className="flex items-center gap-1">
+                  Hora inicial permitida
+                  <HelpCircle className="h-3 w-3 text-muted-foreground" />
+                </Label>
                 <Input
-                  value={form.name}
-                  onChange={e => setForm({ ...form, name: e.target.value })}
-                  placeholder="Reengajamento 1h"
+                  type="time"
+                  value={`${pad(form.allowedStartHour)}:00`}
+                  onChange={e => {
+                    const h = parseInt(e.target.value.split(":")[0] || "0", 10);
+                    setForm({ ...form, allowedStartHour: h });
+                  }}
                 />
               </div>
-              <div>
-                <Label>Disparar após (minutos sem resposta)</Label>
+              <div className="col-span-3">
+                <Label className="flex items-center gap-1">
+                  Hora final permitida
+                  <HelpCircle className="h-3 w-3 text-muted-foreground" />
+                </Label>
                 <Input
-                  type="number"
-                  min={1}
-                  value={form.delayMinutes}
-                  onChange={e =>
-                    setForm({ ...form, delayMinutes: parseInt(e.target.value || "0", 10) })
-                  }
+                  type="time"
+                  value={`${pad(form.allowedEndHour)}:00`}
+                  onChange={e => {
+                    const h = parseInt(e.target.value.split(":")[0] || "0", 10);
+                    setForm({ ...form, allowedEndHour: h });
+                  }}
                 />
-                <p className="text-[10px] text-muted-foreground mt-1">
-                  60 = 1h · 1440 = 24h · 4320 = 72h
-                </p>
               </div>
-              <div>
-                <Label>Política de janela 24h</Label>
-                <Select
-                  value={form.windowPolicy}
-                  onValueChange={(v: WindowPolicy) => setForm({ ...form, windowPolicy: v })}
-                >
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="auto">Auto · livre se dentro de 24h, template se fora</SelectItem>
-                    <SelectItem value="force_free">Só dentro da janela 24h</SelectItem>
-                    <SelectItem value="force_template">Sempre via template aprovado</SelectItem>
-                  </SelectContent>
-                </Select>
+              <div className="col-span-1 flex items-end justify-center">
+                <div className="text-[10px] text-muted-foreground text-center pb-2">
+                  fuso BR
+                </div>
               </div>
+            </div>
+
+            <div>
+              <Label>Nome interno</Label>
+              <Input
+                value={form.name}
+                onChange={e => setForm({ ...form, name: e.target.value })}
+                placeholder="Reengajamento 2h"
+              />
+            </div>
+
+            {/* Template (Meta) */}
+            <div>
+              <Label className="flex items-center gap-1">
+                Template (Meta) — Somente para WhatsApp API Oficial
+                <HelpCircle className="h-3 w-3 text-muted-foreground" />
+              </Label>
+              <Select
+                value={form.templateId ? String(form.templateId) : "none"}
+                onValueChange={v =>
+                  setForm({ ...form, templateId: v === "none" ? null : parseInt(v, 10) })
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Nenhum template disponível" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Nenhum</SelectItem>
+                  {(templates ?? [])
+                    .filter((t: any) => t.status === "approved")
+                    .map((t: any) => (
+                      <SelectItem key={t.id} value={String(t.id)}>
+                        {t.name} ({t.languageCode})
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
             </div>
 
             <div>
@@ -300,65 +417,66 @@ function Inner({ agentId }: { agentId: number }) {
               >
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="fixed_text">Texto fixo</SelectItem>
                   <SelectItem value="ai_generated">IA gera mensagem (contextual)</SelectItem>
+                  <SelectItem value="fixed_text">Texto fixo</SelectItem>
                   <SelectItem value="template">Conteúdo do template</SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
-            {form.messageMode === "fixed_text" && (
+            {/* Textarea principal com autocomplete @midia[] */}
+            {(form.messageMode === "ai_generated" || form.messageMode === "fixed_text") && (
               <div>
-                <Label>Texto fixo</Label>
-                <Textarea
-                  rows={3}
-                  value={form.fixedText}
-                  onChange={e => setForm({ ...form, fixedText: e.target.value })}
-                  placeholder="Oi {nome}, você ainda tem interesse em..."
+                <Label>
+                  {form.messageMode === "ai_generated"
+                    ? "Instrução para IA gerar a mensagem de follow-up (reengajamento)"
+                    : "Texto fixo da mensagem"}
+                </Label>
+                <MediaTagTextarea
+                  value={form.messageMode === "ai_generated" ? form.aiInstruction : form.fixedText}
+                  onChange={v =>
+                    form.messageMode === "ai_generated"
+                      ? setForm({ ...form, aiInstruction: v })
+                      : setForm({ ...form, fixedText: v })
+                  }
+                  mediaList={(mediaList ?? []) as any[]}
+                  rows={5}
+                  placeholder={
+                    form.messageMode === "ai_generated"
+                      ? `Crie um follow-up inteligente para trazer a atenção do usuário de volta com algo do tipo: "Se liga aqui o que os nossos membros falam sobre o nosso modelo." e envie o vídeo @midia[membros.mp4]`
+                      : "Oi {nome}, você ainda tem interesse em..."
+                  }
+                  hintLine={
+                    <span>
+                      <span className="text-accent">💡 Dica:</span> use{" "}
+                      <code className="bg-muted px-1 rounded">@</code> para mídia. As mídias resolvidas
+                      são enviadas em sequência logo após o texto.
+                    </span>
+                  }
                 />
-                <p className="text-[10px] text-muted-foreground mt-1">
-                  Se a janela 24h estiver fechada e a política for <code>auto</code> ou <code>force_template</code>, o sistema substitui pelo template selecionado.
-                </p>
               </div>
             )}
 
-            {form.messageMode === "ai_generated" && (
-              <div>
-                <Label>Instruções para a IA</Label>
-                <Textarea
-                  rows={3}
-                  value={form.aiInstruction}
-                  onChange={e => setForm({ ...form, aiInstruction: e.target.value })}
-                  placeholder="Reengaje o lead com base na última mensagem. Tom leve."
-                />
-              </div>
-            )}
+            <div>
+              <Label>Política de janela 24h (Cloud API)</Label>
+              <Select
+                value={form.windowPolicy}
+                onValueChange={(v: WindowPolicy) => setForm({ ...form, windowPolicy: v })}
+              >
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="auto">Auto · livre se dentro de 24h, template se fora</SelectItem>
+                  <SelectItem value="force_free">Só dentro da janela 24h</SelectItem>
+                  <SelectItem value="force_template">Sempre via template aprovado</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-[10px] text-muted-foreground mt-1">
+                No modo QR (não oficial) o envio é sempre livre — esta política só vale para Cloud API.
+              </p>
+            </div>
 
-            {(form.windowPolicy !== "force_free" || form.messageMode === "template") && (
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label>Template aprovado</Label>
-                  <Select
-                    value={form.templateId ? String(form.templateId) : "none"}
-                    onValueChange={v =>
-                      setForm({ ...form, templateId: v === "none" ? null : parseInt(v, 10) })
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Selecione" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">Nenhum</SelectItem>
-                      {(templates ?? [])
-                        .filter((t: any) => t.status === "approved")
-                        .map((t: any) => (
-                          <SelectItem key={t.id} value={String(t.id)}>
-                            {t.name} ({t.languageCode})
-                          </SelectItem>
-                        ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+            {(form.windowPolicy === "force_template" || form.messageMode === "template") && (
+              <div className="grid grid-cols-1 gap-3">
                 <div>
                   <Label>Variáveis do template (em ordem)</Label>
                   <Input
@@ -370,7 +488,7 @@ function Inner({ agentId }: { agentId: number }) {
               </div>
             )}
 
-            <div className="flex items-center gap-6">
+            <div className="flex items-center gap-6 flex-wrap">
               <div className="flex items-center gap-3">
                 <Switch
                   checked={form.cancelOnReply}
@@ -386,6 +504,39 @@ function Inner({ agentId }: { agentId: number }) {
                 <Label>Regra ativa</Label>
               </div>
             </div>
+
+            <button
+              type="button"
+              onClick={() => setShowHelp(!showHelp)}
+              className="text-xs text-accent inline-flex items-center gap-1.5 hover:underline"
+            >
+              <Info className="h-3.5 w-3.5" />
+              Orientações de como criar um follow-up
+            </button>
+            {showHelp && (
+              <div className="rounded-lg border border-accent/30 bg-accent/10 p-4 text-xs space-y-2">
+                <div className="font-medium text-accent flex items-center gap-1.5">
+                  <ImageIcon className="h-3.5 w-3.5" /> Uso de Mídias
+                </div>
+                <p>
+                  Você pode incluir mídias (imagens, vídeos, áudios, documentos) no seu follow-up
+                  usando o caractere <code className="bg-muted px-1 rounded">@</code>.
+                </p>
+                <ol className="list-decimal pl-5 space-y-1">
+                  <li>
+                    Digite <code className="bg-muted px-1 rounded">@</code> no campo de instrução
+                  </li>
+                  <li>Um menu aparecerá com suas mídias disponíveis</li>
+                  <li>
+                    Selecione a mídia desejada ou use os atalhos rápidos abaixo da prévia
+                  </li>
+                  <li>
+                    A mídia será inserida como{" "}
+                    <code className="bg-muted px-1 rounded">@midia[nome-da-midia]</code>
+                  </li>
+                </ol>
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setOpen(false)}>Cancelar</Button>
@@ -395,6 +546,10 @@ function Inner({ agentId }: { agentId: number }) {
       </Dialog>
     </div>
   );
+}
+
+function pad(n: number) {
+  return String(Math.max(0, Math.min(23, n))).padStart(2, "0");
 }
 
 function formatMinutes(m: number) {

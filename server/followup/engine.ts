@@ -38,6 +38,8 @@ import {
   listTriggers,
 } from "../db";
 import { getAvailableMediaForPrompt } from "../ai/triggers";
+import { extractMediaTags, resolveMediaByName } from "./mediaTags";
+import { isWithinAllowedWindow, nextAllowedAt } from "./timeWindow";
 
 let started = false;
 let intervalHandle: NodeJS.Timeout | null = null;
@@ -93,6 +95,26 @@ async function processOneJob(job: typeof followupJobs.$inferSelect, now: Date) {
   }
   if (rule.cancelOnReply && conv.lastInboundAt && conv.lastInboundAt > job.scheduledAt) {
     await cancelJob(job.id);
+    return;
+  }
+
+  // Janela de horário permitido: se fora, reagenda para a próxima janela.
+  const win = {
+    startHour: (rule as any).allowedStartHour ?? null,
+    endHour: (rule as any).allowedEndHour ?? null,
+  };
+  if (!isWithinAllowedWindow(now, win)) {
+    const next = nextAllowedAt(now, win);
+    const db = await getDb();
+    if (db) {
+      await db
+        .update(followupJobs)
+        .set({ scheduledAt: new Date(next) })
+        .where(eq(followupJobs.id, job.id));
+      console.log(
+        `[followup] job ${job.id} fora da janela ${win.startHour}h-${win.endHour}h — reagendado para ${new Date(next).toLocaleString("pt-BR")}`
+      );
+    }
     return;
   }
 
@@ -174,23 +196,57 @@ async function processOneJob(job: typeof followupJobs.$inferSelect, now: Date) {
       // ai_generated
       text = await generateFollowupText(agent.id, conv.id, rule.aiInstruction || rule.fixedText || "");
     }
+
+    // Extrai tags @midia[nome] do texto e resolve para mediaAssets do agente.
+    // O texto enviado ao lead não contém as tags; as mídias resolvidas são
+    // enviadas em sequência, após o texto.
+    const parsed = extractMediaTags(text);
+    const cleanText = parsed.cleanText;
+    let mediaActions: Array<{ type: "media"; mediaId: number }> = [];
+    if (parsed.uniqueNames.length > 0) {
+      const lib = await listMedia(agent.id);
+      const resolved = resolveMediaByName(parsed.uniqueNames, lib as any[]);
+      mediaActions = resolved.map(m => ({ type: "media" as const, mediaId: m.id }));
+      const missing = parsed.uniqueNames.filter(
+        n => !resolved.some(r => (r.name ?? r.filename ?? "").toLowerCase() === n.toLowerCase())
+      );
+      if (missing.length > 0) {
+        console.warn(
+          `[followup] job ${job.id}: mídias não encontradas pelo nome: ${missing.join(", ")}`
+        );
+      }
+    }
+
     if (isQrMode) {
       // Envia via Baileys; se desconectado, dispatchViaBaileys persiste
       const { dispatchViaBaileys } = await import("../whatsapp/baileys");
+      const actions: Array<{ type: "text"; text: string } | { type: "media"; mediaId: number }> = [];
+      if (cleanText.trim()) actions.push({ type: "text", text: cleanText });
+      actions.push(...mediaActions);
+      if (actions.length === 0) actions.push({ type: "text", text: "Olá!" });
       await dispatchViaBaileys({
         agent,
         conversationId: conv.id,
-        actions: [{ type: "text", text }],
+        actions,
         sender: "ai",
       });
     } else if (creds) {
-      const r = await sendText(creds, lead.phoneNumber, text);
+      // No modo oficial só enviamos texto livre nesta rota; o envio de
+      // mídia anexada por @midia[] ainda não passa pela Cloud API — o
+      // suporte fica apenas no modo QR (não oficial), que é o caso pedido.
+      if (mediaActions.length > 0) {
+        console.warn(
+          `[followup] job ${job.id}: @midia[] anexado em modo Cloud API não suportado — enviando apenas texto`
+        );
+      }
+      const finalText = cleanText.trim() || text;
+      const r = await sendText(creds, lead.phoneNumber, finalText);
       await appendMessage({
         conversationId: conv.id,
         direction: "outbound",
         sender: "ai",
         contentType: "text",
-        body: text,
+        body: finalText,
         waMessageId: r.messageId,
         waStatus: r.ok ? "sent" : "failed",
         metadata: r.ok ? undefined : { error: r.error },
@@ -199,13 +255,22 @@ async function processOneJob(job: typeof followupJobs.$inferSelect, now: Date) {
         await markJobFailed(job.id, r.error || "Falha envio livre");
         return;
       }
+      // pula o else original
+      await markJobSent(job.id);
+      await recordMetric({
+        agentId: job.agentId,
+        conversationId: job.conversationId,
+        eventType: "followup_sent",
+        metadata: { ruleId: rule.id, useTemplate, mediaCount: mediaActions.length },
+      });
+      return;
     } else {
       await appendMessage({
         conversationId: conv.id,
         direction: "outbound",
         sender: "ai",
         contentType: "text",
-        body: text,
+        body: cleanText || text,
         waStatus: "queued",
       });
     }

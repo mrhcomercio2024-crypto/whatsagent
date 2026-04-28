@@ -529,6 +529,8 @@ export const appRouter = router({
           templateVariables: z.array(z.string()).default([]),
           windowPolicy: z.enum(["auto", "force_template", "force_free"]).default("auto"),
           cancelOnReply: z.boolean().default(true),
+          allowedStartHour: z.number().int().min(0).max(23).nullable().optional(),
+          allowedEndHour: z.number().int().min(0).max(23).nullable().optional(),
           isActive: z.boolean().default(true),
         })
       )
@@ -548,6 +550,8 @@ export const appRouter = router({
             templateVariables: z.array(z.string()).optional(),
             windowPolicy: z.enum(["auto", "force_template", "force_free"]).optional(),
             cancelOnReply: z.boolean().optional(),
+            allowedStartHour: z.number().int().min(0).max(23).nullable().optional(),
+            allowedEndHour: z.number().int().min(0).max(23).nullable().optional(),
             isActive: z.boolean().optional(),
           }),
         })

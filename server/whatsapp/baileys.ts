@@ -219,6 +219,10 @@ async function bootSocket(agentId: number): Promise<void> {
       const reason = lastDisconnect?.error?.message || "closed";
       const loggedOut = code === DisconnectReason?.loggedOut;
       const banned = code === 403 || /banned/i.test(reason);
+      // QR refs attempts ended (code 408) = ninguém escaneou o QR a tempo.
+      // Não adianta reconectar sem intervenção humana.
+      const qrTimeout =
+        code === 408 || /qr refs attempts ended/i.test(reason);
       // 'Connection Failure' e códigos 401/440/515 indicam credenciais inválidas/sessão expirada — tratar como logout
       // Erros recuperáveis: apenas reconectar, manter creds intactas
       const isRestartRequired =
@@ -227,6 +231,7 @@ async function bootSocket(agentId: number): Promise<void> {
       // Erros terminais: credenciais inválidas, sessão realmente expirou
       const sessionExpired =
         !isRestartRequired &&
+        !qrTimeout &&
         (/connection failure|conflict|forbidden|unauthorized/i.test(reason) ||
           code === 401 ||
           code === 403 ||
@@ -237,15 +242,24 @@ async function bootSocket(agentId: number): Promise<void> {
           ? "banned"
           : treatAsLogout
           ? "logged_out"
+          : qrTimeout
+          ? "awaiting_qr"
           : isRestartRequired
           ? "connecting"
           : "disconnected",
-        lastError: isRestartRequired ? null : reason,
+        lastError: isRestartRequired ? null : qrTimeout ? "QR não escaneado a tempo—escaneie novamente" : reason,
       });
       console.warn(
-        `[baileys] agent ${agentId} closed: ${reason} (code=${code}, restartRequired=${isRestartRequired}, sessionExpired=${sessionExpired})`
+        `[baileys] agent ${agentId} closed: ${reason} (code=${code}, restartRequired=${isRestartRequired}, sessionExpired=${sessionExpired}, qrTimeout=${qrTimeout})`
       );
-      if (treatAsLogout || banned) {
+      if (qrTimeout) {
+        // Para o ciclo: aguarda o usuário clicar em "Conectar" novamente para gerar novo QR.
+        markDisconnected(agentId, "qr_timeout");
+        cancelReconnect(agentId);
+        console.log(
+          `[baileys] agent ${agentId}: QR não escaneado, parando reconnect automático (aguardando ação do usuário)`
+        );
+      } else if (treatAsLogout || banned) {
         // Apenas em casos terminais: apaga snapshot para não ressuscitar credenciais quebradas
         try {
           const dir = authDirFor(agentId);
@@ -825,7 +839,11 @@ export async function disconnectQrSession(agentId: number, wipe = false): Promis
 }
 
 export function isAgentConnected(agentId: number): boolean {
-  return sockets.has(agentId);
+  const sock = sockets.get(agentId);
+  if (!sock) return false;
+  // Considera conectado apenas se o socket completou o login (tem user.id).
+  // Sem isso, o heartbeat e o envio falham com "Cannot read properties of undefined".
+  return Boolean((sock as any).user?.id);
 }
 
 /**
@@ -895,6 +913,9 @@ async function listKnownQrAgents(): Promise<Array<{ agentId: number }>> {
 async function sendBaileysHeartbeat(agentId: number): Promise<void> {
   const sock = sockets.get(agentId);
   if (!sock) return;
+  // Heartbeat só faz sentido em sockets autenticados; sem user.id o Baileys
+  // tenta acessar user.name e quebra com "Cannot read properties of undefined".
+  if (!(sock as any).user?.id) return;
   try {
     await sock.sendPresenceUpdate?.("available");
   } catch (e) {
