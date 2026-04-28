@@ -451,17 +451,28 @@
 - [x] Checkpoint v32
 
 
-## Fase 68: Janela de horário em reengajamentos + mídias anexáveis + fix do agente
-- [ ] Diagnosticar: agente parou de responder no WhatsApp real e no chat interno (Simulator)
-- [ ] Aplicar correção do bug encontrado
-- [ ] Schema: adicionar `allowedStartHour` (0-23) e `allowedEndHour` (0-23) em `followup_rules` (UTC ou TZ do agente?)
-- [ ] Migration aplicada
-- [ ] Parser `@midia[nome]` no servidor: detecta tags no texto, resolve `mediaAssetId` por nome (case-insensitive) dentro do agente
-- [ ] Procedure tRPC para listar mídias do agente (já existe via `media.list`)
-- [ ] UI Followups: campos de Hora inicial e Hora final no editor
-- [ ] UI Followups: autocomplete de @midia (popover ao digitar @) com lista de mídias do agente
-- [ ] UI Followups: chip removível na prévia mostrando o nome da mídia inserida
-- [ ] Backend de disparo: ao executar followup, se hora atual fora da janela permitida → reagendar para próxima janela
-- [ ] Backend de disparo: extrair `@midia[nome]`, enviar mídia depois do texto (ou junto), remover marcadores do texto final
-- [ ] Testes vitest: parser de @midia + cálculo de janela de horário
-- [ ] Checkpoint v33
+## Fase 68: Janela de horário em reengajamentos + mídias anexáveis + fix do agente — CONCLUÍDA
+- [x] Diagnosticado: sessão Baileys do agente 1 estava deslogada ("not logged in, attempting registration") em loop porém sem QR escaneado pelo usuário + bug `presenceSubscribe` sem JID quebrava o heartbeat
+- [x] Fix Baileys: code 408/"QR refs attempts ended" reconhecido como `qr_pending` (para reconnect, exige escaneamento manual); `isAgentConnected` agora exige `sock.user?.id`; `sendBaileysHeartbeat` defensivo (skipa se sem JID)
+- [x] Schema: `allowedStartHour` (0-23) e `allowedEndHour` (0-23) em `followup_rules` (TZ do servidor)
+- [x] Migration 0017 aplicada
+- [x] Parser `extractMediaTags(text)` no servidor: extrai tags `@midia[nome]`, devolve `cleanText` + `uniqueNames`; `resolveMediaByName` resolve por `name` (case-insensitive, com/sem extensão)
+- [x] Procedure tRPC `media.list` reaproveitada para popular o autocomplete
+- [x] UI Followups: novo editor com layout do print — Tempo de espera (valor + unidade), Hora inicial/final permitida, Template Meta, Origem da mensagem, textarea com autocomplete, switches
+- [x] UI Followups: componente `MediaTagTextarea` — popover ao digitar `@`, lista filtrável das mídias do agente, atalhos rápidos para anexar
+- [x] UI Followups: prévia com chip removível por mídia (ícone por tipo: imagem/vídeo/áudio/documento) e marcação vermelha quando o nome não casa com nenhuma mídia
+- [x] UI Followups: card de "Orientações de como criar um follow-up" exatamente como o segundo print
+- [x] Backend disparo: `isWithinAllowedWindow` + `nextAllowedAt` aplicados no engine — fora da janela, o job é reagendado para a próxima janela permitida
+- [x] Backend disparo: extrai `@midia[]`, envia texto sem tags + sequência de mídias resolvidas (no modo QR/não oficial); avisa em log quando nome não resolve ou quando rota é Cloud API (só texto)
+- [x] 16 testes vitest novos (mediaTags 10, timeWindow 6) + suite total 281/281 verde
+- [x] Checkpoint v33
+
+
+## Fase 69: Agente trava após primeira resposta (BLOQUEANTE) — CONCLUÍDA
+- [x] Diagnosticado por logs reais: `dispatch ... @lid` levou 49s entre começar e marcar enviada — `sock.sendMessage` para `@lid` não confirmava o ack e segurava o orchestrator por minutos
+- [x] Diagnosticado: `saveCreds snapshot failed` em loop — coluna `qr_sessions.authBlob` era `text` (≈64KB) e estava estourando com sessão ativa cheia de preKeys, deslogando a sessão
+- [x] Migration 0018: `authBlob` agora `longtext` (4GB)
+- [x] Fix backend: `withTimeout(sock.sendMessage, 20s)` aplicado em todos os 5 envios (texto + 4 tipos de mídia) — timeout libera o slot e loga `send failed (jid=..., type=...): sendMessage timeout (20s)`
+- [x] Fix backend: `processDueConversations` agora paraleliza com `Promise.all` + hard-cap de 90s por conversa — uma conversa lenta não bloqueia mais o tick
+- [x] 3 testes vitest novos (sendTimeout) + suite total 284/284 verde
+- [x] Checkpoint v34

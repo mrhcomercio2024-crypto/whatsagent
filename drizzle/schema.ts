@@ -6,6 +6,7 @@ import {
   json,
   mysqlEnum,
   mysqlTable,
+  longtext,
   text,
   timestamp,
   uniqueIndex,
@@ -596,7 +597,8 @@ export const qrSessions = mysqlTable("qr_sessions", {
   authDir: varchar("authDir", { length: 500 }),
   // Cópia compactada (JSON base64) das credenciais Baileys, persistida em DB.
   // Sobrevive a restarts do container quando o filesystem é efêmero.
-  authBlob: text("authBlob"),
+  // longtext (4GB) — text (64KB) estourava em sessões ativas com muitos preKeys
+  authBlob: longtext("authBlob"),
   // QR code mais recente (data URL PNG base64) — limpo quando conecta
   lastQr: text("lastQr"),
   // JID do número conectado (ex: 5511999999999@s.whatsapp.net)

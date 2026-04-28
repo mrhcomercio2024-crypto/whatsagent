@@ -1,0 +1,1 @@
+ALTER TABLE `qr_sessions` MODIFY COLUMN `authBlob` longtext;

@@ -715,8 +715,23 @@ export async function dispatchViaBaileys(opts: {
     let id: string | undefined;
     let sendOk = false;
     try {
+      // Wrap every sendMessage with a hard 20s timeout. Sem isso, um envio para
+      // @lid que nunca confirma o ack pode segurar o orchestrator por minutos
+      // e bloquear o próximo turno do mesmo lead. 20s é bem acima do RTT
+      // normal (200–2000ms) e captura apenas casos verdadeiramente travados.
+      const sendWithTimeout = (payload: any) =>
+        Promise.race([
+          sock.sendMessage(jid, payload),
+          new Promise<never>((_, reject) =>
+            setTimeout(
+              () => reject(new Error("sendMessage timeout (20s)")),
+              20_000
+            )
+          ),
+        ]) as Promise<{ key?: { id?: string } } | undefined>;
+
       if (a.type === "text") {
-        const r = await sock.sendMessage(jid, { text: a.text });
+        const r = await sendWithTimeout({ text: a.text });
         id = r?.key?.id ?? undefined;
         sendOk = true;
       } else if (a.type === "media") {
@@ -724,21 +739,21 @@ export async function dispatchViaBaileys(opts: {
         if (m?.storageUrl) {
           const url = absolutize(m.storageUrl);
           if (m.mediaType === "image") {
-            const r = await sock.sendMessage(jid, {
+            const r = await sendWithTimeout({
               image: { url },
               caption: m.caption || undefined,
             });
             id = r?.key?.id ?? undefined;
             sendOk = true;
           } else if (m.mediaType === "video") {
-            const r = await sock.sendMessage(jid, {
+            const r = await sendWithTimeout({
               video: { url },
               caption: m.caption || undefined,
             });
             id = r?.key?.id ?? undefined;
             sendOk = true;
           } else if (m.mediaType === "audio") {
-            const r = await sock.sendMessage(jid, {
+            const r = await sendWithTimeout({
               audio: { url },
               mimetype: m.mimeType || "audio/mp4",
               ptt: false,
@@ -746,7 +761,7 @@ export async function dispatchViaBaileys(opts: {
             id = r?.key?.id ?? undefined;
             sendOk = true;
           } else {
-            const r = await sock.sendMessage(jid, {
+            const r = await sendWithTimeout({
               document: { url },
               mimetype: m.mimeType || "application/pdf",
               fileName: m.name || "arquivo",
@@ -758,7 +773,9 @@ export async function dispatchViaBaileys(opts: {
         }
       }
     } catch (e) {
-      console.warn(`[baileys] send failed: ${(e as Error).message}`);
+      console.warn(
+        `[baileys] send failed (jid=${jid}, type=${a.type}): ${(e as Error).message}`
+      );
     }
     waMessageIds.push(id);
     markOutbound(agent.id, sendOk);
