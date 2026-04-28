@@ -1052,7 +1052,17 @@ export async function deleteQrSession(agentId: number) {
 }
 
 /**
- * Lista sessões QR que estavam conectadas (para religar no boot do servidor).
+ * Lista sessões QR que devem ser RELIGADAS automaticamente pelo watchdog
+ * ou no boot do servidor.
+ *
+ * ⚠️ IMPORTANTE: NUNCA inclua `awaiting_qr` ou `connecting` aqui. Esses estados
+ * representam o pareamento inicial — se o watchdog religar nesses estados,
+ * o QR rotaciona em loop antes do usuário escanear (porque cada novo socket
+ * gera novo QR e o anterior expira em ~60s).
+ *
+ * Só religamos sessões que JÁ ESTIVERAM `connected` e perderam conexão
+ * (status atual = `connected` ou `disconnected`). Sessões novas devem ser
+ * iniciadas explicitamente pelo usuário clicando "Iniciar conexão".
  */
 export async function listReconnectableQrSessions() {
   const db = await getDb();
@@ -1063,11 +1073,8 @@ export async function listReconnectableQrSessions() {
     .where(
       and(
         isNotNull(qrSessions.authDir),
-        // tudo menos logged_out e banned
         or(
           eq(qrSessions.status, "connected"),
-          eq(qrSessions.status, "awaiting_qr"),
-          eq(qrSessions.status, "connecting"),
           eq(qrSessions.status, "disconnected")
         )
       )

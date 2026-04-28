@@ -562,3 +562,13 @@
 - [x] Testes vitest (`server/whatsapp/dlq.test.ts`): backoff sequence, clamping, hasMoreAttempts, sanitizeError, payload contract
 - [x] Suite completa 340/340 verde
 - [x] Checkpoint v41
+
+
+## Fase 77: BUG QR Code Baileys rotacionando em loop antes de escanear
+- [x] Reproduzido nos logs: `QR refs attempts ended` (60s sem scan) → onClose marca `awaiting_qr` → watchdog 60s pega da lista e religa → novo QR → loop infinito
+- [x] Causa raiz: `listReconnectableQrSessions()` em db.ts incluía `awaiting_qr` e `connecting` na lista de "deve religar" — o watchdog ressuscitava o socket antes do usuário escanear
+- [x] Corrigido: a função agora retorna apenas sessões em `connected` ou `disconnected` (status que indicam que JA estiveram pareadas)
+- [x] Sessões novas ficam aguardando o clique "Iniciar conexão" para gerar QR novamente — sem auto-religação prematura
+- [x] Testes vitest `qrLoop.test.ts` (4 casos: lista vazia, religa connected caído, não religa live, contrato dos status válidos)
+- [x] Suite completa 344/344 verde
+- [x] Checkpoint v42
