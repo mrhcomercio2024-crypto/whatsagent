@@ -14,6 +14,7 @@ import {
   getAgentById,
   getConversationById,
   getMediaById,
+  getQrSession,
   listReconnectableQrSessions,
   recordMetric,
   upsertQrSession,
@@ -734,6 +735,41 @@ export async function dispatchViaBaileys(opts: {
       actions,
       sender,
     });
+    // RECONCILIAÇÃO: o socket sumiu da memória mas o DB pode estar desatualizado
+    // dizendo que estamos `connected`. Força o status real para `disconnected`
+    // para que a UI reflita a verdade e o usuário entenda que precisa agir.
+    try {
+      const sess = await getQrSession(agent.id);
+      if (sess && sess.status === "connected") {
+        await upsertQrSession(agent.id, {
+          status: "disconnected",
+          lastError: "socket vanished",
+        });
+        markDisconnected(agent.id, "socket_vanished");
+        console.warn(
+          `[baileys] agent ${agent.id}: status DB era 'connected' mas socket sumiu — reconciliado para 'disconnected'`
+        );
+      }
+      // AUTO-RELIGA SEGURO: se a sessão tem authBlob persistido (já esteve
+      // pareada), tentar reabrir o socket NUNCA gera QR novo — o Baileys
+      // restaura as credenciais e reconecta direto. Esse caminho preserva
+      // o modo on-demand para PRIMEIRA conexão e ao mesmo tempo libera
+      // a entrega quando a queda foi puramente de rede/processo.
+      if (sess && sess.authBlob && !sockets.has(agent.id) && !statePromises.has(agent.id)) {
+        console.log(
+          `[baileys] agent ${agent.id}: tentando religar automaticamente (creds presentes, sem QR)`
+        );
+        startQrSession(agent.id).catch((err) =>
+          console.warn(
+            `[baileys] auto-reconnect failed for agent ${agent.id}: ${(err as Error).message}`
+          )
+        );
+      }
+    } catch (eRec) {
+      console.warn(
+        `[baileys] reconciliation failed for agent ${agent.id}: ${(eRec as Error).message}`
+      );
+    }
     // DLQ: socket morto = entrega falhou. Enfileira para reenvio assim que a
     // conexão voltar (markConnected dispara um tick imediato do retry-worker).
     const __isRetry = (opts as any).__isRetry as { retryId: number } | undefined;

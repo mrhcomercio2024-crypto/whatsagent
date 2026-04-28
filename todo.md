@@ -604,3 +604,14 @@
 - [x] Testes atualizados em `onDemand.test.ts` (caminho restart-required é verificado, regra de quedas reais permanece)
 - [x] Suite completa 352/352 verde
 - [x] Checkpoint v44
+
+
+## Fase 80: BUG mensagens presas na DLQ não chegam no WhatsApp real
+- [x] Diag direto no DB confirmou estado inconsistente: `qr_session.status='connected'` mas dispatcher loga `no live socket (offline)` em todas as outbounds (4 mensagens presas na DLQ para conv 30003)
+- [x] Causa raiz: o socket Baileys morreu na memória do processo (sockets.delete no onClose), mas a flag DB ficou desatualizada. Dispatcher caía sempre no branch offline e ninguém religava porque modo on-demand espera clique manual.
+- [x] Correção 1: reconciliação automática — quando dispatcher detecta socket morto, força `qr_session.status='disconnected'` com motivo `socket vanished` e chama `markDisconnected`. Painel passa a refletir verdade.
+- [x] Correção 2: auto-religação SEGURA quando há `authBlob` persistido (creds válidas). startQrSession nesse caminho NUNCA gera QR novo — apenas restaura a sessão. Preserva o modo on-demand para primeira conexão e libera entrega quando a queda foi puramente de rede.
+- [x] DLQ existente é drenada automaticamente no próximo tick do retry-worker assim que o socket religar (markConnected dispara `runRetryWorkerNow`).
+- [x] Teste vitest `socketReconcile.test.ts` (5 casos: persiste antes de tudo, reconcilia status, auto-religa com creds, lastError correto, não duplica em retry).
+- [x] Suite completa 357/357 verde.
+- [x] Checkpoint v45
