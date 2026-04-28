@@ -795,6 +795,167 @@ export async function getMetricsSummary(agentId: number, daysBack = 30) {
 }
 
 /* ============================================================
+ * Lead history (timeline) — agrega eventos a partir de messages + metrics_events
+ * ============================================================ */
+export type LeadHistoryEvent = {
+  id: string; // combina tipo+id para ser estável
+  kind:
+    | "message_in"
+    | "message_out_ai"
+    | "message_out_human"
+    | "message_template"
+    | "step_advance"
+    | "handoff"
+    | "ai_paused"
+    | "ai_resumed"
+    | "status_tag"
+    | "followup"
+    | "qualification";
+  at: Date;
+  title: string;
+  detail?: string | null;
+  meta?: Record<string, unknown> | null;
+};
+
+export async function getLeadHistory(
+  leadId: number,
+  limit = 200
+): Promise<LeadHistoryEvent[]> {
+  const db = await getDb();
+  if (!db) return [];
+  // 1. Mensagens da conversa do lead
+  const conv = await db
+    .select({ id: conversations.id })
+    .from(conversations)
+    .where(eq(conversations.leadId, leadId))
+    .limit(1);
+  const convId = conv[0]?.id;
+  if (!convId) return [];
+
+  const msgs = await db
+    .select()
+    .from(messages)
+    .where(eq(messages.conversationId, convId))
+    .orderBy(desc(messages.createdAt))
+    .limit(limit);
+
+  const metrics = await db
+    .select()
+    .from(metricsEvents)
+    .where(eq(metricsEvents.conversationId, convId))
+    .orderBy(desc(metricsEvents.createdAt))
+    .limit(limit);
+
+  const events: LeadHistoryEvent[] = [];
+
+  for (const m of msgs) {
+    let kind: LeadHistoryEvent["kind"] = "message_in";
+    let title = "Mensagem recebida";
+    if (m.direction === "outbound") {
+      if (m.contentType === "template") {
+        kind = "message_template";
+        title = m.templateName ? `Template enviado: ${m.templateName}` : "Template enviado";
+      } else if (m.sender === "ai") {
+        kind = "message_out_ai";
+        title = "IA respondeu";
+      } else {
+        kind = "message_out_human";
+        title = "Atendente respondeu";
+      }
+    }
+    const detail = m.body
+      ? m.body.length > 160
+        ? m.body.slice(0, 157) + "…"
+        : m.body
+      : m.contentType === "image"
+        ? "[imagem]"
+        : m.contentType === "video"
+          ? "[vídeo]"
+          : m.contentType === "audio"
+            ? "[áudio]"
+            : m.contentType === "document"
+              ? "[documento]"
+              : null;
+    events.push({
+      id: `msg-${m.id}`,
+      kind,
+      at: m.createdAt,
+      title,
+      detail,
+      meta: { contentType: m.contentType },
+    });
+  }
+
+  for (const e of metrics) {
+    const t = (e.eventType || "").toLowerCase();
+    if (t === "step_advance" || t === "step_changed") {
+      events.push({
+        id: `ev-${e.id}`,
+        kind: "step_advance",
+        at: e.createdAt,
+        title: "Avançou de etapa",
+        detail: (e.metadata as any)?.label ?? null,
+        meta: (e.metadata as any) ?? null,
+      });
+    } else if (t === "handoff") {
+      events.push({
+        id: `ev-${e.id}`,
+        kind: "handoff",
+        at: e.createdAt,
+        title: "Handoff para humano",
+        detail: (e.metadata as any)?.reason ?? null,
+        meta: (e.metadata as any) ?? null,
+      });
+    } else if (t === "ai_paused") {
+      events.push({
+        id: `ev-${e.id}`,
+        kind: "ai_paused",
+        at: e.createdAt,
+        title: "IA pausada",
+        detail: (e.metadata as any)?.reason ?? null,
+      });
+    } else if (t === "ai_resumed") {
+      events.push({
+        id: `ev-${e.id}`,
+        kind: "ai_resumed",
+        at: e.createdAt,
+        title: "IA reativada",
+      });
+    } else if (t === "status_tag_assigned" || t === "status_tag") {
+      events.push({
+        id: `ev-${e.id}`,
+        kind: "status_tag",
+        at: e.createdAt,
+        title: "Tag de status atribuída",
+        detail: (e.metadata as any)?.slug ?? null,
+        meta: (e.metadata as any) ?? null,
+      });
+    } else if (t === "qualification" || t === "lead_qualified") {
+      events.push({
+        id: `ev-${e.id}`,
+        kind: "qualification",
+        at: e.createdAt,
+        title: "Qualificação atualizada",
+        detail: (e.metadata as any)?.temperature ?? null,
+        meta: (e.metadata as any) ?? null,
+      });
+    } else if (t === "followup_sent" || t === "followup_scheduled") {
+      events.push({
+        id: `ev-${e.id}`,
+        kind: "followup",
+        at: e.createdAt,
+        title: t === "followup_sent" ? "Follow-up enviado" : "Follow-up agendado",
+        detail: (e.metadata as any)?.rule ?? null,
+        meta: (e.metadata as any) ?? null,
+      });
+    }
+  }
+
+  events.sort((a, b) => b.at.getTime() - a.at.getTime());
+  return events.slice(0, limit);
+}
+
+/* ============================================================
  * EXPORTS auxiliares
  * ============================================================ */
 export {

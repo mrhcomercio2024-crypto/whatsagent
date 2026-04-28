@@ -31,6 +31,7 @@ import {
   getBusinessHours,
   getConversationById,
   getLeadById,
+  getLeadHistory,
   getMetricsSummary,
   getWhatsappConfig,
   listAgents,
@@ -628,6 +629,12 @@ export const appRouter = router({
           qualificationNotes: q.reason,
         });
         return q;
+      }),
+    history: protectedProcedure
+      .input(z.object({ leadId: z.number().int().positive(), limit: z.number().int().min(1).max(500).optional() }))
+      .query(async ({ input }) => {
+        const events = await getLeadHistory(input.leadId, input.limit ?? 200);
+        return events;
       }),
     exportCsv: protectedProcedure
       .input(agentScopedSchema)

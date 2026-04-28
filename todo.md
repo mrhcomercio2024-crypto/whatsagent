@@ -406,3 +406,10 @@
 - [ ] Investigar dispatcher + jid (lead Marcelo Menezes com phoneNumber=233268589332983 - 15 dígitos, prefix 233)
 - [ ] Verificar persistOutboundActions vs sock.sendMessage
 - [ ] Corrigir + checkpoint
+
+
+## Fase 60: Modal Histórico do Lead (timeline)
+- [x] Backend: procedure `leads.history` agregando eventos ordenados (mensagens IN/OUT, templates, step_advance, handoff, ai_paused/resumed, status_tag, qualification, followup)
+- [x] Frontend: `LeadHistoryDialog` com timeline visual (ícones coloridos por tipo, badges, agrupamento por dia) acionado do botão Histórico no header do Chat
+- [x] Testes vitest: 7 novos em `leadHistory.test.ts`; suite 189/189 verde
+- [x] Checkpoint v29

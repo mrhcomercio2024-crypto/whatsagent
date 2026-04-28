@@ -10,6 +10,7 @@ import {
   CheckCircle,
   CheckCheck,
   Flame,
+  History,
   Image as ImageIcon,
   MessageCircle,
   Mic,
@@ -22,6 +23,7 @@ import {
   User,
   Video,
 } from "lucide-react";
+import { LeadHistoryDialog } from "@/components/LeadHistoryDialog";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -285,6 +287,7 @@ function Conversation({ convId }: { convId: number }) {
   const endRef = useRef<HTMLDivElement>(null);
   // Live typing do humano (só visual, exibido para o operador)
   const [humanTyping, setHumanTyping] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -365,6 +368,15 @@ function Conversation({ convId }: { convId: number }) {
           <Button
             size="sm"
             variant="outline"
+            onClick={() => setHistoryOpen(true)}
+            disabled={!data.lead?.id}
+          >
+            <History className="h-3.5 w-3.5 mr-1" />
+            Histórico
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
             onClick={() => setStatus.mutate({ id: convId, status: "closed" })}
           >
             <CheckCircle className="h-3.5 w-3.5 mr-1" />
@@ -372,6 +384,13 @@ function Conversation({ convId }: { convId: number }) {
           </Button>
         </div>
       </div>
+
+      <LeadHistoryDialog
+        open={historyOpen}
+        onOpenChange={setHistoryOpen}
+        leadId={data.lead?.id ?? null}
+        leadName={data.lead?.name ?? data.lead?.phoneNumber ?? null}
+      />
 
       {/* Stream de mensagens com fundo característico */}
       <div
