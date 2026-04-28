@@ -819,11 +819,30 @@ export const externalEventRules = mysqlTable(
     eventType: varchar("eventType", { length: 80 }).notNull(),
     name: varchar("name", { length: 160 }).notNull(),
     description: text("description"),
+    // Forma legada (multi-ações) — mantida para retrocompatibilidade.
+    // O editor novo grava aqui um array único equivalente à execução.
     actions: json("actions").notNull(),
     enabled: boolean("enabled").default(true).notNull(),
     // Quando o lead não existe ainda, criar a partir do payload?
     createLeadIfMissing: boolean("createLeadIfMissing").default(true).notNull(),
     priority: int("priority").default(100).notNull(),
+    // ───────── Campos do editor v2 (uma regra = uma execução) ─────────
+    // Canal de WhatsApp (agente) que vai disparar o template. Quando null,
+    // não envia template (apenas executa as outras ações).
+    channelAgentId: int("channelAgentId"),
+    // Template HSM (id de whatsapp_templates) a disparar.
+    templateId: int("templateId"),
+    // Atraso em minutos antes de executar (0 = imediato).
+    delayMinutes: int("delayMinutes").default(0).notNull(),
+    // Se preenchido, move o lead para este script_step após a execução.
+    moveToStepId: int("moveToStepId"),
+    // Se preenchido, anexa esta tag em leads.tags (CSV).
+    tagLabel: varchar("tagLabel", { length: 80 }),
+    // Texto que será entregue à IA como contexto no próximo prompt.
+    aiContext: text("aiContext"),
+    // Toggle de ativo do editor v2 (espelho de `enabled`, mantido por clareza
+    // visual no card do mock). Quando false, a engine pula a regra.
+    isActive: boolean("isActive").default(true).notNull(),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
     updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   },

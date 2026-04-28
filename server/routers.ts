@@ -1143,6 +1143,46 @@ export const appRouter = router({
           .where(eq(externalEventRules.agentId, input.agentId))
           .orderBy(asc(externalEventRules.eventType), asc(externalEventRules.priority));
       }),
+    // ---- v2: canais e templates disponíveis para seleção no editor ----
+    listChannels: protectedProcedure
+      .input(agentScopedSchema)
+      .query(async () => {
+        const { listAgents, getWhatsappConfig } = await import("./db");
+        const all = await listAgents();
+        // Só retorna agentes em modo official (Cloud API) com credenciais.
+        const out: Array<{
+          agentId: number;
+          name: string;
+          phoneNumberId: string | null;
+          businessAccountId: string | null;
+          displayPhoneNumber: string | null;
+          isConnected: boolean;
+        }> = [];
+        for (const a of all) {
+          if (a.connectionMode !== "official") continue;
+          const cfg = await getWhatsappConfig(a.id);
+          if (!cfg?.phoneNumberId || !cfg?.accessToken) continue;
+          out.push({
+            agentId: a.id,
+            name: a.name,
+            phoneNumberId: cfg.phoneNumberId ?? null,
+            businessAccountId: cfg.businessAccountId ?? null,
+            displayPhoneNumber: cfg.displayPhoneNumber ?? null,
+            isConnected: !!cfg.isConnected,
+          });
+        }
+        return out;
+      }),
+    listChannelTemplates: protectedProcedure
+      .input(z.object({ channelAgentId: z.number().int().positive() }))
+      .query(async ({ input }) => {
+        const { listTemplates } = await import("./db");
+        const rows = await listTemplates(input.channelAgentId);
+        // Editor só oferece templates aprovados — evita que o usuário selecione
+        // algo pendente/rejeitado que vai falhar no envio.
+        return rows.filter((r) => r.status === "approved");
+      }),
+
     upsertRule: protectedProcedure
       .input(
         z.object({
@@ -1152,10 +1192,20 @@ export const appRouter = router({
           eventType: z.string().min(1).max(80),
           name: z.string().min(2).max(160),
           description: z.string().max(2000).nullable().optional(),
+          // legado (multi-ações). No editor v2 enviamos um array vazio sentinela
+          // [{kind:'v2'}] apenas para satisfazer a constraint legacy.
           actions: z.array(z.any()).min(1, { message: "Pelo menos uma ação" }),
           enabled: z.boolean().default(true),
           createLeadIfMissing: z.boolean().default(true),
           priority: z.number().int().min(0).max(10000).default(100),
+          // ─── v2 (editor inspirado no mock) ───
+          channelAgentId: z.number().int().positive().nullable().optional(),
+          templateId: z.number().int().positive().nullable().optional(),
+          delayMinutes: z.number().int().min(0).max(1440).default(0),
+          moveToStepId: z.number().int().positive().nullable().optional(),
+          tagLabel: z.string().max(80).nullable().optional(),
+          aiContext: z.string().max(4000).nullable().optional(),
+          isActive: z.boolean().default(true),
         })
       )
       .mutation(async ({ input }) => {
@@ -1164,6 +1214,15 @@ export const appRouter = router({
         const { eq, and } = await import("drizzle-orm");
         const db = await getDb();
         if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        const v2Patch = {
+          channelAgentId: input.channelAgentId ?? null,
+          templateId: input.templateId ?? null,
+          delayMinutes: input.delayMinutes,
+          moveToStepId: input.moveToStepId ?? null,
+          tagLabel: input.tagLabel?.trim() ? input.tagLabel.trim() : null,
+          aiContext: input.aiContext?.trim() ? input.aiContext.trim() : null,
+          isActive: input.isActive,
+        };
         if (input.id) {
           await db
             .update(externalEventRules)
@@ -1176,6 +1235,7 @@ export const appRouter = router({
               enabled: input.enabled,
               createLeadIfMissing: input.createLeadIfMissing,
               priority: input.priority,
+              ...v2Patch,
             })
             .where(and(eq(externalEventRules.id, input.id), eq(externalEventRules.agentId, input.agentId)));
           return { id: input.id, ok: true } as const;
@@ -1190,6 +1250,7 @@ export const appRouter = router({
           enabled: input.enabled,
           createLeadIfMissing: input.createLeadIfMissing,
           priority: input.priority,
+          ...v2Patch,
         });
         return { id: r?.[0]?.insertId as number, ok: true } as const;
       }),

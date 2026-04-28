@@ -32,6 +32,11 @@ import {
 import { dispatchActions } from "../whatsapp/dispatcher";
 import { notifyOwner } from "../_core/notification";
 import { invokeLLM } from "../_core/llm";
+import { sendTemplate, type WaCredentials } from "../whatsapp/client";
+import {
+  getWhatsappConfig,
+  getTemplateById,
+} from "../db";
 
 export type RuleAction =
   | { kind: "moveToStep"; stepId: number }
@@ -75,9 +80,11 @@ export async function loadRulesFor(
         eq(externalEventRules.enabled, true)
       )
     );
-  // sourceId nulo = aplica a todas as fontes; senão precisa bater
+  // sourceId nulo = aplica a todas as fontes; senão precisa bater.
+  // Também respeita o toggle visual `isActive` do editor v2 (default true).
   return rows
     .filter((r) => r.sourceId == null || r.sourceId === sourceId)
+    .filter((r) => r.isActive !== false)
     .sort((a, b) => a.priority - b.priority);
 }
 
@@ -185,6 +192,99 @@ export async function executeRuleActions(opts: {
     email: lead.email ?? null,
     payload,
   };
+
+  // ─── Editor v2: campos diretos na regra ───
+  // Quando a regra tem qualquer um dos novos campos preenchidos, executa-os
+  // como uma ÚNICA execução (sem multi-actions). Mantemos `actions` JSON
+  // apenas como caminho legado para regras antigas.
+  const v2HasTemplate = rule.templateId != null && rule.channelAgentId != null;
+  const v2HasMove = rule.moveToStepId != null;
+  const v2HasTag = !!(rule.tagLabel && rule.tagLabel.trim());
+  const v2HasContext = !!(rule.aiContext && rule.aiContext.trim());
+  const usingV2 = v2HasTemplate || v2HasMove || v2HasTag || v2HasContext;
+
+  if (usingV2) {
+    const delayMin = Math.max(0, Number(rule.delayMinutes ?? 0));
+    const v2Exec = async () => {
+      // 1) tag (CSV append idempotente)
+      if (v2HasTag) {
+        try {
+          const next = appendTagCsv(lead.tags, rule.tagLabel!);
+          await updateLead(leadId, { tags: next });
+          applied.push({ kind: "addTag", ok: true, detail: rule.tagLabel! });
+        } catch (e) {
+          applied.push({ kind: "addTag", ok: false, error: (e as Error).message });
+        }
+      }
+      // 2) mover etapa
+      if (v2HasMove) {
+        try {
+          await updateConversation(conversationId, { currentStepId: rule.moveToStepId! });
+          applied.push({ kind: "moveToStep", ok: true, detail: `step=${rule.moveToStepId}` });
+        } catch (e) {
+          applied.push({ kind: "moveToStep", ok: false, error: (e as Error).message });
+        }
+      }
+      // 3) contexto IA — anexa no summary da conversation com cabeçalho
+      if (v2HasContext) {
+        try {
+          const stamp = new Date().toISOString();
+          const block = `[evento ${eventType} ${stamp}] ${rule.aiContext!.trim()}`;
+          await appendExternalContextToConversation(conversationId, block);
+          applied.push({ kind: "aiContext", ok: true, detail: "contexto anexado" });
+        } catch (e) {
+          applied.push({ kind: "aiContext", ok: false, error: (e as Error).message });
+        }
+      }
+      // 4) template Cloud API
+      if (v2HasTemplate) {
+        try {
+          const r = await sendTemplateForRule({
+            channelAgentId: rule.channelAgentId!,
+            templateId: rule.templateId!,
+            toPhone: lead.phoneNumber,
+          });
+          applied.push({
+            kind: "sendTemplate",
+            ok: r.ok,
+            detail: r.detail,
+            error: r.error,
+          });
+          if (r.ok && r.bodyText) {
+            await appendMessageRow({
+              conversationId,
+              templateName: r.templateName ?? "",
+              bodyText: r.bodyText,
+              waMessageId: r.messageId,
+            });
+          }
+        } catch (e) {
+          applied.push({
+            kind: "sendTemplate",
+            ok: false,
+            error: (e as Error).message,
+          });
+        }
+      }
+    };
+    if (delayMin > 0) {
+      const ms = Math.min(delayMin * 60_000, 24 * 3600_000);
+      scheduleDelayedExec(v2Exec, ms);
+      applied.push({
+        kind: "v2.scheduled",
+        ok: true,
+        detail: `agendado em ${delayMin} min`,
+      });
+    } else {
+      await v2Exec();
+    }
+    await recordMetric({
+      agentId,
+      eventType: "external_event_processed",
+      metadata: { eventType, ruleId: rule.id, applied, mode: "v2" },
+    });
+    return applied;
+  }
 
   const actions = Array.isArray(rule.actions) ? (rule.actions as RuleAction[]) : [];
 
@@ -345,4 +445,102 @@ function scheduleDelayedSend(opts: {
 export function _clearPendingTimers() {
   pendingTimers.forEach((t) => clearTimeout(t));
   pendingTimers.clear();
+}
+
+/**
+ * Agenda execução genérica (qualquer função async) após `ms` ms.
+ * Mesmo padrão de `scheduleDelayedSend` mas sem texto fixo.
+ */
+function scheduleDelayedExec(fn: () => Promise<void>, ms: number) {
+  const key = `v2:${Date.now()}:${Math.random()}`;
+  const t = setTimeout(async () => {
+    pendingTimers.delete(key);
+    try {
+      await fn();
+    } catch (e) {
+      console.warn("[external.engine] delayed v2 exec failed:", (e as Error).message);
+    }
+  }, ms);
+  pendingTimers.set(key, t);
+}
+
+/**
+ * Anexa um bloco de contexto externo ao summary da conversation.
+ * Mantém os últimos ~4kB para não estourar token limit.
+ */
+async function appendExternalContextToConversation(conversationId: number, block: string) {
+  const db = await getDb();
+  if (!db) return;
+  const rows = await db
+    .select()
+    .from(conversationsTable)
+    .where(eq(conversationsTable.id, conversationId))
+    .limit(1);
+  const conv = rows[0];
+  const prev = (conv?.summary ?? "").trim();
+  const merged = (prev ? prev + "\n" : "") + block;
+  const trimmed = merged.length > 4000 ? merged.slice(-4000) : merged;
+  await db
+    .update(conversationsTable)
+    .set({ summary: trimmed, summaryUpdatedAt: new Date() })
+    .where(eq(conversationsTable.id, conversationId));
+}
+
+/**
+ * Envia template Cloud API usando o canal/agente especificado.
+ * Retorna detalhes para registrar no log de aplicações.
+ */
+async function sendTemplateForRule(opts: {
+  channelAgentId: number;
+  templateId: number;
+  toPhone: string;
+}): Promise<{
+  ok: boolean;
+  detail?: string;
+  error?: string;
+  bodyText?: string;
+  templateName?: string;
+  messageId?: string;
+}> {
+  const config = await getWhatsappConfig(opts.channelAgentId);
+  const tpl = await getTemplateById(opts.templateId);
+  if (!tpl) return { ok: false, error: "template não encontrado" };
+  if (!config?.phoneNumberId || !config?.accessToken) {
+    return { ok: false, error: "canal sem credenciais Cloud API" };
+  }
+  const creds: WaCredentials = {
+    phoneNumberId: config.phoneNumberId,
+    accessToken: config.accessToken,
+    appSecret: config.appSecret,
+  };
+  const r = await sendTemplate(creds, opts.toPhone, tpl.name, tpl.languageCode, []);
+  if (!r.ok) {
+    return { ok: false, error: r.error || "falha envio template" };
+  }
+  return {
+    ok: true,
+    detail: tpl.name,
+    bodyText: tpl.bodyText,
+    templateName: tpl.name,
+    messageId: r.messageId,
+  };
+}
+
+/** Helper: insere linha na tabela messages registrando o template enviado. */
+async function appendMessageRow(opts: {
+  conversationId: number;
+  templateName: string;
+  bodyText: string;
+  waMessageId?: string;
+}) {
+  await appendMessage({
+    conversationId: opts.conversationId,
+    direction: "outbound",
+    sender: "ai",
+    contentType: "template",
+    body: opts.bodyText,
+    templateName: opts.templateName,
+    waMessageId: opts.waMessageId,
+    waStatus: opts.waMessageId ? "sent" : "queued",
+  });
 }

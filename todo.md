@@ -525,3 +525,17 @@
 - [x] Garantir que conteúdo das mensagens do lead pendentes seja sempre incluído no contexto da IA
 - [x] Testes vitest do helper de idempotência (9 casos)
 - [x] Checkpoint v38 (cebab635)
+
+
+## Fase 74: Editor completo de regras de Eventos Externos
+- [x] Inspecionar estado atual (schema external_event_rules, engine, página /external-events)
+- [x] Schema: campos novos em external_event_rules (channelAgentId, templateId, delayMinutes, moveToStepId, tagLabel, aiContext, isActive)
+- [x] rotateSecret já existia em externalEvents router; UI agora chama a partir do editor
+- [x] Migration 0020 aplicada
+- [x] Engine: respeita isActive=false (skipa em loadRulesFor), aplica delayMinutes (agenda exec via setTimeout), executa moveToStep + addTag + sendTemplate Cloud API + anexa aiContext em conversation.summary (vai pro próximo prompt da IA)
+- [x] Procedure tRPC: externalEvents.listChannels (apenas agentes Cloud API conectados)
+- [x] Procedure tRPC: externalEvents.listChannelTemplates (apenas templates aprovados)
+- [x] rotateSecret reaproveitado (já existia)
+- [x] UI: editor com Canal, Template carregado do canal, Aguardar, Mover para, Associar tag, Contexto IA, toggle Ativo, URL do Webhook + Regenerar/Copiar
+- [x] Testes vitest (4 novos casos do v2 path: tag/move/contexto, fallback sem credenciais, envio Cloud API + appendMessage, agendamento). Suite total 327/327 verde.
+- [x] Checkpoint v39

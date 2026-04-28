@@ -473,10 +473,17 @@ function RulesTab({ agentId }: { agentId: number }) {
                   eventType: r.eventType,
                   name: r.name,
                   description: r.description,
-                  actions: (r.actions ?? []) as unknown as any[],
+                  actions: (r.actions ?? [{ kind: "v2" }]) as unknown as any[],
                   enabled,
                   createLeadIfMissing: r.createLeadIfMissing,
                   priority: r.priority,
+                  channelAgentId: r.channelAgentId ?? null,
+                  templateId: r.templateId ?? null,
+                  delayMinutes: r.delayMinutes ?? 0,
+                  moveToStepId: r.moveToStepId ?? null,
+                  tagLabel: r.tagLabel ?? null,
+                  aiContext: r.aiContext ?? null,
+                  isActive: r.isActive ?? true,
                 })
               }
               onDelete={() => {
@@ -522,6 +529,14 @@ function RuleCard({
     ? sources.find((s) => s.id === rule.sourceId)?.name ?? `#${rule.sourceId}`
     : "qualquer fonte";
 
+  // Detecção de regra v2 (campos diretos)
+  const isV2 =
+    rule.templateId != null ||
+    rule.moveToStepId != null ||
+    !!rule.tagLabel ||
+    !!rule.aiContext ||
+    !!rule.channelAgentId;
+
   const ruleActions = (rule.actions ?? []) as unknown as RuleAction[];
   function actionSummary(a: RuleAction): string {
     switch (a.kind) {
@@ -552,6 +567,24 @@ function RuleCard({
     }
   }
 
+  function v2Summary(): string[] {
+    const out: string[] = [];
+    if (rule.delayMinutes && rule.delayMinutes > 0) {
+      out.push(`Aguardar ${rule.delayMinutes} min antes de executar`);
+    }
+    if (rule.templateId && rule.channelAgentId) {
+      out.push(`Disparar template (canal #${rule.channelAgentId})`);
+    }
+    if (rule.moveToStepId) {
+      const st = steps.find((s) => s.id === rule.moveToStepId);
+      out.push(`Mover para etapa ${st?.name ?? `#${rule.moveToStepId}`}`);
+    }
+    if (rule.tagLabel) out.push(`Associar tag “${rule.tagLabel}”`);
+    if (rule.aiContext) out.push(`Contexto IA: “${String(rule.aiContext).slice(0, 80)}”`);
+    if (out.length === 0) out.push("(sem ações definidas)");
+    return out;
+  }
+
   return (
     <div className="rounded-lg border bg-card p-4 space-y-2">
       <div className="flex items-start justify-between gap-3">
@@ -561,6 +594,9 @@ function RuleCard({
             <Badge variant="outline">{rule.eventType}</Badge>
             <Badge variant="secondary">{sourceLabel}</Badge>
             {!rule.enabled && <Badge variant="destructive">desabilitada</Badge>}
+            {isV2 && rule.isActive === false && (
+              <Badge variant="destructive">inativa</Badge>
+            )}
             {rule.createLeadIfMissing && (
               <Badge variant="outline" className="text-emerald-600 border-emerald-600/40">
                 cria lead se faltar
@@ -574,9 +610,9 @@ function RuleCard({
         <Switch checked={!!rule.enabled} onCheckedChange={onToggle} />
       </div>
       <ul className="text-sm space-y-1 pl-4 list-disc">
-        {ruleActions.map((a, i) => (
-          <li key={i}>{actionSummary(a)}</li>
-        ))}
+        {isV2
+          ? v2Summary().map((s, i) => <li key={i}>{s}</li>)
+          : ruleActions.map((a, i) => <li key={i}>{actionSummary(a)}</li>)}
       </ul>
       <div className="flex justify-between items-center pt-2 border-t">
         <p className="text-xs text-muted-foreground">
@@ -614,6 +650,7 @@ function RuleEditorDialog({
   onSave: (data: any) => void;
   saving: boolean;
 }) {
+  // Campos básicos da regra
   const [name, setName] = useState("");
   const [eventType, setEventType] = useState("purchase.completed");
   const [customEventType, setCustomEventType] = useState("");
@@ -622,7 +659,15 @@ function RuleEditorDialog({
   const [enabled, setEnabled] = useState(true);
   const [createLead, setCreateLead] = useState(true);
   const [priority, setPriority] = useState(100);
-  const [actions, setActions] = useState<RuleAction[]>([]);
+
+  // Campos do editor v2 (mock "Editar Link")
+  const [channelAgentId, setChannelAgentId] = useState<number | null>(null);
+  const [templateId, setTemplateId] = useState<number | null>(null);
+  const [delayMinutes, setDelayMinutes] = useState<number>(1);
+  const [moveToStepId, setMoveToStepId] = useState<number | null>(null);
+  const [tagLabel, setTagLabel] = useState<string>("");
+  const [aiContext, setAiContext] = useState<string>("");
+  const [isActive, setIsActive] = useState<boolean>(true);
 
   // Reset / preencher quando abre
   useMemo(() => {
@@ -637,7 +682,13 @@ function RuleEditorDialog({
       setEnabled(!!editing.enabled);
       setCreateLead(!!editing.createLeadIfMissing);
       setPriority(editing.priority);
-      setActions(editing.actions ?? []);
+      setChannelAgentId(editing.channelAgentId ?? null);
+      setTemplateId(editing.templateId ?? null);
+      setDelayMinutes(editing.delayMinutes ?? 0);
+      setMoveToStepId(editing.moveToStepId ?? null);
+      setTagLabel(editing.tagLabel ?? "");
+      setAiContext(editing.aiContext ?? "");
+      setIsActive(editing.isActive ?? true);
     } else {
       setName("");
       setEventType("purchase.completed");
@@ -647,12 +698,60 @@ function RuleEditorDialog({
       setEnabled(true);
       setCreateLead(true);
       setPriority(100);
-      setActions([{ kind: "sendMessage", mode: "free", prompt: "" }]);
+      setChannelAgentId(null);
+      setTemplateId(null);
+      setDelayMinutes(1);
+      setMoveToStepId(null);
+      setTagLabel("");
+      setAiContext("");
+      setIsActive(true);
     }
   }, [open, editing]);
 
+  // Carrega canais oficiais (Cloud API) e templates do canal escolhido
+  const { data: channels } = trpc.externalEvents.listChannels.useQuery(
+    { agentId },
+    { enabled: open },
+  );
+  const { data: templates, isLoading: tplLoading, isError: tplError } =
+    trpc.externalEvents.listChannelTemplates.useQuery(
+      { channelAgentId: channelAgentId ?? 0 },
+      { enabled: open && channelAgentId != null },
+    );
+
+  // Quando troca o canal, limpa template selecionado
+  function changeChannel(v: string) {
+    const next = v === "none" ? null : Number(v);
+    setChannelAgentId(next);
+    setTemplateId(null);
+  }
+
+  // URL do webhook — derivada da fonte (sourceId). Mantém o modelo: cada
+  // fonte tem sua URL própria. Se nenhuma fonte selecionada, mostra hint.
+  const webhookUrl = useMemo(() => {
+    if (!sourceId) return "";
+    const src = sources.find((s) => s.id === sourceId);
+    if (!src) return "";
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    return `${origin}/api/external-events/${src.slug}`;
+  }, [sourceId, sources]);
+
+  const utils = trpc.useUtils();
+  const rotate = trpc.externalEvents.rotateSecret.useMutation({
+    onSuccess: () => {
+      utils.externalEvents.listSources.invalidate({ agentId });
+      toast.success("Secret rotacionado");
+    },
+  });
+
+  function copy(text: string, label: string) {
+    if (!text) return;
+    navigator.clipboard.writeText(text);
+    toast.success(`${label} copiado`);
+  }
+
   const finalEventType = eventType === "custom" ? customEventType.trim() : eventType;
-  const canSave = name.length >= 2 && finalEventType.length >= 1 && actions.length > 0;
+  const canSave = name.length >= 2 && finalEventType.length >= 1;
 
   function submit() {
     onSave({
@@ -662,44 +761,49 @@ function RuleEditorDialog({
       eventType: finalEventType,
       name,
       description: description || null,
-      actions,
+      // mantemos um marker no JSON `actions` para não quebrar a constraint legacy
+      actions: [{ kind: "v2" }],
       enabled,
       createLeadIfMissing: createLead,
       priority,
+      channelAgentId,
+      templateId,
+      delayMinutes: Math.max(0, Number(delayMinutes) || 0),
+      moveToStepId,
+      tagLabel: tagLabel.trim() ? tagLabel.trim() : null,
+      aiContext: aiContext.trim() ? aiContext.trim() : null,
+      isActive,
     });
   }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{editing ? "Editar regra" : "Nova regra"}</DialogTitle>
-          <DialogDescription>
-            Quando este evento chegar, executar as ações abaixo em ordem.
-          </DialogDescription>
+          <div className="flex items-center gap-3">
+            <div className="size-10 rounded-lg bg-primary/15 flex items-center justify-center">
+              <Webhook className="size-5 text-primary" />
+            </div>
+            <div>
+              <DialogTitle>{editing ? "Editar Link" : "Novo Link"}</DialogTitle>
+              <DialogDescription>
+                Configure o template e canal para disparar via webhook
+              </DialogDescription>
+            </div>
+          </div>
         </DialogHeader>
 
         <div className="space-y-4">
+          {/* Nome / Evento / Fonte (campos contextuais) */}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label>Nome da regra</Label>
               <Input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="Boas-vindas após compra"
+                placeholder="Ex: Anuncio Black Friday"
               />
             </div>
-            <div>
-              <Label>Prioridade (menor = primeiro)</Label>
-              <Input
-                type="number"
-                value={priority}
-                onChange={(e) => setPriority(Number(e.target.value) || 100)}
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
             <div>
               <Label>Tipo de evento</Label>
               <Select value={eventType} onValueChange={setEventType}>
@@ -723,90 +827,210 @@ function RuleEditorDialog({
                 />
               )}
             </div>
-            <div>
-              <Label>Aplicar à fonte</Label>
-              <Select
-                value={sourceId == null ? "any" : String(sourceId)}
-                onValueChange={(v) => setSourceId(v === "any" ? null : Number(v))}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="any">Qualquer fonte</SelectItem>
-                  {sources.map((s) => (
-                    <SelectItem key={s.id} value={String(s.id)}>
-                      {s.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
           </div>
 
           <div>
-            <Label>Descrição (opcional)</Label>
-            <Textarea
-              rows={2}
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Quando alguém compra o curso, mover para etapa pós-venda e enviar mensagem de boas-vindas."
+            <Label>Aplicar à fonte</Label>
+            <Select
+              value={sourceId == null ? "any" : String(sourceId)}
+              onValueChange={(v) => setSourceId(v === "any" ? null : Number(v))}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="any">Qualquer fonte</SelectItem>
+                {sources.map((s) => (
+                  <SelectItem key={s.id} value={String(s.id)}>
+                    {s.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Canal (Cloud API) */}
+          <div>
+            <Label className="flex items-center gap-2">
+              <RefreshCcw className="size-3.5" /> Canal
+            </Label>
+            <Select
+              value={channelAgentId == null ? "none" : String(channelAgentId)}
+              onValueChange={changeChannel}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Selecione um canal Cloud API" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Não disparar template</SelectItem>
+                {(channels ?? []).map((c) => (
+                  <SelectItem key={c.agentId} value={String(c.agentId)}>
+                    {c.name}
+                    {c.displayPhoneNumber ? ` · ${c.displayPhoneNumber}` : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {channels && channels.length === 0 && (
+              <p className="text-xs text-amber-600 mt-1">
+                Nenhum canal Cloud API conectado. Conecte um agente em modo oficial em Agentes &rarr; WhatsApp.
+              </p>
+            )}
+          </div>
+
+          {/* Template */}
+          <div>
+            <Label>Template</Label>
+            <Select
+              value={templateId == null ? "none" : String(templateId)}
+              onValueChange={(v) =>
+                setTemplateId(v === "none" ? null : Number(v))
+              }
+              disabled={channelAgentId == null}
+            >
+              <SelectTrigger>
+                <SelectValue
+                  placeholder={
+                    channelAgentId == null
+                      ? "Selecione um canal primeiro"
+                      : tplLoading
+                        ? "Carregando templates..."
+                        : "Selecione um template aprovado"
+                  }
+                />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Nenhum</SelectItem>
+                {(templates ?? []).map((t) => (
+                  <SelectItem key={t.id} value={String(t.id)}>
+                    {t.name} · {t.languageCode}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {tplError && (
+              <p className="text-xs text-destructive mt-1">
+                Não foi possível carregar templates. Verifique o canal.
+              </p>
+            )}
+            {channelAgentId != null &&
+              !tplLoading &&
+              !tplError &&
+              (templates ?? []).length === 0 && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  Este canal não tem templates aprovados.
+                </p>
+              )}
+          </div>
+
+          {/* Aguardar */}
+          <div className="flex items-center gap-3">
+            <Label className="flex items-center gap-2 mb-0">
+              <Clock className="size-3.5" /> Aguardar
+            </Label>
+            <Input
+              type="number"
+              min={0}
+              max={1440}
+              value={delayMinutes}
+              onChange={(e) =>
+                setDelayMinutes(Math.max(0, Number(e.target.value) || 0))
+              }
+              className="w-24"
+            />
+            <span className="text-sm text-muted-foreground">
+              min antes de executar
+            </span>
+          </div>
+
+          {/* Mover para */}
+          <div>
+            <Label>Mover para</Label>
+            <Select
+              value={moveToStepId == null ? "none" : String(moveToStepId)}
+              onValueChange={(v) =>
+                setMoveToStepId(v === "none" ? null : Number(v))
+              }
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Selecione uma etapa" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Não mover</SelectItem>
+                {steps.map((s) => (
+                  <SelectItem key={s.id} value={String(s.id)}>
+                    {s.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Associar tag */}
+          <div>
+            <Label>Associar tag</Label>
+            <Input
+              value={tagLabel}
+              onChange={(e) => setTagLabel(e.target.value.slice(0, 80))}
+              placeholder="Nenhuma"
             />
           </div>
 
-          <div className="flex gap-6 items-center">
-            <label className="flex items-center gap-2 text-sm">
-              <Switch checked={enabled} onCheckedChange={setEnabled} /> Habilitada
-            </label>
-            <label className="flex items-center gap-2 text-sm">
-              <Switch checked={createLead} onCheckedChange={setCreateLead} />{" "}
-              Criar lead se não existir
-            </label>
+          {/* Contexto IA */}
+          <div>
+            <Label>Contexto IA</Label>
+            <Textarea
+              rows={2}
+              value={aiContext}
+              onChange={(e) => setAiContext(e.target.value.slice(0, 4000))}
+              placeholder="Ex: Clicou no anúncio da campanha X"
+            />
+            <p className="text-xs text-muted-foreground mt-1">
+              Esse texto entra no próximo prompt da IA quando o lead responder.
+            </p>
           </div>
 
-          <div className="space-y-2">
+          {/* Ativo */}
+          <div className="flex items-center justify-between border-t pt-4">
+            <Label className="mb-0">Ativo</Label>
+            <Switch checked={isActive} onCheckedChange={setIsActive} />
+          </div>
+
+          {/* URL do Webhook */}
+          <div className="border-t pt-4 space-y-2">
             <div className="flex items-center justify-between">
-              <Label>Ações</Label>
-              <ActionAddButton onAdd={(a) => setActions((arr) => [...arr, a])} />
+              <Label className="flex items-center gap-2 mb-0">
+                <Webhook className="size-3.5" /> URL do Webhook
+              </Label>
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={!sourceId || rotate.isPending}
+                onClick={() =>
+                  sourceId && rotate.mutate({ id: sourceId, agentId })
+                }
+              >
+                <RotateCw className="size-3 mr-1" /> Regenerar
+              </Button>
             </div>
-            {actions.length === 0 && (
-              <p className="text-sm text-muted-foreground">
-                Adicione pelo menos uma ação.
-              </p>
-            )}
-            {actions.map((a, idx) => (
-              <ActionEditor
-                key={idx}
-                action={a}
-                steps={steps}
-                onChange={(next) =>
-                  setActions((arr) => arr.map((x, i) => (i === idx ? next : x)))
-                }
-                onRemove={() =>
-                  setActions((arr) => arr.filter((_, i) => i !== idx))
-                }
-                onMoveUp={
-                  idx === 0
-                    ? undefined
-                    : () =>
-                        setActions((arr) => {
-                          const copy = [...arr];
-                          [copy[idx - 1], copy[idx]] = [copy[idx], copy[idx - 1]];
-                          return copy;
-                        })
-                }
-                onMoveDown={
-                  idx === actions.length - 1
-                    ? undefined
-                    : () =>
-                        setActions((arr) => {
-                          const copy = [...arr];
-                          [copy[idx + 1], copy[idx]] = [copy[idx], copy[idx + 1]];
-                          return copy;
-                        })
-                }
-              />
-            ))}
+            <Input
+              readOnly
+              value={webhookUrl}
+              placeholder="Selecione uma fonte para gerar a URL"
+              className="font-mono text-xs"
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              className="w-full"
+              disabled={!webhookUrl}
+              onClick={() => copy(webhookUrl, "URL")}
+            >
+              <Copy className="size-3 mr-1" /> Copiar URL
+            </Button>
+            <p className="text-[11px] text-muted-foreground">
+              Regenerar troca o secret HMAC da fonte (não muda a URL).
+            </p>
           </div>
         </div>
 
