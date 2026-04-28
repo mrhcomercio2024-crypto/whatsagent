@@ -80,6 +80,7 @@ import {
   startQrSession,
   disconnectQrSession,
   isAgentConnected,
+  getAgentRuntimeStats,
 } from "./whatsapp/baileys";
 import { storagePut } from "./storage";
 import { processInboundForReply } from "./ai/orchestrator";
@@ -459,6 +460,13 @@ export const appRouter = router({
         await disconnectQrSession(input.agentId, input.wipe);
         return { ok: true };
       }),
+    /**
+     * Saúde do bridge Baileys: estatísticas em memória (uptime, mensagens/min,
+     * tentativas de reconnect, rate limit). Atualiza em tempo real.
+     */
+    health: protectedProcedure
+      .input(agentScopedSchema)
+      .query(({ input }) => getAgentRuntimeStats(input.agentId)),
   }),
 
   // ─── BUSINESS HOURS / HANDOFF ───

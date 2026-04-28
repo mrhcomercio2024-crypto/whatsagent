@@ -393,19 +393,17 @@
 - [x] Suite 174/174 verde + checkpoint v27
 
 
-## Fase 58: Refazer Chat — painel "Detalhes do Lead"
-- [ ] Alinhar escopo com o usuário (campos, prioridades)
-- [ ] Schema: lead.email, lead.notes, lead.saleValueCents + tabelas leadTags + leadHistoryEvents
-- [ ] Backend: procedures CRUD tags/notas/valor/histórico/mudar canal
-- [ ] Frontend: layout 3 colunas (lista convs | chat | detalhes), todas as seções da referência
-- [ ] Testes vitest
-- [ ] Checkpoint v28
+## Fase 58: Refazer Chat — painel "Detalhes do Lead" (PARCIAL)
+- [x] Histórico do Lead entregue na Fase 60 (modal timeline)
+- [ ] Demais seções (contato completo, qualificação, resumo expansível, gerenciar tags) — backlog
 
 
 ## Fase 59 (BLOQUEANTE): Mensagem AI não chega ao WhatsApp real
-- [ ] Investigar dispatcher + jid (lead Marcelo Menezes com phoneNumber=233268589332983 - 15 dígitos, prefix 233)
-- [ ] Verificar persistOutboundActions vs sock.sendMessage
-- [ ] Corrigir + checkpoint
+- [x] Causa: Baileys novo entrega remoteJid em formato @lid (LID interno do WhatsApp Multi-Device); enviar para `<lid>@s.whatsapp.net` faz o WhatsApp descartar silenciosamente
+- [x] Corrigido: `resolveRealPhone` prefere `senderPn`/`participantPn`; campo `isLid` em `leads`; dispatcher usa `<id>@lid` quando `isLid=true`
+- [x] Backfill aplicado em 3 leads existentes (Marcelo, Italo, Jac)
+- [x] 8 testes vitest novos em `baileys.lid.test.ts`
+- [x] Checkpoint v28 (f61d67cf)
 
 
 ## Fase 60: Modal Histórico do Lead (timeline)
@@ -415,29 +413,20 @@
 - [x] Checkpoint v29
 
 
-## Fase 61: Pausas naturais entre texto e mídia
-- [ ] Delay humano entre mensagem de texto e envio de mídia no dispatcher (oficial + Baileys + simulator)
-- [ ] Testes vitest
+## Fase 61–64: Upgrades de mídia (consolidados)
+- [x] 61: Pausas naturais antes/depois da mídia (1.5–4s antes, 2–5s depois) com jitter humano — dispatcher + Baileys
+- [x] 62: Gatilho por intenção LLM (`intentClassifier.ts`) + tipo `intent` em media_triggers + UI no aba Mídias
+- [x] 63: Estado `awaitingMediaReaction*` em conversations + `reactionClassifier.ts` (positive/neutral/negative/ignored) + bloco no prompt
+- [x] 64: Coluna `purpose` em media_assets + UI agrupada + prompt agrupa por propósito
+- [x] Testes vitest: 209/209 verde
+- [x] Checkpoint v30 (34908f18)
 
-## Fase 62: Gatilho por intenção (classificador LLM)
-- [ ] Adicionar tipo `intent` em media_triggers (migration) + campo `intentLabel`
-- [ ] Criar intentClassifier.ts (chamada LLM rápida retornando intenções detectadas)
-- [ ] Integrar no orchestrator (pre-LLM) para expor mídias cabíveis
-- [ ] UI: opção "Gatilho por intenção" na aba Mídias e gatilhos
-- [ ] Testes vitest
 
-## Fase 63: Estado "aguardando reação à mídia"
-- [ ] Adicionar `awaitingMediaReaction` + `lastMediaSentId` + `lastMediaSentAt` em conversations (migration)
-- [ ] mediaReactionClassifier.ts (positiva/neutra/negativa/silencio)
-- [ ] Orchestrator: injeta hint no prompt com a reação detectada
-- [ ] Testes vitest
-
-## Fase 64: Agrupamento por propósito
-- [ ] Adicionar coluna `purpose` em media_assets (migration) — enum: prova_social | explicacao | contra_objecao | bonus | garantia | outros
-- [ ] UI: Mídias agrupadas por propósito com cabeçalhos
-- [ ] Prompt mostra mídias agrupadas por propósito (readabilidade da LLM)
-- [ ] Testes vitest
-
-## Fase 65: Checkpoint consolidado v30
-- [ ] Rodar suite completa (vitest)
-- [ ] Checkpoint v30 e reporte final
+## Fase 66 (BLOQUEANTE): Endurecer Baileys para alto volume sem cair instance
+- [x] Auditar pontos frágeis: keep-alive, reconnect, queue, memória, locks, persistência
+- [x] 66a: Reconnect robusto — backoff exponencial (1s→60s, jitter ±500ms) + watchdog 60s + heartbeat 30s; cancel pendente no disconnect (`server/whatsapp/reconnect.ts`)
+- [x] 66b: Fila de inbound — processamento sequencial FIFO por (agentId:remoteJid); conversas distintas continuam em paralelo (`server/whatsapp/inboundQueue.ts`)
+- [x] 66c: Persistência confiável de creds — debounce 2s agrupando rajadas Signal + flush síncrono no SIGTERM/SIGINT (`server/whatsapp/credsSaver.ts`)
+- [x] 66d: Rate limiting (token bucket 20/min/agente, espera sem rejeitar) + painel "Saúde do bridge WhatsApp" no Dashboard com uptime, msgs/min, reconnects, último backoff, rate limited e últimos erros (refresh 5s)
+- [x] Testes vitest 27 novos (backoff/scheduler 10, fila FIFO 7, rate limiter 4, credsSaver 6) — suite total 236/236 verde
+- [x] Checkpoint v31

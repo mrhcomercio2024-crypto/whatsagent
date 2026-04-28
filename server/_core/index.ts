@@ -12,7 +12,12 @@ import { registerWhatsappWebhook } from "../whatsapp/webhook";
 import { registerRealtimeRoutes } from "../realtime/sse";
 import { startFollowupEngine } from "../followup/engine";
 import { startDebounceWorker } from "../ai/debounceWorker";
-import { reconnectAllQrSessions } from "../whatsapp/baileys";
+import {
+  reconnectAllQrSessions,
+  startBaileysLifecycle,
+  stopBaileysLifecycle,
+  flushPendingCreds,
+} from "../whatsapp/baileys";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -70,10 +75,38 @@ async function startServer() {
     startFollowupEngine();
     startDebounceWorker();
     // Religa sessões Baileys que estavam ativas antes do restart
-    reconnectAllQrSessions().catch((e: unknown) =>
-      console.warn("[baileys] reconnectAllQrSessions failed:", (e as Error)?.message)
-    );
+    reconnectAllQrSessions()
+      .catch((e: unknown) =>
+        console.warn("[baileys] reconnectAllQrSessions failed:", (e as Error)?.message)
+      )
+      .finally(() => {
+        // Watchdog + heartbeat globais (após tentar religar): detectam socket
+        // morto sem atividade e mantêm a conexão viva.
+        startBaileysLifecycle();
+      });
   });
+
+  // Shutdown gracioso: flush de creds pendentes + para watchdog/heartbeat
+  // antes de encerrar. Evita perder o último snapshot do Signal state.
+  let shuttingDown = false;
+  const shutdown = async (signal: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`[shutdown] received ${signal}, flushing pending creds…`);
+    try {
+      stopBaileysLifecycle();
+      await flushPendingCreds();
+      console.log("[shutdown] creds flushed");
+    } catch (e) {
+      console.warn("[shutdown] flush error:", (e as Error).message);
+    } finally {
+      server.close(() => process.exit(0));
+      // Failsafe: se server.close demorar, força saída em 5s
+      setTimeout(() => process.exit(0), 5000).unref();
+    }
+  };
+  process.on("SIGTERM", () => void shutdown("SIGTERM"));
+  process.on("SIGINT", () => void shutdown("SIGINT"));
 }
 
 startServer().catch(console.error);

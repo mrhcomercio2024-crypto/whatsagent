@@ -2,7 +2,21 @@ import AppLayout from "@/components/AppLayout";
 import { AgentRequired } from "@/components/AgentRequired";
 import { PageHeader } from "@/components/PageHeader";
 import { trpc } from "@/lib/trpc";
-import { Activity, MessageSquare, Flame, Snowflake, Sun, Clock, Bot, Users } from "lucide-react";
+import {
+  Activity,
+  MessageSquare,
+  Flame,
+  Snowflake,
+  Sun,
+  Clock,
+  Bot,
+  Users,
+  Wifi,
+  WifiOff,
+  RotateCw,
+  Gauge,
+  AlertTriangle,
+} from "lucide-react";
 import { ReactNode } from "react";
 
 export default function DashboardPage() {
@@ -15,6 +29,11 @@ export default function DashboardPage() {
 
 function Inner({ agentId }: { agentId: number }) {
   const { data: m, isLoading } = trpc.metrics.summary.useQuery({ agentId, daysBack: 30 });
+  // Saúde do bridge Baileys: refetch a cada 5s para ver atividade em tempo real
+  const { data: health } = trpc.qr.health.useQuery(
+    { agentId },
+    { refetchInterval: 5000 }
+  );
 
   return (
     <div className="container py-10">
@@ -99,6 +118,8 @@ function Inner({ agentId }: { agentId: number }) {
             </div>
           </div>
 
+          <BridgeHealthPanel health={health} />
+
           <div className="mt-6 elevated-card rounded-2xl p-6">
             <h3 className="font-medium mb-4">Distribuição de eventos</h3>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
@@ -144,7 +165,140 @@ function Stat({
   );
 }
 
-function Tile({ label, value, description }: { label: string; value: number; description?: string }) {
+type BridgeHealth = {
+  agentId: number;
+  connectedSince: number | null;
+  uptimeMs: number;
+  lastActivityAt: number | null;
+  reconnectAttempts: number;
+  totalReconnects: number;
+  lastReconnectAt: number | null;
+  lastBackoffMs: number | null;
+  inboundCount: number;
+  outboundCount: number;
+  outboundFailed: number;
+  inboundPerMinute: number;
+  outboundPerMinute: number;
+  rateLimitedCount: number;
+  lastErrorAt: number | null;
+  lastErrorMessage: string | null;
+  live: boolean;
+};
+
+function BridgeHealthPanel({ health }: { health: BridgeHealth | undefined | null }) {
+  if (!health) {
+    return (
+      <div className="mt-6 elevated-card rounded-2xl p-6">
+        <h3 className="font-medium mb-1">Saúde do bridge WhatsApp (QR)</h3>
+        <p className="text-sm text-muted-foreground">Carregando estatísticas…</p>
+      </div>
+    );
+  }
+  const live = health.live;
+  const uptimeStr = formatDuration(health.uptimeMs);
+  const lastActivityStr = health.lastActivityAt
+    ? `${formatRelative(health.lastActivityAt)} atrás`
+    : "—";
+  return (
+    <div className="mt-6 elevated-card rounded-2xl p-6">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="font-medium">Saúde do bridge WhatsApp (QR)</h3>
+        <span
+          className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border ${
+            live
+              ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
+              : "bg-rose-500/10 text-rose-400 border-rose-500/30"
+          }`}
+        >
+          {live ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
+          {live ? "conectado" : "desconectado"}
+        </span>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+        <Tile label="Uptime" value={uptimeStr as any} description="desde a última conexão" />
+        <Tile
+          label="Mensagens / min"
+          value={`${health.inboundPerMinute} in / ${health.outboundPerMinute} out` as any}
+          description="janela de 60s"
+        />
+        <Tile
+          label="Recebidas (total)"
+          value={health.inboundCount}
+          description="desde o boot"
+        />
+        <Tile
+          label="Enviadas (total)"
+          value={health.outboundCount}
+          description={`${health.outboundFailed} falhas`}
+        />
+        <Tile
+          label="Reconnects"
+          value={health.totalReconnects}
+          description={
+            health.reconnectAttempts > 0
+              ? `tentativa atual: ${health.reconnectAttempts}`
+              : "estabilizado"
+          }
+        />
+        <Tile
+          label="Último backoff"
+          value={health.lastBackoffMs ? `${(health.lastBackoffMs / 1000).toFixed(1)}s` as any : "—"}
+          description={health.lastReconnectAt ? formatRelative(health.lastReconnectAt) + " atrás" : "—"}
+        />
+        <Tile
+          label="Rate limited"
+          value={health.rateLimitedCount}
+          description="esperas por limite"
+        />
+        <Tile
+          label="Última atividade"
+          value={lastActivityStr as any}
+          description="in/out"
+        />
+      </div>
+      {health.lastErrorMessage && !live && (
+        <div className="mt-4 flex items-start gap-2 p-3 rounded-lg border border-rose-500/30 bg-rose-500/5 text-sm">
+          <AlertTriangle className="h-4 w-4 text-rose-400 mt-0.5 shrink-0" />
+          <div>
+            <p className="text-rose-300 font-medium">Último erro</p>
+            <p className="text-muted-foreground">{health.lastErrorMessage}</p>
+          </div>
+        </div>
+      )}
+      <div className="mt-4 flex flex-wrap gap-3 text-xs text-muted-foreground">
+        <span className="inline-flex items-center gap-1.5">
+          <RotateCw className="h-3 w-3" /> watchdog 60s
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <Activity className="h-3 w-3" /> heartbeat 30s
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <Gauge className="h-3 w-3" /> 20 envios / minuto máx.
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function formatDuration(ms: number): string {
+  if (!ms || ms < 1000) return "—";
+  const sec = Math.floor(ms / 1000);
+  if (sec < 60) return `${sec}s`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ${sec % 60}s`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ${min % 60}m`;
+  const d = Math.floor(hr / 24);
+  return `${d}d ${hr % 24}h`;
+}
+
+function formatRelative(epochMs: number): string {
+  const diff = Date.now() - epochMs;
+  if (diff < 0) return "agora";
+  return formatDuration(diff);
+}
+
+function Tile({ label, value, description }: { label: string; value: number | string; description?: string }) {
   return (
     <div className="rounded-xl bg-background/40 p-4 border border-border/40">
       <p className="text-xs text-muted-foreground uppercase tracking-wider">{label}</p>

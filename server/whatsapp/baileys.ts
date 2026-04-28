@@ -25,6 +25,27 @@ import { recognizeMedia, absoluteStorageUrl } from "../ai/mediaRecognition";
 import path from "path";
 import fs from "fs";
 import qrcode from "qrcode";
+import {
+  computeBackoffMs,
+  scheduleReconnect,
+  cancelReconnect,
+  startWatchdog,
+  startHeartbeat,
+  stopWatchdog,
+  stopHeartbeat,
+} from "./reconnect";
+import { enqueue as enqueueInbound } from "./inboundQueue";
+import { debouncedSave, flushAll as flushAllCreds } from "./credsSaver";
+import { acquireToken } from "./rateLimiter";
+import {
+  markConnected,
+  markDisconnected,
+  markReconnectAttempt,
+  markInbound,
+  markOutbound,
+  markRateLimited,
+  getStatsSnapshot,
+} from "./runtimeStats";
 
 // Lazy import — só carrega Baileys se for usado, evita peso ao boot
 type WASocket = any;
@@ -33,6 +54,8 @@ type ConnectionState = any;
 const sockets = new Map<number, WASocket>();
 const statePromises = new Map<number, Promise<void>>();
 const onOff = new Map<number, () => void>();
+// Guarda o saveCreds "cru" por agente para permitir flush síncrono no shutdown.
+const rawSavers = new Map<number, () => Promise<void>>();
 
 function authDirFor(agentId: number) {
   const base = process.env.WA_AUTH_DIR || path.join(process.cwd(), ".wa-sessions");
@@ -127,8 +150,8 @@ async function bootSocket(agentId: number): Promise<void> {
   });
 
   const { state, saveCreds: rawSaveCreds } = await useMultiFileAuthState(dir);
-  // Persiste o snapshot do dir no banco a cada saveCreds.
-  const saveCreds = async () => {
+  // Save "cru": escreve em disco + snapshot no banco. É o que de fato persiste.
+  const rawSaver = async () => {
     try {
       await rawSaveCreds();
       await snapshotAuthDirToDb(agentId, dir);
@@ -139,6 +162,11 @@ async function bootSocket(agentId: number): Promise<void> {
       );
     }
   };
+  rawSavers.set(agentId, rawSaver);
+  // Versão debounced (2s): agrupa rajadas de `creds.update` em 1 execução,
+  // evitando floodar o pool MySQL e o disco. O flush síncrono no shutdown
+  // garante que o último estado não seja perdido.
+  const saveCreds = debouncedSave(agentId, rawSaver, 2000);
   let version: any;
   try {
     const v = await fetchLatestBaileysVersion();
@@ -181,6 +209,8 @@ async function bootSocket(agentId: number): Promise<void> {
         lastConnectedAt: new Date(),
         lastError: null,
       });
+      markConnected(agentId);
+      cancelReconnect(agentId); // garantia: qualquer reconnect pendente é cancelado
       console.log(`[baileys] agent ${agentId} connected as ${jid}`);
     }
     if (connection === "close") {
@@ -231,13 +261,23 @@ async function bootSocket(agentId: number): Promise<void> {
           );
         }
       } else {
-        // Quedas temporárias e Stream Errored (restart required): apenas reconectar
-        const delay = isRestartRequired ? 1500 : 5000;
-        setTimeout(() => {
-          startQrSession(agentId).catch((e) =>
-            console.warn("[baileys] reconnect failed", (e as Error).message)
-          );
-        }, delay);
+        // Quedas temporárias e Stream Errored (restart required): backoff exponencial.
+        markDisconnected(agentId, reason);
+        // Contador vive no runtimeStats: lemos e incrementamos de forma consistente.
+        // Para restartRequired usamos backoff mais curto (base 1s); para os demais, 1.5s.
+        const snap = getStatsSnapshot(agentId);
+        const attempt = snap.reconnectAttempts + 1;
+        const delay = computeBackoffMs(attempt, {
+          baseMs: isRestartRequired ? 1000 : 1500,
+          factor: 2,
+          capMs: 60_000,
+          jitterMs: 500,
+        });
+        markReconnectAttempt(agentId, delay);
+        console.log(
+          `[baileys] agent ${agentId} reconnect scheduled in ${delay}ms (attempt ${attempt}, restartRequired=${isRestartRequired})`
+        );
+        scheduleReconnect(agentId, delay, () => startQrSession(agentId));
       }
     }
   });
@@ -245,11 +285,18 @@ async function bootSocket(agentId: number): Promise<void> {
   sock.ev.on("messages.upsert", async (ev: any) => {
     if (ev.type !== "notify") return;
     for (const msg of ev.messages || []) {
-      try {
-        await handleInbound(agentId, sock, msg);
-      } catch (e) {
-        console.error("[baileys] inbound failed", (e as Error).message);
-      }
+      // Enfileira por conversa (agentId:remoteJid): garante ordem FIFO e evita
+      // races no debounce/orchestrator quando várias mensagens da mesma pessoa
+      // chegam simultaneamente.
+      const rjid: string = msg?.key?.remoteJid || "unknown";
+      const key = `${agentId}:${rjid}`;
+      enqueueInbound(key, async () => {
+        try {
+          await handleInbound(agentId, sock, msg);
+        } catch (e) {
+          console.error("[baileys] inbound failed", (e as Error).message);
+        }
+      });
     }
   });
   console.log(`[baileys] agent ${agentId} socket booted, listening for messages`);
@@ -476,6 +523,7 @@ async function handleInbound(agentId: number, sock: WASocket, msg: any) {
   const leadId = await findOrCreateLead(agentId, phone, pushName ?? undefined, { isLid: resolved.isLid });
   const convId = await findOrCreateConversation(agentId, leadId);
 
+  markInbound(agentId);
   await appendMessage({
     conversationId: convId,
     direction: "inbound",
@@ -639,11 +687,24 @@ export async function dispatchViaBaileys(opts: {
         });
       }
     }
+    // Rate limit: evita ban por rajada. Espera (sem rejeitar) até liberar token.
+    const limit = await acquireToken(agent.id, {
+      maxPerWindow: 20,
+      windowMs: 60_000,
+    });
+    if (limit.waitedMs > 0) {
+      markRateLimited(agent.id);
+      console.log(
+        `[baileys] rate limited agent=${agent.id} waited=${limit.waitedMs}ms`
+      );
+    }
     let id: string | undefined;
+    let sendOk = false;
     try {
       if (a.type === "text") {
         const r = await sock.sendMessage(jid, { text: a.text });
         id = r?.key?.id ?? undefined;
+        sendOk = true;
       } else if (a.type === "media") {
         const m = await getMediaById(a.mediaId);
         if (m?.storageUrl) {
@@ -654,12 +715,14 @@ export async function dispatchViaBaileys(opts: {
               caption: m.caption || undefined,
             });
             id = r?.key?.id ?? undefined;
+            sendOk = true;
           } else if (m.mediaType === "video") {
             const r = await sock.sendMessage(jid, {
               video: { url },
               caption: m.caption || undefined,
             });
             id = r?.key?.id ?? undefined;
+            sendOk = true;
           } else if (m.mediaType === "audio") {
             const r = await sock.sendMessage(jid, {
               audio: { url },
@@ -667,6 +730,7 @@ export async function dispatchViaBaileys(opts: {
               ptt: false,
             });
             id = r?.key?.id ?? undefined;
+            sendOk = true;
           } else {
             const r = await sock.sendMessage(jid, {
               document: { url },
@@ -675,6 +739,7 @@ export async function dispatchViaBaileys(opts: {
               caption: m.caption || undefined,
             });
             id = r?.key?.id ?? undefined;
+            sendOk = true;
           }
         }
       }
@@ -682,6 +747,7 @@ export async function dispatchViaBaileys(opts: {
       console.warn(`[baileys] send failed: ${(e as Error).message}`);
     }
     waMessageIds.push(id);
+    markOutbound(agent.id, sendOk);
     await recordMetric({
       agentId: agent.id,
       conversationId,
@@ -721,6 +787,8 @@ function absolutize(url: string): string {
  * Encerra a sessão e desloga.
  */
 export async function disconnectQrSession(agentId: number, wipe = false): Promise<void> {
+  // Para de tentar reconectar imediatamente — usuário pediu disconnect explícito.
+  cancelReconnect(agentId);
   const sock = sockets.get(agentId);
   if (sock) {
     try {
@@ -732,6 +800,8 @@ export async function disconnectQrSession(agentId: number, wipe = false): Promis
     }
     sockets.delete(agentId);
   }
+  rawSavers.delete(agentId);
+  markDisconnected(agentId, wipe ? "manual_wipe" : "manual_disconnect");
   if (wipe) {
     const dir = authDirFor(agentId);
     try {
@@ -801,4 +871,91 @@ export async function reconnectAllQrSessions(): Promise<void> {
   } catch (e) {
     console.error("[baileys] reconnectAllQrSessions error:", (e as Error).message);
   }
+}
+
+/**
+ * Retorna lista de agentes que têm sessão QR conhecida (vivos ou não).
+ * Usada pelo watchdog para saber quem deveria estar conectado.
+ */
+async function listKnownQrAgents(): Promise<Array<{ agentId: number }>> {
+  try {
+    const rows = await listReconnectableQrSessions();
+    return rows
+      .map((r: any) => ({ agentId: r.agentId }))
+      .filter((r: { agentId: number }) => typeof r.agentId === "number");
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Envia um heartbeat (presence 'available') para manter a conexão viva
+ * e detectar sockets mortos. No-op se o socket não estiver presente.
+ */
+async function sendBaileysHeartbeat(agentId: number): Promise<void> {
+  const sock = sockets.get(agentId);
+  if (!sock) return;
+  try {
+    await sock.sendPresenceUpdate?.("available");
+  } catch (e) {
+    // Se falhar, o `connection.update` fechará e o fluxo normal reconecta.
+    console.warn(
+      `[baileys] heartbeat failed for agent ${agentId}:`,
+      (e as Error).message
+    );
+  }
+}
+
+/**
+ * Inicia watchdog + heartbeat globais. Idempotente.
+ * Deve ser chamado no boot do servidor, depois de reconnectAllQrSessions.
+ */
+export function startBaileysLifecycle(): void {
+  startWatchdog(
+    {
+      isConnected: (id) => isAgentConnected(id),
+      listAgents: listKnownQrAgents,
+      startSession: (id) => startQrSession(id),
+      getLastActivityAt: (id) => getStatsSnapshot(id).lastActivityAt,
+      sendHeartbeat: (id) => sendBaileysHeartbeat(id),
+    },
+    { intervalMs: 60_000, staleMs: 5 * 60_000 }
+  );
+  startHeartbeat(
+    {
+      isConnected: (id) => isAgentConnected(id),
+      listAgents: listKnownQrAgents,
+      sendHeartbeat: (id) => sendBaileysHeartbeat(id),
+    },
+    { intervalMs: 30_000 }
+  );
+}
+
+/**
+ * Para watchdog + heartbeat. Útil em shutdown.
+ */
+export function stopBaileysLifecycle(): void {
+  stopWatchdog();
+  stopHeartbeat();
+}
+
+/**
+ * Flush síncrono de creds pendentes (debounce) antes de encerrar o processo.
+ * Chamado no handler de SIGTERM/SIGINT.
+ */
+export async function flushPendingCreds(): Promise<void> {
+  await flushAllCreds((agentId) => {
+    const saver = rawSavers.get(agentId);
+    return saver ?? (async () => {});
+  });
+}
+
+/**
+ * Snapshot de métricas runtime de um agente (para Dashboard).
+ */
+export function getAgentRuntimeStats(agentId: number) {
+  return {
+    ...getStatsSnapshot(agentId),
+    live: isAgentConnected(agentId),
+  };
 }
