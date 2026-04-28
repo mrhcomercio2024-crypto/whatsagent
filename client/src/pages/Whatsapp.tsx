@@ -18,7 +18,7 @@ import {
   Unplug,
   XCircle,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 type Mode = "official" | "qr";
@@ -279,6 +279,7 @@ function QrPanel({ agentId }: { agentId: number }) {
   );
   const start = trpc.qr.start.useMutation({
     onSuccess: () => utils.qr.status.invalidate({ agentId }),
+    onError: (e) => toast.error(`Falha ao iniciar conexão: ${e.message}`),
   });
   const disconnect = trpc.qr.disconnect.useMutation({
     onSuccess: () => {
@@ -288,6 +289,35 @@ function QrPanel({ agentId }: { agentId: number }) {
   });
 
   const status = data?.status ?? "disconnected";
+
+  // Notificação de sucesso/falha: dispara um toast UMA vez quando o status
+  // transita para `connected` ou para um estado terminal de falha. Evita
+  // toast spam usando um ref que guarda o último status notificado.
+  const lastNotifiedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!data) return;
+    const prev = lastNotifiedRef.current;
+    if (prev === status) return;
+    if (status === "connected" && prev !== "connected") {
+      const who = data.displayName ?? data.jid?.split("@")[0] ?? "WhatsApp";
+      toast.success(`Conectado com sucesso a ${who}`);
+    } else if (
+      (status === "logged_out" || status === "banned") &&
+      prev !== status
+    ) {
+      toast.error(
+        `Falha na conexão WhatsApp: ${data.lastError ?? status}. Clique em "Iniciar conexão" para tentar novamente.`,
+      );
+    } else if (
+      status === "disconnected" &&
+      prev === "connected"
+    ) {
+      toast.warning(
+        `WhatsApp desconectado${data.lastError ? `: ${data.lastError}` : ""}. Clique em "Iniciar conexão" para reconectar.`,
+      );
+    }
+    lastNotifiedRef.current = status;
+  }, [status, data]);
   const lastQr = data?.lastQr ?? null;
   const jid = data?.jid ?? null;
   const displayName = data?.displayName ?? null;

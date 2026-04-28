@@ -572,3 +572,26 @@
 - [x] Testes vitest `qrLoop.test.ts` (4 casos: lista vazia, religa connected caído, não religa live, contrato dos status válidos)
 - [x] Suite completa 344/344 verde
 - [x] Checkpoint v42
+
+
+## Fase 78: QR Code só ao clicar Iniciar Conexão (zero auto-start)
+- [ ] Mapear todas as chamadas a startQrSession() no projeto
+- [ ] Boot do servidor: NÃO chamar reconnectAllQrSessions automaticamente para sessões em awaiting_qr/connecting
+- [ ] Página de Conexão: NÃO disparar startQrSession() em useEffect/mount
+- [ ] Reconnect/watchdog: já corrigido na Fase 77 (não religa awaiting_qr) — manter assim
+- [ ] Manter botão "Iniciar conexão" como ÚNICO ponto que chama startQrSession()
+- [ ] Testes vitest do contrato (mount não dispara, click dispara)
+- [ ] Checkpoint v43
+
+
+## Fase 78: QR só ao clicar "Iniciar conexão" + parar após conectado + notificação
+- [x] Mapeadas as chamadas: boot (`reconnectAllQrSessions`+`startBaileysLifecycle`), watchdog tick (chama startSession), onClose (chama scheduleReconnect)
+- [x] Boot: removido `reconnectAllQrSessions()` e `startBaileysLifecycle()` — agora só loga `auto-start desabilitado — conexão on-demand`
+- [x] Watchdog/heartbeat: nunca são iniciados no boot — ficam disponíveis se alguém chamar manualmente, mas estão **desligados por padrão**
+- [x] Página de Conexão: nunca disparou startQrSession no mount (só no clique do botão, já estava certo)
+- [x] Reconnect automático após queda: removido `scheduleReconnect()` do bloco onClose — agora só marca disconnected, cancela qualquer reconnect pendente e loga "aguardando clique manual"
+- [x] UI: toast verde "Conectado com sucesso a <jid/displayName>" no evento `open` (transição de status para connected)
+- [x] UI: toast vermelho em `logged_out`/`banned`; toast âmbar em `disconnected` após ter estado `connected` — sempre orientando a clicar "Iniciar conexão"
+- [x] Testes vitest `onDemand.test.ts` (7 casos: lê o código de boot e onClose, garante ausência de auto-start)
+- [x] Suite completa 351/351 verde
+- [x] Checkpoint v43

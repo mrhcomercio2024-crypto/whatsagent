@@ -76,16 +76,12 @@ async function startServer() {
     console.log(`Server running on http://localhost:${port}/`);
     startFollowupEngine();
     startDebounceWorker();
-    // Religa sessões Baileys que estavam ativas antes do restart
-    reconnectAllQrSessions()
-      .catch((e: unknown) =>
-        console.warn("[baileys] reconnectAllQrSessions failed:", (e as Error)?.message)
-      )
-      .finally(() => {
-        // Watchdog + heartbeat globais (após tentar religar): detectam socket
-        // morto sem atividade e mantêm a conexão viva.
-        startBaileysLifecycle();
-      });
+    // ⚠️ Baileys (QR Code) NUNCA é iniciado automaticamente.
+    // O QR só é gerado quando o usuário clica "Iniciar conexão" na UI.
+    // Watchdog/heartbeat também permanecem desligados — isso evita que
+    // o socket renasça sozinho, regenere QR em loop, ou tente reconectar
+    // sem permissão explícita do usuário.
+    console.log("[baileys] auto-start desabilitado — conexão on-demand");
   });
 
   // Shutdown gracioso: flush de creds pendentes + para watchdog/heartbeat

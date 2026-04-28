@@ -298,23 +298,16 @@ async function bootSocket(agentId: number): Promise<void> {
           );
         }
       } else {
-        // Quedas temporárias e Stream Errored (restart required): backoff exponencial.
+        // ⚠️ Reconnect automático DESLIGADO. Quando a conexão cai, deixamos o
+        // socket morto e marcamos o status como `disconnected` no banco.
+        // O usuário precisa clicar "Iniciar conexão" novamente para gerar QR.
+        // Isso evita: QR rotacionando em loop, reconexões agressivas que disparam
+        // "conflict (replaced)" e gastos de recursos sem permissão explícita.
         markDisconnected(agentId, reason);
-        // Contador vive no runtimeStats: lemos e incrementamos de forma consistente.
-        // Para restartRequired usamos backoff mais curto (base 1s); para os demais, 1.5s.
-        const snap = getStatsSnapshot(agentId);
-        const attempt = snap.reconnectAttempts + 1;
-        const delay = computeBackoffMs(attempt, {
-          baseMs: isRestartRequired ? 1000 : 1500,
-          factor: 2,
-          capMs: 60_000,
-          jitterMs: 500,
-        });
-        markReconnectAttempt(agentId, delay);
+        cancelReconnect(agentId);
         console.log(
-          `[baileys] agent ${agentId} reconnect scheduled in ${delay}ms (attempt ${attempt}, restartRequired=${isRestartRequired})`
+          `[baileys] agent ${agentId} desconectado (${reason}) — aguardando clique manual em "Iniciar conexão"`
         );
-        scheduleReconnect(agentId, delay, () => startQrSession(agentId));
       }
     }
    } catch (e) {
