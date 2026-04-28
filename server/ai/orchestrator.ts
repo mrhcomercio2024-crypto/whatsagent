@@ -872,6 +872,10 @@ export async function persistOutboundActions(opts: {
       });
     }
   }
+  // Fecha o ciclo de digitação do agente para a UI "ao vivo".
+  try {
+    publishRealtime({ type: "typing.agent", conversationId, phase: "idle" });
+  } catch {}
 }
 
 /**

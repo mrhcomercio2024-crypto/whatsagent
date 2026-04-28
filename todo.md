@@ -500,3 +500,19 @@
 - [x] Estado vazio dedicado quando a busca não casa: “Nenhum reenvio encontrado” com o termo buscado
 - [x] 6 testes vitest novos (`normalizeSearch` 4 + `escapeLike` 2) — suite total 305/305 verde
 - [x] Checkpoint v36
+
+
+## Fase 72: Chats em tempo real com indicadores de digitação
+- [ ] Estender `realtime/bus` com tipos `message.received | message.sent | presence.lead.composing | presence.agent.composing | conversation.updated`
+- [ ] Endpoint SSE `GET /api/live/stream?agentId=` (com auth) que emite eventos do bus filtrados por agente
+- [ ] Capturar `presence.update` do Baileys (composing/paused/available) e emitir no bus
+- [ ] Marcar `agent.composing` quando o orchestrator inicia geração e desmarcar ao despachar
+- [ ] Backend `liveActivity`: agregador in-memory de conversas com atividade nos últimos 5min (ordem desc por última atividade)
+- [ ] Procedure tRPC `live.{listActive, getConversation}` (snapshot inicial; o stream cuida do delta)
+- [ ] Helper `formatTypingState` puro (testável)
+- [ ] Página `/live`: lista lateral (avatar inicial, nome/telefone, prévia, badge "ao vivo" + dot pulsante quando atividade <30s, "digitando…" embaixo do nome)
+- [ ] Página `/live`: janela de chat (mensagens em ordem, indicador "lead digitando…" e "agente digitando…" com 3 pontinhos animados, auto-scroll para o fim)
+- [ ] Item "Ao vivo" no menu lateral com contador de conversas ativas (badge)
+- [ ] Reconexão automática do SSE em caso de queda (com backoff)
+- [ ] Testes vitest: bus, agregador liveActivity, formatTypingState
+- [ ] Checkpoint v37

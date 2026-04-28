@@ -313,7 +313,70 @@ async function bootSocket(agentId: number): Promise<void> {
       });
     }
   });
+
+  // Captura presença do lead (composing/paused/recording) e republica no bus
+  // realtime para a UI "ao vivo". Mapeia o remoteJid para conversationId via
+  // lookup direto (lead_phone -> lead -> conversation).
+  sock.ev.on("presence.update", async (ev: any) => {
+    try {
+      const remoteJid: string | undefined = ev?.id;
+      const presences = ev?.presences;
+      if (!remoteJid || !presences) return;
+
+      // Pega a presença do próprio remoteJid (1:1) ou a primeira (grupos não suportados aqui)
+      const entry =
+        presences[remoteJid] ??
+        Object.values(presences as Record<string, any>)[0];
+      if (!entry || typeof entry.lastKnownPresence !== "string") return;
+
+      const phase = mapPresenceToLeadPhase(entry.lastKnownPresence);
+      if (!phase) return;
+
+      // Resolve conversationId a partir do remoteJid
+      const phone = remoteJid.replace(/[@:].*/, "").replace(/\D+/g, "");
+      if (!phone) return;
+      const { findLeadByPhone, findConversationByLeadId } = await import(
+        "../db"
+      );
+      const lead = await findLeadByPhone(agentId, phone);
+      if (!lead) return;
+      const conv = await findConversationByLeadId(lead.id);
+      if (!conv) return;
+
+      const { publish, bindConversationToAgent } = await import(
+        "../realtime/bus"
+      );
+      bindConversationToAgent(conv.id, agentId);
+      publish({
+        type: "typing.lead",
+        conversationId: conv.id,
+        phase,
+      });
+    } catch (e) {
+      // best-effort: presence falhou não impacta nada
+      console.warn(
+        "[baileys] presence.update handler failed:",
+        (e as Error).message
+      );
+    }
+  });
+
   console.log(`[baileys] agent ${agentId} socket booted, listening for messages`);
+}
+
+function mapPresenceToLeadPhase(
+  p: string
+):
+  | "composing"
+  | "recording"
+  | "paused"
+  | "idle"
+  | null {
+  if (p === "composing") return "composing";
+  if (p === "recording") return "recording";
+  if (p === "paused") return "paused";
+  if (p === "available" || p === "unavailable") return "idle";
+  return null;
 }
 
 /**

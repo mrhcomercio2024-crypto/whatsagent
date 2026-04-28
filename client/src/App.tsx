@@ -24,6 +24,7 @@ import Settings from "./pages/Settings";
 import Costs from "./pages/Costs";
 import ExternalEvents from "./pages/ExternalEvents";
 import Retries from "./pages/Retries";
+import Live from "./pages/Live";
 
 function Router() {
   return (
@@ -46,6 +47,7 @@ function Router() {
       <Route path="/costs" component={Costs} />
       <Route path="/external-events" component={ExternalEvents} />
       <Route path="/retries" component={Retries} />
+      <Route path="/live" component={Live} />
       <Route path="/settings" component={Settings} />
       <Route path="/404" component={NotFound} />
       <Route component={NotFound} />

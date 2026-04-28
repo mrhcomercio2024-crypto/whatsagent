@@ -1377,6 +1377,74 @@ export const appRouter = router({
         return { ok: true } as const;
       }),
   }),
+
+  // ============================================================
+  // LIVE — chats em tempo real (lista de conversas ativas e leads)
+  // ============================================================
+  live: router({
+    listActive: protectedProcedure
+      .input(
+        z.object({
+          agentId: z.number().int().positive(),
+          limit: z.number().int().min(1).max(100).optional(),
+        })
+      )
+      .query(async ({ input }) => {
+        const { getActiveSnapshot, countTyping } = await import(
+          "./realtime/liveActivity"
+        );
+        const { listConversationsWithLeads } = await import("./db");
+
+        const snap = getActiveSnapshot(input.agentId);
+        const limited = snap.slice(0, input.limit ?? 50);
+        const typing = countTyping(input.agentId);
+
+        // Hidrata cada conversa com nome/telefone do lead (apenas as mostradas).
+        // Lookup vem da listConversationsWithLeads do agente.
+        const all = await listConversationsWithLeads(input.agentId, {
+          limit: 500,
+        });
+        const leadMap = new Map<number, { id: number; name: string | null; phone: string | null }>();
+        for (const row of all) {
+          leadMap.set(row.conv.id, {
+            id: row.lead.id,
+            name: row.lead.name ?? null,
+            phone: (row.lead as any).phoneNumber ?? null,
+          });
+        }
+
+        const items = limited.map((c) => ({
+          ...c,
+          lead: leadMap.get(c.conversationId) ?? null,
+        }));
+
+        return {
+          items,
+          totals: {
+            active: snap.length,
+            agentTyping: typing.agent,
+            leadTyping: typing.lead,
+          },
+        };
+      }),
+
+    recentMessages: protectedProcedure
+      .input(
+        z.object({
+          conversationId: z.number().int().positive(),
+          limit: z.number().int().min(1).max(100).optional(),
+        })
+      )
+      .query(async ({ input }) => {
+        const { listMessages, getConversationById } = await import("./db");
+        const conv = await getConversationById(input.conversationId);
+        if (!conv) throw new TRPCError({ code: "NOT_FOUND" });
+        const messages = await listMessages(input.conversationId, {
+          limit: input.limit ?? 30,
+        });
+        return { conversation: conv, messages };
+      }),
+  }),
 });
 
 function csvEscape(s: string): string {

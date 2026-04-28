@@ -48,6 +48,7 @@ import {
   DollarSign,
   Webhook,
   RefreshCcw,
+  Activity,
 } from "lucide-react";
 import { useEffect } from "react";
 import { Link, useLocation } from "wouter";
@@ -63,6 +64,7 @@ const groups: Array<{
     items: [
       { icon: LayoutDashboard, label: "Dashboard", path: "/dashboard" },
       { icon: MessageSquare, label: "Chat", path: "/chat" },
+      { icon: Activity, label: "Chats ao vivo", path: "/live" },
       { icon: Users, label: "Leads", path: "/leads" },
       { icon: TestTube2, label: "Simulador", path: "/simulator" },
       { icon: DollarSign, label: "Custos", path: "/costs" },

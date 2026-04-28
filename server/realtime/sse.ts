@@ -1,7 +1,11 @@
 import type { Express, Request, Response } from "express";
 import { sdk } from "../_core/sdk";
-import { getConversationById } from "../db";
-import { subscribe, type RealtimeEvent } from "./bus";
+import { getConversationById, getAgentById } from "../db";
+import {
+  subscribe,
+  subscribeAgent,
+  type RealtimeEvent,
+} from "./bus";
 
 /**
  * Endpoint SSE: GET /api/chat/stream/:conversationId
@@ -67,6 +71,78 @@ export function registerRealtimeRoutes(app: Express) {
     const unsubscribe = subscribe(conversationId, send);
 
     // Heartbeat anti‑idle
+    const heartbeat = setInterval(() => {
+      try {
+        res.write(`: hb ${Date.now()}\n\n`);
+      } catch {
+        // ignored
+      }
+    }, 25_000);
+
+    const cleanup = () => {
+      clearInterval(heartbeat);
+      unsubscribe();
+      try {
+        res.end();
+      } catch {
+        // ignored
+      }
+    };
+
+    req.on("close", cleanup);
+    req.on("aborted", cleanup);
+    res.on("close", cleanup);
+  });
+
+  /**
+   * Endpoint SSE global por agente: GET /api/live/stream?agentId=N
+   *
+   * Emite TODOS os eventos do bus que pertencem ao agente, em tempo real.
+   * Usado pela página /live para mostrar lista de conversas ativas + chats
+   * em andamento sem precisar abrir cada conversa individualmente.
+   */
+  app.get("/api/live/stream", async (req: Request, res: Response) => {
+    const agentId = Number(req.query.agentId);
+    if (!Number.isInteger(agentId) || agentId <= 0) {
+      res.status(400).json({ error: "invalid agentId" });
+      return;
+    }
+
+    try {
+      await sdk.authenticateRequest(req);
+    } catch {
+      res.status(401).json({ error: "unauthorized" });
+      return;
+    }
+
+    const agent = await getAgentById(agentId);
+    if (!agent) {
+      res.status(404).json({ error: "agent not found" });
+      return;
+    }
+
+    res.status(200);
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
+    if (typeof (res as any).flushHeaders === "function") {
+      (res as any).flushHeaders();
+    }
+
+    res.write(`event: ready\ndata: ${JSON.stringify({ agentId })}\n\n`);
+
+    const send = (event: RealtimeEvent) => {
+      try {
+        res.write(`event: ${event.type}\n`);
+        res.write(`data: ${JSON.stringify(event)}\n\n`);
+      } catch {
+        // ignored
+      }
+    };
+
+    const unsubscribe = subscribeAgent(agentId, send);
+
     const heartbeat = setInterval(() => {
       try {
         res.write(`: hb ${Date.now()}\n\n`);

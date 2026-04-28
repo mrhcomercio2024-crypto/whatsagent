@@ -507,6 +507,18 @@ export async function getConversationById(id: number) {
   return r[0];
 }
 
+/** Devolve a conversa associada a um lead (ou undefined se não existir). */
+export async function findConversationByLeadId(leadId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const r = await db
+    .select()
+    .from(conversations)
+    .where(eq(conversations.leadId, leadId))
+    .limit(1);
+  return r[0];
+}
+
 export async function updateConversation(
   id: number,
   patch: Partial<typeof conversations.$inferInsert>
@@ -515,7 +527,16 @@ export async function updateConversation(
   if (!db) throw new Error("DB unavailable");
   await db.update(conversations).set(patch).where(eq(conversations.id, id));
   try {
-    const { publish } = await import("./realtime/bus");
+    const { publish, bindConversationToAgent } = await import(
+      "./realtime/bus"
+    );
+    // Garante que o canal global por agente recebe atualizações desta conversa.
+    try {
+      const conv = await getConversationById(id);
+      if (conv?.agentId) bindConversationToAgent(id, conv.agentId);
+    } catch {
+      // ignored
+    }
     publish({ type: "status", conversationId: id, patch });
   } catch {
     // ignored
@@ -575,7 +596,17 @@ export async function appendMessage(input: InsertMessage) {
   // Realtime: emite no bus para qualquer SSE conectado nesta conversa.
   // Carregado dinamicamente para evitar ciclo (db <-> realtime).
   try {
-    const { publish } = await import("./realtime/bus");
+    const { publish, bindConversationToAgent } = await import(
+      "./realtime/bus"
+    );
+    // Vincula a conversa ao agente para roteamento no canal global por agente.
+    try {
+      const conv = await getConversationById(input.conversationId);
+      if (conv?.agentId)
+        bindConversationToAgent(input.conversationId, conv.agentId);
+    } catch {
+      // ignored
+    }
     publish({
       type: "message",
       conversationId: input.conversationId,
