@@ -1319,6 +1319,7 @@ export const appRouter = router({
             .enum(["pending", "succeeded", "exhausted", "cancelled", "cancelled_by_reply"])
             .optional(),
           limit: z.number().int().min(1).max(500).default(100),
+          search: z.string().max(120).optional().nullable(),
         })
       )
       .query(async ({ input }) => {
@@ -1326,6 +1327,7 @@ export const appRouter = router({
         const rows = await listMessageRetries(input.agentId, {
           status: input.status,
           limit: input.limit,
+          search: input.search,
         });
         return rows;
       }),

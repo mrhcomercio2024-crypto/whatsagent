@@ -490,3 +490,13 @@
 - [x] Página **/retries** no menu lateral: tabs Pendentes/Todos, contador de pendentes, status badges, tooltip com erro completo, botões Reenviar agora / Cancelar
 - [x] 15 testes vitest novos (retryBackoff: nextRetryAt 8, hasMoreAttempts 2, sanitizeError 5) — suite total 299/299 verde
 - [x] Checkpoint v35
+
+
+## Fase 71: Filtro de busca por nome/telefone na página de Reenvios — CONCLUÍDA
+- [x] Helper puro `normalizeSearch` (`server/whatsapp/retrySearch.ts`): detecta telefone (≥4 dígitos majoritários) ou nome; `escapeLike` escapa `%` `_` `\`
+- [x] `listMessageRetries` agora aceita `search` opcional, faz `LEFT JOIN leads`, filtra `LIKE %digits%` em `phoneNumber` OU `LOWER(name) LIKE %text%`
+- [x] Procedure tRPC `messageRetries.list` aceita `search` (max 120 chars)
+- [x] UI `/retries`: campo de busca com ícone, debounced 300ms, botão limpar; tabela com nova coluna **Lead** (nome + telefone formatado em pt-BR)
+- [x] Estado vazio dedicado quando a busca não casa: “Nenhum reenvio encontrado” com o termo buscado
+- [x] 6 testes vitest novos (`normalizeSearch` 4 + `escapeLike` 2) — suite total 305/305 verde
+- [x] Checkpoint v36

@@ -1592,23 +1592,65 @@ export async function listDueMessageRetries(now: Date, limit = 25): Promise<Mess
   return rows;
 }
 
+export type MessageRetryWithLead = MessageRetry & {
+  leadName: string | null;
+  leadPhone: string | null;
+};
+
 export async function listMessageRetries(
   agentId: number,
-  opts?: { status?: MessageRetry["status"]; limit?: number }
-): Promise<MessageRetry[]> {
+  opts?: {
+    status?: MessageRetry["status"];
+    limit?: number;
+    search?: string | null;
+  }
+): Promise<MessageRetryWithLead[]> {
   const db = await getDb();
   if (!db) return [];
-  const { and, desc, eq } = await import("drizzle-orm");
-  const where = opts?.status
-    ? and(eq(messageRetries.agentId, agentId), eq(messageRetries.status, opts.status))
-    : eq(messageRetries.agentId, agentId);
+  const { and, desc, eq, like, or, sql } = await import("drizzle-orm");
+  const { normalizeSearch, escapeLike } = await import(
+    "./whatsapp/retrySearch"
+  );
+
+  const conds: any[] = [eq(messageRetries.agentId, agentId)];
+  if (opts?.status) conds.push(eq(messageRetries.status, opts.status));
+
+  const search = normalizeSearch(opts?.search ?? null);
+  if (search) {
+    if (search.kind === "phone") {
+      // Filtro por telefone: aceita dígitos puros, mesmo que o phoneNumber
+      // armazenado tenha sufixo de device (ex.: "5521999999999:1").
+      conds.push(like(leads.phoneNumber, `%${escapeLike(search.digits)}%`));
+    } else {
+      // Filtro por nome: case-insensitive, parcial.
+      const pattern = `%${escapeLike(search.text)}%`;
+      conds.push(sql`LOWER(${leads.name}) LIKE ${pattern}`);
+    }
+  }
+
   const rows = await db
-    .select()
+    .select({
+      id: messageRetries.id,
+      agentId: messageRetries.agentId,
+      conversationId: messageRetries.conversationId,
+      leadId: messageRetries.leadId,
+      payload: messageRetries.payload,
+      attempt: messageRetries.attempt,
+      maxAttempts: messageRetries.maxAttempts,
+      nextRetryAt: messageRetries.nextRetryAt,
+      status: messageRetries.status,
+      lastError: messageRetries.lastError,
+      createdAt: messageRetries.createdAt,
+      completedAt: messageRetries.completedAt,
+      leadName: leads.name,
+      leadPhone: leads.phoneNumber,
+    })
     .from(messageRetries)
-    .where(where)
+    .leftJoin(leads, eq(messageRetries.leadId, leads.id))
+    .where(and(...conds))
     .orderBy(desc(messageRetries.id))
     .limit(opts?.limit ?? 100);
-  return rows;
+  return rows as MessageRetryWithLead[];
 }
 
 export async function getMessageRetry(id: number): Promise<MessageRetry | undefined> {
