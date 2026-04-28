@@ -518,10 +518,10 @@
 
 
 ## Fase 73: BUG agente repete a mesma mensagem ignorando o lead
-- [ ] Reproduzir nos logs (orchestrator + debounceWorker + retryWorker) o exato 15:20/15:21/15:22
-- [ ] Identificar causa raiz (debounce reagrupando, histórico não passado, etapa travada, ou retry duplicado)
-- [ ] Trava de idempotência: hash da última mensagem outbound — descarta se igual nas últimas N minutos
-- [ ] Corrigir causa raiz
-- [ ] Garantir que conteúdo das mensagens do lead pendentes seja sempre incluído no contexto da IA
-- [ ] Testes vitest do helper de idempotência
-- [ ] Checkpoint v38
+- [x] Reproduzir nos logs (orchestrator + debounceWorker + retryWorker) o exato 15:20/15:21/15:22
+- [x] Identificar causa raiz: concatRecentInbound pegava todo inbound dos últimos 5min (incluindo já respondidos)
+- [x] Trava de idempotência: hash SHA-1 da última outbound por conversa em janela de 90s (server/whatsapp/idempotency.ts)
+- [x] Corrigir causa raiz: concatRecentInbound filtra apenas inbound após a última outbound (createdAt > maxOutboundCreatedAt)
+- [x] Garantir que conteúdo das mensagens do lead pendentes seja sempre incluído no contexto da IA
+- [x] Testes vitest do helper de idempotência (9 casos)
+- [x] Checkpoint v38 (cebab635)
