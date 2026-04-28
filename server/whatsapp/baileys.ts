@@ -611,19 +611,33 @@ export async function dispatchViaBaileys(opts: {
   for (let i = 0; i < actions.length; i++) {
     const a = actions[i];
     if (sender === "ai") {
-      const { simulateTypingForMessage, pauseBetweenMessages } = await import(
-        "../ai/humanize"
-      );
-      const textLen =
-        a.type === "text"
-          ? a.text.length
-          : Math.max(20, (await getMediaById(a.mediaId))?.caption?.length ?? 0);
-      await simulateTypingForMessage({
-        agent,
-        textLength: textLen,
-        setTyping,
-      });
-      if (i > 0) await pauseBetweenMessages(agent);
+      const {
+        simulateTypingForMessage,
+        pauseBetweenMessages,
+        pauseBeforeMedia,
+        pauseAfterMedia,
+      } = await import("../ai/humanize");
+      const prev = i > 0 ? actions[i - 1] : undefined;
+      // Pausa entre mensagens consecutivas (depende do tipo anterior)
+      if (i > 0) {
+        if (prev?.type === "media") {
+          await pauseAfterMedia(agent);
+        } else {
+          await pauseBetweenMessages(agent);
+        }
+      }
+      // Pausa extra ANTES de mídia (humano "procurando/anexando")
+      if (a.type === "media" && i > 0) {
+        await pauseBeforeMedia(agent);
+      }
+      // Typing apenas para texto
+      if (a.type === "text") {
+        await simulateTypingForMessage({
+          agent,
+          textLength: a.text.length,
+          setTyping,
+        });
+      }
     }
     let id: string | undefined;
     try {

@@ -1,0 +1,1 @@
+ALTER TABLE `media_assets` ADD `purpose` varchar(40) DEFAULT 'outro';

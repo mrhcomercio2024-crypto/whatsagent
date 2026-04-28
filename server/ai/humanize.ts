@@ -90,6 +90,47 @@ export async function pauseBetweenMessages(
   }
 }
 
+/**
+ * Jitter entre min e max (ms) com distribuição uniforme.
+ * Exposto para permitir mocking em testes.
+ */
+export function jitter(min: number, max: number): number {
+  const safeMin = Math.max(0, min);
+  const safeMax = Math.max(safeMin, max);
+  if (safeMax <= safeMin) return safeMin;
+  return Math.floor(safeMin + Math.random() * (safeMax - safeMin));
+}
+
+/**
+ * Pausa natural ANTES de enviar uma mídia:
+ * simula o humano "procurando/anexando" o arquivo.
+ * Usa interMessageDelayMs como base, multiplicando por 1.5x–3x (jitter).
+ */
+export async function pauseBeforeMedia(
+  agent: Pick<Agent, "interMessageDelayMs">,
+  signal?: AbortSignal
+): Promise<void> {
+  const base = Math.max(0, agent.interMessageDelayMs);
+  if (base <= 0) return;
+  const ms = jitter(Math.round(base * 1.5), Math.round(base * 3));
+  await sleep(ms, signal);
+}
+
+/**
+ * Pausa natural DEPOIS de enviar uma mídia:
+ * dá tempo do lead reagir antes de vir uma nova mensagem.
+ * Usa interMessageDelayMs como base, multiplicando por 1x–2x (jitter).
+ */
+export async function pauseAfterMedia(
+  agent: Pick<Agent, "interMessageDelayMs">,
+  signal?: AbortSignal
+): Promise<void> {
+  const base = Math.max(0, agent.interMessageDelayMs);
+  if (base <= 0) return;
+  const ms = jitter(base, Math.round(base * 2));
+  await sleep(ms, signal);
+}
+
 /** Retorna o timestamp em que a conversa deve ser processada (debounce). */
 export function nextProcessAt(
   agent: Pick<Agent, "debounceSeconds">,

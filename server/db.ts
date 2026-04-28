@@ -262,6 +262,15 @@ export async function createMedia(input: typeof mediaAssets.$inferInsert) {
   return (r as any)[0]?.insertId as number;
 }
 
+export async function updateMedia(
+  id: number,
+  patch: Partial<typeof mediaAssets.$inferInsert>
+) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  await db.update(mediaAssets).set(patch).where(eq(mediaAssets.id, id));
+}
+
 export async function deleteMedia(id: number) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");

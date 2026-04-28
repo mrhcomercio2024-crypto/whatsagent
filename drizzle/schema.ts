@@ -183,6 +183,8 @@ export const mediaAssets = mysqlTable(
     storageUrl: varchar("storageUrl", { length: 500 }).notNull(),
     mimeType: varchar("mimeType", { length: 100 }),
     caption: text("caption"), // legenda enviada junto
+    // Propósito (agrupamento): prova_social, explicacao_produto, combate_objecao, bonus, garantia, apresentacao, outro
+    purpose: varchar("purpose", { length: 40 }).default("outro"),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
   },
   table => ({
@@ -204,11 +206,15 @@ export const mediaTriggers = mysqlTable(
     id: int("id").autoincrement().primaryKey(),
     agentId: int("agentId").notNull(),
     mediaId: int("mediaId").notNull(),
-    triggerType: mysqlEnum("triggerType", ["keyword", "step", "ai_decision"]).notNull(),
+    triggerType: mysqlEnum("triggerType", ["keyword", "step", "ai_decision", "intent"]).notNull(),
     // Para keyword: lista CSV de palavras-chave (ex.: "preço,valor,quanto custa")
     keywords: varchar("keywords", { length: 500 }),
     // Para step: id da etapa em que deve ser enviada
     stepId: int("stepId"),
+    // Para intent: rótulo curto da intenção (ex.: "duvida_preco", "quer_ver_resultado")
+    intentLabel: varchar("intentLabel", { length: 80 }),
+    // Descrição em linguagem natural do que configura essa intenção (usada no classificador LLM)
+    intentDescription: text("intentDescription"),
     // Apenas envie no máximo 1x por conversa
     sendOncePerConversation: boolean("sendOncePerConversation").default(true).notNull(),
     isActive: boolean("isActive").default(true).notNull(),
@@ -337,6 +343,11 @@ export const conversations = mysqlTable(
     // Memória evolutiva: resumo do que já aconteceu na conversa, atualizado pelo agente
     summary: text("summary"),
     summaryUpdatedAt: timestamp("summaryUpdatedAt"),
+    // Mídia aguardando reação (ID da última mídia enviada quando queremos observar a reação do lead)
+    awaitingReactionMediaId: int("awaitingReactionMediaId"),
+    awaitingReactionSentAt: timestamp("awaitingReactionSentAt"),
+    // Classificação da última reação do lead à mídia: 'positive'|'neutral'|'negative'|'ignored'
+    lastMediaReaction: varchar("lastMediaReaction", { length: 16 }),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
     updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   },

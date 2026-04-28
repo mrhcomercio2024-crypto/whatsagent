@@ -21,7 +21,7 @@ export type InvokeWithModelParams = {
   temperature?: number;
   /** Contexto de cobrança — quando informado, grava em llm_usage. */
   tracking?: {
-    purpose: "orchestrator" | "qualifier" | "followup" | "simulator" | "transcription" | "vision" | "validator" | "summary" | "status_classifier" | "other";
+    purpose: "orchestrator" | "qualifier" | "followup" | "simulator" | "transcription" | "vision" | "validator" | "summary" | "status_classifier" | "intent_classifier" | "reaction_classifier" | "other";
     agentId?: number;
     conversationId?: number;
     leadId?: number;

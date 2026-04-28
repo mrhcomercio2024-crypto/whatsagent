@@ -23,6 +23,8 @@ import {
 import type { OutboundAction } from "../ai/orchestrator";
 import {
   pauseBetweenMessages,
+  pauseBeforeMedia,
+  pauseAfterMedia,
   simulateTypingForMessage,
 } from "../ai/humanize";
 import { listMessages } from "../db";
@@ -119,15 +121,15 @@ export async function dispatchActionsOfficial(opts: {
 
   for (let i = 0; i < expanded.length; i++) {
     const a = expanded[i];
-    // Simulação de digitação antes de enviar
-    if (sender === "ai") {
-      const textLen =
-        a.type === "text"
-          ? a.text.length
-          : Math.max(20, (await getMediaById(a.mediaId))?.caption?.length ?? 0);
+    // Pausa natural ANTES da mídia (humano "procurando/anexando")
+    if (sender === "ai" && a.type === "media" && i > 0) {
+      await pauseBeforeMedia(agent);
+    }
+    // Simulação de digitação antes de enviar (apenas para texto)
+    if (sender === "ai" && a.type === "text") {
       await simulateTypingForMessage({
         agent,
-        textLength: textLen,
+        textLength: a.text.length,
         setTyping,
       });
     }
@@ -169,7 +171,12 @@ export async function dispatchActionsOfficial(opts: {
 
     // Pausa entre mensagens consecutivas
     if (sender === "ai" && i < expanded.length - 1) {
-      await pauseBetweenMessages(agent);
+      if (a.type === "media") {
+        // Depois de uma mídia, pausa maior (dá tempo do lead reagir)
+        await pauseAfterMedia(agent);
+      } else {
+        await pauseBetweenMessages(agent);
+      }
     }
   }
 

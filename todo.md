@@ -413,3 +413,31 @@
 - [x] Frontend: `LeadHistoryDialog` com timeline visual (ícones coloridos por tipo, badges, agrupamento por dia) acionado do botão Histórico no header do Chat
 - [x] Testes vitest: 7 novos em `leadHistory.test.ts`; suite 189/189 verde
 - [x] Checkpoint v29
+
+
+## Fase 61: Pausas naturais entre texto e mídia
+- [ ] Delay humano entre mensagem de texto e envio de mídia no dispatcher (oficial + Baileys + simulator)
+- [ ] Testes vitest
+
+## Fase 62: Gatilho por intenção (classificador LLM)
+- [ ] Adicionar tipo `intent` em media_triggers (migration) + campo `intentLabel`
+- [ ] Criar intentClassifier.ts (chamada LLM rápida retornando intenções detectadas)
+- [ ] Integrar no orchestrator (pre-LLM) para expor mídias cabíveis
+- [ ] UI: opção "Gatilho por intenção" na aba Mídias e gatilhos
+- [ ] Testes vitest
+
+## Fase 63: Estado "aguardando reação à mídia"
+- [ ] Adicionar `awaitingMediaReaction` + `lastMediaSentId` + `lastMediaSentAt` em conversations (migration)
+- [ ] mediaReactionClassifier.ts (positiva/neutra/negativa/silencio)
+- [ ] Orchestrator: injeta hint no prompt com a reação detectada
+- [ ] Testes vitest
+
+## Fase 64: Agrupamento por propósito
+- [ ] Adicionar coluna `purpose` em media_assets (migration) — enum: prova_social | explicacao | contra_objecao | bonus | garantia | outros
+- [ ] UI: Mídias agrupadas por propósito com cabeçalhos
+- [ ] Prompt mostra mídias agrupadas por propósito (readabilidade da LLM)
+- [ ] Testes vitest
+
+## Fase 65: Checkpoint consolidado v30
+- [ ] Rodar suite completa (vitest)
+- [ ] Checkpoint v30 e reporte final

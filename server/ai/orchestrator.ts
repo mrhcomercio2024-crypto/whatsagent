@@ -55,6 +55,7 @@ import {
   getLeadStatusRuleBySlug,
 } from "../db";
 import { classifyLeadStatus } from "./statusClassifier";
+import { classifyReaction, isReactionLikelyIgnored } from "./reactionClassifier";
 import { notifyOwner } from "../_core/notification";
 import {
   detectKeywordTriggers,
@@ -312,7 +313,54 @@ export async function processInboundForReply(opts: {
   const sentIds = (conv.sentMediaIds as number[] | null) ?? [];
   const kwMedia = detectKeywordTriggers(triggers, inboundText, sentIds);
   const stepMedia = detectStepTriggers(triggers, currentStep?.id ?? null, sentIds);
-  const triggeredMediaIds = Array.from(new Set([...kwMedia, ...stepMedia]));
+
+  // 4b. Mídias por intenção (classificador LLM enxuto)
+  let intentMedia: number[] = [];
+  try {
+    const intentTriggers = triggers.filter(
+      t => t.triggerType === "intent" && t.isActive && t.intentLabel
+    );
+    if (intentTriggers.length > 0) {
+      const { classifyIntent, resolveMediaIdsFromIntents } = await import(
+        "./intentClassifier"
+      );
+      // Deduplica definições por label (várias mídias podem compartilhar a mesma intenção)
+      const defsMap = new Map<string, string>();
+      for (const t of intentTriggers) {
+        if (t.intentLabel && !defsMap.has(t.intentLabel)) {
+          defsMap.set(t.intentLabel, t.intentDescription || "");
+        }
+      }
+      const defs = Array.from(defsMap.entries()).map(([label, description]) => ({
+        label,
+        description,
+      }));
+      const { labels } = await classifyIntent({
+        intents: defs,
+        inboundText,
+        agentId: agent.id,
+        conversationId,
+        leadId: conv.leadId,
+      });
+      intentMedia = resolveMediaIdsFromIntents(
+        intentTriggers.map(t => ({
+          triggerType: t.triggerType,
+          isActive: t.isActive,
+          mediaId: t.mediaId,
+          intentLabel: t.intentLabel,
+          sendOncePerConversation: t.sendOncePerConversation,
+        })),
+        labels,
+        sentIds
+      );
+    }
+  } catch (e) {
+    console.warn("[orchestrator] intent classifier failed:", e);
+  }
+
+  const triggeredMediaIds = Array.from(
+    new Set([...kwMedia, ...stepMedia, ...intentMedia])
+  );
 
   // 5. Seleciona conhecimento via RAG simples
   const recentText = [
@@ -322,6 +370,43 @@ export async function processInboundForReply(opts: {
   const knowledgeRelevant = selectKnowledge(allKnowledge, recentText);
 
   const availableMedia = getAvailableMediaForPrompt(triggers, allMedia);
+
+  // Se há mídia aguardando reação, classifica a última mensagem do lead
+  let mediaReactionCtx: PromptContext["mediaReaction"] = null;
+  if (conv.awaitingReactionMediaId) {
+    try {
+      const media = await getMediaById(conv.awaitingReactionMediaId);
+      if (media) {
+        const mediaName = media.name || media.caption || `mídia #${media.id}`;
+        const sentAt = conv.awaitingReactionSentAt
+          ? new Date(conv.awaitingReactionSentAt).getTime()
+          : null;
+        const secondsSinceMedia = sentAt ? Math.max(0, (Date.now() - sentAt) / 1000) : undefined;
+        if (isReactionLikelyIgnored(secondsSinceMedia, inboundText, mediaName)) {
+          mediaReactionCtx = { reaction: "ignored", mediaName, bridge: null };
+        } else {
+          const r = await classifyReaction({
+            mediaName,
+            inboundText,
+            secondsSinceMedia,
+            agentId: agent.id,
+            conversationId,
+            leadId: lead?.id,
+          });
+          mediaReactionCtx = { reaction: r.reaction, mediaName, bridge: r.bridge };
+        }
+        try {
+          await updateConversation(conversationId, {
+            awaitingReactionMediaId: null,
+            awaitingReactionSentAt: null,
+            lastMediaReaction: mediaReactionCtx.reaction,
+          } as any);
+        } catch {}
+      }
+    } catch (e) {
+      console.warn("[orchestrator] classifyReaction falhou:", (e as Error).message);
+    }
+  }
 
   const ctx: PromptContext = {
     agent,
@@ -335,6 +420,7 @@ export async function processInboundForReply(opts: {
     leadPhone: lead?.phoneNumber ?? null,
     restrictedTerms: restricted,
     conversationSummary: conv.summary ?? null,
+    mediaReaction: mediaReactionCtx,
   };
 
   const messages = buildMessages(ctx);
@@ -632,6 +718,15 @@ export async function processInboundForReply(opts: {
     }
   }
   if (newSentIds.length !== sentIds.length) updates.sentMediaIds = newSentIds;
+
+  // Se vamos despachar mídia, marcamos "aguardando reação" para classificar a próxima
+  // mensagem do lead. Usamos o ÚLTIMO mediaId da rajada para não sobrescrever.
+  const newMedia = actions.filter(a => a.type === "media") as { type: "media"; mediaId: number }[];
+  if (newMedia.length > 0) {
+    updates.awaitingReactionMediaId = newMedia[newMedia.length - 1].mediaId;
+    updates.awaitingReactionSentAt = new Date();
+    updates.lastMediaReaction = null;
+  }
 
   if (allowAdvance && currentStep) {
     const idx = steps.findIndex(s => s.id === currentStep!.id);

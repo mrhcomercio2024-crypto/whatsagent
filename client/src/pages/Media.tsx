@@ -79,6 +79,7 @@ function Library({ agentId }: { agentId: number }) {
     name: string;
     description: string;
     caption: string;
+    purpose: string;
     mediaType: "image" | "video" | "document" | "audio";
     base64: string;
     mimeType: string;
@@ -86,13 +87,14 @@ function Library({ agentId }: { agentId: number }) {
     name: "",
     description: "",
     caption: "",
+    purpose: "outro",
     mediaType: "image",
     base64: "",
     mimeType: "",
   });
 
   function reset() {
-    setForm({ name: "", description: "", caption: "", mediaType: "image", base64: "", mimeType: "" });
+    setForm({ name: "", description: "", caption: "", purpose: "outro", mediaType: "image", base64: "", mimeType: "" });
   }
 
   async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
@@ -127,11 +129,36 @@ function Library({ agentId }: { agentId: number }) {
       name: form.name,
       description: form.description || null,
       caption: form.caption || null,
+      purpose: form.purpose || "outro",
       mediaType: form.mediaType,
       base64: form.base64,
       mimeType: form.mimeType,
     });
   }
+
+  const PURPOSE_LABEL: Record<string, string> = {
+    prova_social: "Provas sociais",
+    explicacao_produto: "Explicação do produto",
+    combate_objecao: "Combate a objeções",
+    bonus: "Bônus",
+    garantia: "Garantia",
+    apresentacao: "Apresentação",
+    outro: "Outro",
+  };
+
+  const grouped: Record<string, typeof media extends infer T | undefined ? Exclude<T, undefined> : never> =
+    {} as any;
+  if (media) {
+    for (const m of media) {
+      const key = (m as any).purpose || "outro";
+      (grouped as any)[key] = (grouped as any)[key] || [];
+      (grouped as any)[key].push(m);
+    }
+  }
+  const groupKeys = Object.keys(grouped).sort((a, b) => {
+    const order = ["prova_social", "explicacao_produto", "combate_objecao", "bonus", "garantia", "apresentacao", "outro"];
+    return order.indexOf(a) - order.indexOf(b);
+  });
 
   return (
     <div>
@@ -153,8 +180,14 @@ function Library({ agentId }: { agentId: number }) {
           description="Carregue imagens, vídeos ou documentos. Depois associe a gatilhos."
         />
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-          {media.map(m => (
+        <div className="space-y-8">
+          {groupKeys.map(group => (
+            <div key={group}>
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
+                {PURPOSE_LABEL[group] || group}
+              </h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                {(grouped as any)[group].map((m: any) => (
             <div key={m.id} className="elevated-card rounded-2xl overflow-hidden">
               <div className="aspect-video bg-muted/30 grid place-items-center overflow-hidden">
                 {m.mediaType === "image" ? (
@@ -190,6 +223,9 @@ function Library({ agentId }: { agentId: number }) {
                     Remover
                   </Button>
                 </div>
+              </div>
+            </div>
+                ))}
               </div>
             </div>
           ))}
@@ -242,6 +278,24 @@ function Library({ agentId }: { agentId: number }) {
                 placeholder="Veja em 30s o que faz a diferença ;)"
               />
             </div>
+            <div>
+              <Label>Propósito (agrupamento e uso pela IA)</Label>
+              <Select value={form.purpose} onValueChange={v => setForm({ ...form, purpose: v })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="prova_social">Prova social</SelectItem>
+                  <SelectItem value="explicacao_produto">Explicação do produto</SelectItem>
+                  <SelectItem value="combate_objecao">Combate a objeção</SelectItem>
+                  <SelectItem value="bonus">Bônus</SelectItem>
+                  <SelectItem value="garantia">Garantia</SelectItem>
+                  <SelectItem value="apresentacao">Apresentação</SelectItem>
+                  <SelectItem value="outro">Outro</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-[10px] text-muted-foreground mt-1">
+                A IA agrupa as mídias por propósito no prompt, o que a ajuda a escolher a certa na hora certa.
+              </p>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setOpen(false)}>
@@ -279,9 +333,11 @@ function Triggers({ agentId }: { agentId: number }) {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<{
     mediaId: number | null;
-    triggerType: "keyword" | "step" | "ai_decision";
+    triggerType: "keyword" | "step" | "ai_decision" | "intent";
     keywords: string;
     stepId: number | null;
+    intentLabel: string;
+    intentDescription: string;
     sendOncePerConversation: boolean;
     isActive: boolean;
   }>({
@@ -289,6 +345,8 @@ function Triggers({ agentId }: { agentId: number }) {
     triggerType: "keyword",
     keywords: "",
     stepId: null,
+    intentLabel: "",
+    intentDescription: "",
     sendOncePerConversation: true,
     isActive: true,
   });
@@ -298,12 +356,20 @@ function Triggers({ agentId }: { agentId: number }) {
     if (form.triggerType === "keyword" && !form.keywords.trim())
       return toast.error("Informe palavras-chave");
     if (form.triggerType === "step" && !form.stepId) return toast.error("Selecione uma etapa");
+    if (form.triggerType === "intent") {
+      if (!form.intentLabel.trim()) return toast.error("Informe um rótulo para a intenção");
+      if (!form.intentDescription.trim())
+        return toast.error("Descreva em linguagem natural o que essa intenção captura");
+    }
     create.mutate({
       agentId,
       mediaId: form.mediaId,
       triggerType: form.triggerType,
       keywords: form.triggerType === "keyword" ? form.keywords : null,
       stepId: form.triggerType === "step" ? form.stepId : null,
+      intentLabel: form.triggerType === "intent" ? form.intentLabel.trim() : null,
+      intentDescription:
+        form.triggerType === "intent" ? form.intentDescription.trim() : null,
       sendOncePerConversation: form.sendOncePerConversation,
       isActive: form.isActive,
     });
@@ -346,6 +412,9 @@ function Triggers({ agentId }: { agentId: number }) {
                     {t.triggerType === "keyword" && `Palavra-chave: ${t.keywords}`}
                     {t.triggerType === "step" && `Etapa: ${s?.name ?? "?"}`}
                     {t.triggerType === "ai_decision" && "Decisão da IA"}
+                    {t.triggerType === "intent" && (
+                      <>Intenção: <span className="font-medium">{t.intentLabel}</span></>
+                    )}
                     {" · "}enviar {t.sendOncePerConversation ? "1x por conversa" : "sempre que disparar"}
                   </p>
                 </div>
@@ -406,6 +475,7 @@ function Triggers({ agentId }: { agentId: number }) {
                   <SelectItem value="keyword">Palavra-chave do lead</SelectItem>
                   <SelectItem value="step">Etapa específica do script</SelectItem>
                   <SelectItem value="ai_decision">Deixar IA decidir</SelectItem>
+                  <SelectItem value="intent">Intenção do lead (classificador IA)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -437,6 +507,36 @@ function Triggers({ agentId }: { agentId: number }) {
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+            )}
+            {form.triggerType === "intent" && (
+              <div className="space-y-3">
+                <div>
+                  <Label>Rótulo da intenção (slug curto, sem espaços)</Label>
+                  <Input
+                    value={form.intentLabel}
+                    onChange={e =>
+                      setForm({
+                        ...form,
+                        intentLabel: e.target.value.toLowerCase().replace(/\s+/g, "_"),
+                      })
+                    }
+                    placeholder="duvida_preco"
+                  />
+                </div>
+                <div>
+                  <Label>Descrição em linguagem natural (o classificador IA lê isso)</Label>
+                  <Textarea
+                    rows={3}
+                    value={form.intentDescription}
+                    onChange={e => setForm({ ...form, intentDescription: e.target.value })}
+                    placeholder="Lead pergunta ou demonstra dúvida sobre quanto custa, menciona orçamento, valor, preço, caro, barato."
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Seja específico sobre o que caracteriza a intenção. A IA usa essa descrição pra
+                    reconhecer a fala do lead mesmo quando ele não usa exatamente a palavra-chave.
+                  </p>
+                </div>
               </div>
             )}
             <div className="flex items-center gap-3">

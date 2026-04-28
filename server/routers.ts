@@ -12,6 +12,7 @@ import {
   createHandoffKeyword,
   createKnowledge,
   createMedia,
+  updateMedia,
   createStep,
   createTemplate,
   createTrigger,
@@ -311,6 +312,7 @@ export const appRouter = router({
           base64: z.string().min(1),
           mimeType: z.string().min(1),
           caption: z.string().nullable().optional(),
+          purpose: z.string().nullable().optional(),
         })
       )
       .mutation(async ({ input, ctx }) => {
@@ -327,8 +329,22 @@ export const appRouter = router({
           storageUrl: stored.url,
           mimeType: input.mimeType,
           caption: input.caption ?? null,
+          purpose: input.purpose ?? "outro",
         });
       }),
+    update: protectedProcedure
+      .input(
+        z.object({
+          id: z.number().int().positive(),
+          patch: z.object({
+            name: z.string().min(1).optional(),
+            description: z.string().nullable().optional(),
+            caption: z.string().nullable().optional(),
+            purpose: z.string().nullable().optional(),
+          }),
+        })
+      )
+      .mutation(({ input }) => updateMedia(input.id, input.patch)),
     delete: protectedProcedure.input(idSchema).mutation(({ input }) => deleteMedia(input.id)),
 
     listTriggers: protectedProcedure
@@ -339,9 +355,11 @@ export const appRouter = router({
         z.object({
           agentId: z.number().int().positive(),
           mediaId: z.number().int().positive(),
-          triggerType: z.enum(["keyword", "step", "ai_decision"]),
+          triggerType: z.enum(["keyword", "step", "ai_decision", "intent"]),
           keywords: z.string().nullable().optional(),
           stepId: z.number().int().nullable().optional(),
+          intentLabel: z.string().nullable().optional(),
+          intentDescription: z.string().nullable().optional(),
           sendOncePerConversation: z.boolean().default(true),
           isActive: z.boolean().default(true),
         })
@@ -352,9 +370,11 @@ export const appRouter = router({
         z.object({
           id: z.number().int().positive(),
           patch: z.object({
-            triggerType: z.enum(["keyword", "step", "ai_decision"]).optional(),
+            triggerType: z.enum(["keyword", "step", "ai_decision", "intent"]).optional(),
             keywords: z.string().nullable().optional(),
             stepId: z.number().int().nullable().optional(),
+            intentLabel: z.string().nullable().optional(),
+            intentDescription: z.string().nullable().optional(),
             sendOncePerConversation: z.boolean().optional(),
             isActive: z.boolean().optional(),
           }),

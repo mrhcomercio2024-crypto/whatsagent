@@ -33,6 +33,12 @@ export type PromptContext = {
   restrictedTerms?: Array<{ term: string; action: "block" | "rewrite" }>;
   /** Resumo evolutivo da conversa (memória persistida em conversations.summary) */
   conversationSummary?: string | null;
+  /** Contexto da reação do lead à última mídia enviada (se houver). */
+  mediaReaction?: {
+    reaction: "positive" | "neutral" | "negative" | "ignored";
+    mediaName: string;
+    bridge: string | null;
+  } | null;
 };
 
 const HARD_RULES = `
@@ -143,20 +149,55 @@ ${knowledge
 `
       : "";
 
-  const mediaBlock =
-    availableMedia.length > 0
-      ? `
-## MÍDIAS DISPONÍVEIS (use [SEND_MEDIA:<id>] quando fizer sentido)
-${availableMedia
-  .map(
-    m =>
-      `- id=${m.id} | ${m.mediaType.toUpperCase()} | "${m.name}" — ${m.description ?? ""}${
-        m.triggerHint ? ` [hint: ${m.triggerHint}]` : ""
-      }`
-  )
-  .join("\n")}
-`
-      : "";
+  const PURPOSE_LABEL: Record<string, string> = {
+    prova_social: "PROVAS SOCIAIS",
+    explicacao_produto: "EXPLICAÇÃO DO PRODUTO",
+    combate_objecao: "COMBATE A OBJEÇÕES",
+    bonus: "BÔNUS",
+    garantia: "GARANTIA",
+    apresentacao: "APRESENTAÇÃO",
+    outro: "OUTROS",
+  };
+  const mediaBlock = (() => {
+    if (availableMedia.length === 0) return "";
+    const groups: Record<string, typeof availableMedia> = {} as any;
+    for (const m of availableMedia) {
+      const p = (m as any).purpose || "outro";
+      groups[p] = groups[p] || [];
+      groups[p].push(m);
+    }
+    const order = ["prova_social", "explicacao_produto", "combate_objecao", "bonus", "garantia", "apresentacao", "outro"];
+    const sortedKeys = Object.keys(groups).sort((a, b) => order.indexOf(a) - order.indexOf(b));
+    const renderGroup = (k: string) => {
+      const items = groups[k]
+        .map(
+          m =>
+            `  - id=${m.id} | ${m.mediaType.toUpperCase()} | "${m.name}" — ${m.description ?? ""}${
+              m.triggerHint ? ` [hint: ${m.triggerHint}]` : ""
+            }`
+        )
+        .join("\n");
+      return `### ${PURPOSE_LABEL[k] || k.toUpperCase()}\n${items}`;
+    };
+    return `\n## MÍDIAS DISPONÍVEIS (use [SEND_MEDIA:<id>] quando fizer sentido)\n${sortedKeys
+      .map(renderGroup)
+      .join("\n")}\n`;
+  })();
+
+  // Reação à mídia recém-enviada (classificada pelo reactionClassifier)
+  const mediaReactionBlock = ctx.mediaReaction
+    ? (() => {
+        const r = ctx.mediaReaction!;
+        const hints: Record<string, string> = {
+          positive: `O lead RECEBEU BEM a mídia "${r.mediaName}". Continue o tema com naturalidade, não pergunte "viu o vídeo?".`,
+          neutral: `O lead continuou a conversa sem comentar a mídia "${r.mediaName}" — não puxe de volta, siga o fluxo.`,
+          negative: `O lead reagiu com alguma resistência à mídia "${r.mediaName}". Reconheça o descontentamento com empatia, pergunte o que preocupa, NÃO insista na mídia.`,
+          ignored: `O lead IGNOROU a mídia "${r.mediaName}" (mudou de assunto). Siga o novo assunto — NÃO traga a mídia de volta.`,
+        };
+        const bridge = r.bridge ? `\nPonte sugerida: ${r.bridge}` : "";
+        return `\n## REAÇÃO À MÍDIA\n${hints[r.reaction] || hints.neutral}${bridge}\n`;
+      })()
+    : "";
 
   const restrictedBlock =
     (ctx.restrictedTerms ?? []).length > 0
@@ -187,6 +228,7 @@ ${currentStepBlock}
 ${buildSummaryBlock(conversationSummary)}
 ${knowledgeBlock}
 ${mediaBlock}
+${mediaReactionBlock}
 ${restrictedBlock}
 # DADOS DO LEAD
 - Nome: ${leadName || "(desconhecido — pergunte se necessário pela etapa)"}
