@@ -46,6 +46,7 @@ import {
   Settings,
   Sparkles,
   DollarSign,
+  Webhook,
 } from "lucide-react";
 import { useEffect } from "react";
 import { Link, useLocation } from "wouter";
@@ -82,6 +83,7 @@ const groups: Array<{
       { icon: PhoneCall, label: "WhatsApp Cloud API", path: "/whatsapp" },
       { icon: MessageSquare, label: "Templates HSM", path: "/templates" },
       { icon: Clock, label: "Horário & Handoff", path: "/ops" },
+      { icon: Webhook, label: "Eventos Externos", path: "/external-events" },
     ],
   },
   {

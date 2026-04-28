@@ -699,3 +699,134 @@ export const restrictedTerms = mysqlTable(
 );
 export type RestrictedTerm = typeof restrictedTerms.$inferSelect;
 export type InsertRestrictedTerm = typeof restrictedTerms.$inferInsert;
+
+
+/**
+ * ────────────────────────────────────────────────────────────
+ * EXTERNAL EVENT SOURCES — fontes externas (Hotmart, Shopify, Kiwify, etc.)
+ * que enviam webhooks. Cada source tem slug único (entra na URL pública)
+ * e um secret HMAC para validar assinatura.
+ * ────────────────────────────────────────────────────────────
+ */
+export const externalEventSources = mysqlTable(
+  "external_event_sources",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    agentId: int("agentId").notNull(),
+    name: varchar("name", { length: 120 }).notNull(),
+    // Slug único (entra na URL: /api/external-events/<slug>)
+    slug: varchar("slug", { length: 80 }).notNull().unique(),
+    // Secret usado para verificar HMAC SHA-256 do payload (header X-Signature).
+    // Pode ser rotacionado pelo painel.
+    secret: varchar("secret", { length: 128 }).notNull(),
+    // Se false, ignora silenciosamente (status=ignored).
+    enabled: boolean("enabled").default(true).notNull(),
+    // Tipo de plataforma para hints/UX (free-form): hotmart, shopify, kiwify, custom...
+    platform: varchar("platform", { length: 60 }).default("custom").notNull(),
+    notes: text("notes"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    agentIdx: index("ext_src_agent_idx").on(table.agentId),
+  })
+);
+export type ExternalEventSource = typeof externalEventSources.$inferSelect;
+export type InsertExternalEventSource = typeof externalEventSources.$inferInsert;
+
+/**
+ * ────────────────────────────────────────────────────────────
+ * EXTERNAL EVENTS — log de cada webhook recebido. Permite reprocessar.
+ * ────────────────────────────────────────────────────────────
+ */
+export const externalEvents = mysqlTable(
+  "external_events",
+  {
+    id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
+    sourceId: int("sourceId").notNull(),
+    agentId: int("agentId").notNull(),
+    // Tipo do evento: purchase.completed, cart.abandoned, checkout.started,
+    // payment.refused, signup.completed, custom.*
+    eventType: varchar("eventType", { length: 80 }).notNull(),
+    // Identificador bruto (telefone OU email) extraído do payload
+    leadIdentifier: varchar("leadIdentifier", { length: 320 }),
+    leadId: int("leadId"),
+    payload: json("payload").notNull(),
+    // Status do processamento:
+    //   received  - chegou
+    //   matched   - lead identificado, regras encontradas
+    //   unmatched - lead não encontrado
+    //   processed - ações executadas
+    //   ignored   - source desabilitado ou nenhuma regra
+    //   failed    - erro durante execução
+    status: mysqlEnum("status", [
+      "received",
+      "matched",
+      "unmatched",
+      "processed",
+      "ignored",
+      "failed",
+    ])
+      .default("received")
+      .notNull(),
+    actionsApplied: json("actionsApplied"),
+    errorMessage: text("errorMessage"),
+    receivedAt: timestamp("receivedAt").defaultNow().notNull(),
+    processedAt: timestamp("processedAt"),
+  },
+  table => ({
+    agentIdx: index("ext_evt_agent_idx").on(table.agentId, table.receivedAt),
+    sourceIdx: index("ext_evt_source_idx").on(table.sourceId, table.receivedAt),
+    typeIdx: index("ext_evt_type_idx").on(table.agentId, table.eventType),
+  })
+);
+export type ExternalEvent = typeof externalEvents.$inferSelect;
+export type InsertExternalEvent = typeof externalEvents.$inferInsert;
+
+/**
+ * ────────────────────────────────────────────────────────────
+ * EXTERNAL EVENT RULES — para um agente, dado um eventType, define
+ * a lista ordenada de ações a executar.
+ *
+ * `actions` é um array JSON: [{ kind: 'moveToStep', stepId }, ...]
+ * Tipos suportados:
+ *   - { kind: 'moveToStep', stepId: number }
+ *   - { kind: 'setTemperature', temperature: 'cold'|'warm'|'hot' }
+ *   - { kind: 'addTag', tag: string }
+ *   - { kind: 'sendMessage', mode: 'free'|'fixed'|'template',
+ *       text?: string, templateName?: string, prompt?: string,
+ *       delayMinutes?: number }
+ *   - { kind: 'pauseAi' } | { kind: 'resumeAi' }
+ *   - { kind: 'handoff' }
+ *   - { kind: 'notifyOwner', title?: string }
+ *
+ * ────────────────────────────────────────────────────────────
+ */
+export const externalEventRules = mysqlTable(
+  "external_event_rules",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    agentId: int("agentId").notNull(),
+    // null = aplica a TODAS as fontes do agente
+    sourceId: int("sourceId"),
+    eventType: varchar("eventType", { length: 80 }).notNull(),
+    name: varchar("name", { length: 160 }).notNull(),
+    description: text("description"),
+    actions: json("actions").notNull(),
+    enabled: boolean("enabled").default(true).notNull(),
+    // Quando o lead não existe ainda, criar a partir do payload?
+    createLeadIfMissing: boolean("createLeadIfMissing").default(true).notNull(),
+    priority: int("priority").default(100).notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    agentTypeIdx: index("ext_rule_agent_type_idx").on(
+      table.agentId,
+      table.eventType,
+      table.enabled
+    ),
+  })
+);
+export type ExternalEventRule = typeof externalEventRules.$inferSelect;
+export type InsertExternalEventRule = typeof externalEventRules.$inferInsert;

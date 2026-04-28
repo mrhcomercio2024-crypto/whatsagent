@@ -430,3 +430,22 @@
 - [x] 66d: Rate limiting (token bucket 20/min/agente, espera sem rejeitar) + painel "Saúde do bridge WhatsApp" no Dashboard com uptime, msgs/min, reconnects, último backoff, rate limited e últimos erros (refresh 5s)
 - [x] Testes vitest 27 novos (backoff/scheduler 10, fila FIFO 7, rate limiter 4, credsSaver 6) — suite total 236/236 verde
 - [x] Checkpoint v31
+
+
+## Fase 67: Eventos Externos (webhooks de plataformas) — CONCLUÍDA
+- [x] Schema: `external_event_sources` (id, agentId, name, slug único, secret HMAC, ativo, createdAt)
+- [x] Schema: `external_events` (id, sourceId, agentId, eventType, leadId nullable, leadIdentifier, payload JSON, status, errorMessage, receivedAt, processedAt)
+- [x] Schema: `external_event_rules` (id, agentId, sourceId nullable, eventType, ações JSON, enabled, priority, createLeadIfMissing)
+- [x] Migration 0016 aplicada
+- [x] Endpoint POST `/api/external-events/:slug` com verificação HMAC SHA-256 (suporta `X-Signature: sha256=hex`, `v1=`, `x-hotmart-hottok`)
+- [x] Resposta 202 imediata + processamento em background (não bloqueia retry da plataforma)
+- [x] Helper `extractIdentifiers` recursivo: telefone normalizado BR (com/sem DDI/DDD/máscara) + email lower; busca em `buyer_phone`, `customer_email`, `telefone`, etc.
+- [x] Motor de regras com 8 ações: `moveToStep`, `setTemperature`, `addTag`, `sendMessage` (free/fixed/template), `pauseAi`, `resumeAi`, `handoff`, `notifyOwner`
+- [x] `delayMinutes` por mensagem — agenda via `followup_jobs`
+- [x] Variáveis Mustache em texto fixo: `{{name}}`, `{{phone}}`, `{{email}}`, `{{payload.x.y}}`
+- [x] Mensagens "free" geradas pela IA com persona do agente + payload como contexto
+- [x] Procedures tRPC: `externalEvents.{listSources, createSource, updateSource, rotateSecret, deleteSource, listRules, upsertRule, deleteRule, listEvents, retryEvent}`
+- [x] Item "Eventos Externos" no menu lateral (ícone Webhook)
+- [x] Página `/external-events` com 3 abas: Fontes (URL+secret revelável+rotate+enable), Regras (builder visual de ações com reorder), Log (filtro por status, expand payload, reprocessar)
+- [x] 29 testes vitest novos (identify 13, hmac 8, engine 8) — suite total 265/265 verde
+- [x] Checkpoint v32

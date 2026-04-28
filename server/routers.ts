@@ -1010,6 +1010,298 @@ export const appRouter = router({
         return { ok: true } as const;
       }),
   }),
+
+  // ============================================================
+  // EXTERNAL EVENTS — fontes, regras e log de eventos recebidos
+  // ============================================================
+  externalEvents: router({
+    // ---- SOURCES ----
+    listSources: protectedProcedure
+      .input(agentScopedSchema)
+      .query(async ({ input }) => {
+        const { getDb } = await import("./db");
+        const { externalEventSources } = await import("../drizzle/schema");
+        const { eq, desc } = await import("drizzle-orm");
+        const db = await getDb();
+        if (!db) return [];
+        return db
+          .select()
+          .from(externalEventSources)
+          .where(eq(externalEventSources.agentId, input.agentId))
+          .orderBy(desc(externalEventSources.createdAt));
+      }),
+    createSource: protectedProcedure
+      .input(
+        z.object({
+          agentId: z.number().int().positive(),
+          name: z.string().min(2).max(120),
+          slug: z
+            .string()
+            .min(3)
+            .max(80)
+            .regex(/^[a-z0-9][a-z0-9-]*$/, {
+              message: "Slug deve usar apenas letras minúsculas, números e hífen",
+            }),
+          platform: z.string().max(60).default("custom"),
+          notes: z.string().max(2000).nullable().optional(),
+        })
+      )
+      .mutation(async ({ input }) => {
+        const { getDb } = await import("./db");
+        const { externalEventSources } = await import("../drizzle/schema");
+        const { generateSecret } = await import("./external/hmac");
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "DB unavailable" });
+        try {
+          const r: any = await db.insert(externalEventSources).values({
+            agentId: input.agentId,
+            name: input.name,
+            slug: input.slug,
+            secret: generateSecret(),
+            platform: input.platform,
+            notes: input.notes ?? null,
+          });
+          return { id: r?.[0]?.insertId as number, ok: true } as const;
+        } catch (e: any) {
+          if (String(e.message || "").toLowerCase().includes("duplicate")) {
+            throw new TRPCError({ code: "CONFLICT", message: "Slug já existe — escolha outro" });
+          }
+          throw e;
+        }
+      }),
+    updateSource: protectedProcedure
+      .input(
+        z.object({
+          id: z.number().int().positive(),
+          agentId: z.number().int().positive(),
+          patch: z.object({
+            name: z.string().min(2).max(120).optional(),
+            enabled: z.boolean().optional(),
+            platform: z.string().max(60).optional(),
+            notes: z.string().max(2000).nullable().optional(),
+          }),
+        })
+      )
+      .mutation(async ({ input }) => {
+        const { getDb } = await import("./db");
+        const { externalEventSources } = await import("../drizzle/schema");
+        const { eq, and } = await import("drizzle-orm");
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        await db
+          .update(externalEventSources)
+          .set(input.patch)
+          .where(and(eq(externalEventSources.id, input.id), eq(externalEventSources.agentId, input.agentId)));
+        return { ok: true } as const;
+      }),
+    rotateSecret: protectedProcedure
+      .input(z.object({ id: z.number().int().positive(), agentId: z.number().int().positive() }))
+      .mutation(async ({ input }) => {
+        const { getDb } = await import("./db");
+        const { externalEventSources } = await import("../drizzle/schema");
+        const { generateSecret } = await import("./external/hmac");
+        const { eq, and } = await import("drizzle-orm");
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        const newSecret = generateSecret();
+        await db
+          .update(externalEventSources)
+          .set({ secret: newSecret })
+          .where(and(eq(externalEventSources.id, input.id), eq(externalEventSources.agentId, input.agentId)));
+        return { ok: true, secret: newSecret } as const;
+      }),
+    deleteSource: protectedProcedure
+      .input(z.object({ id: z.number().int().positive(), agentId: z.number().int().positive() }))
+      .mutation(async ({ input }) => {
+        const { getDb } = await import("./db");
+        const { externalEventSources } = await import("../drizzle/schema");
+        const { eq, and } = await import("drizzle-orm");
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        await db
+          .delete(externalEventSources)
+          .where(and(eq(externalEventSources.id, input.id), eq(externalEventSources.agentId, input.agentId)));
+        return { ok: true } as const;
+      }),
+
+    // ---- RULES ----
+    listRules: protectedProcedure
+      .input(agentScopedSchema)
+      .query(async ({ input }) => {
+        const { getDb } = await import("./db");
+        const { externalEventRules } = await import("../drizzle/schema");
+        const { eq, asc } = await import("drizzle-orm");
+        const db = await getDb();
+        if (!db) return [];
+        return db
+          .select()
+          .from(externalEventRules)
+          .where(eq(externalEventRules.agentId, input.agentId))
+          .orderBy(asc(externalEventRules.eventType), asc(externalEventRules.priority));
+      }),
+    upsertRule: protectedProcedure
+      .input(
+        z.object({
+          id: z.number().int().positive().optional(),
+          agentId: z.number().int().positive(),
+          sourceId: z.number().int().positive().nullable().optional(),
+          eventType: z.string().min(1).max(80),
+          name: z.string().min(2).max(160),
+          description: z.string().max(2000).nullable().optional(),
+          actions: z.array(z.any()).min(1, { message: "Pelo menos uma ação" }),
+          enabled: z.boolean().default(true),
+          createLeadIfMissing: z.boolean().default(true),
+          priority: z.number().int().min(0).max(10000).default(100),
+        })
+      )
+      .mutation(async ({ input }) => {
+        const { getDb } = await import("./db");
+        const { externalEventRules } = await import("../drizzle/schema");
+        const { eq, and } = await import("drizzle-orm");
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        if (input.id) {
+          await db
+            .update(externalEventRules)
+            .set({
+              sourceId: input.sourceId ?? null,
+              eventType: input.eventType,
+              name: input.name,
+              description: input.description ?? null,
+              actions: input.actions,
+              enabled: input.enabled,
+              createLeadIfMissing: input.createLeadIfMissing,
+              priority: input.priority,
+            })
+            .where(and(eq(externalEventRules.id, input.id), eq(externalEventRules.agentId, input.agentId)));
+          return { id: input.id, ok: true } as const;
+        }
+        const r: any = await db.insert(externalEventRules).values({
+          agentId: input.agentId,
+          sourceId: input.sourceId ?? null,
+          eventType: input.eventType,
+          name: input.name,
+          description: input.description ?? null,
+          actions: input.actions,
+          enabled: input.enabled,
+          createLeadIfMissing: input.createLeadIfMissing,
+          priority: input.priority,
+        });
+        return { id: r?.[0]?.insertId as number, ok: true } as const;
+      }),
+    deleteRule: protectedProcedure
+      .input(z.object({ id: z.number().int().positive(), agentId: z.number().int().positive() }))
+      .mutation(async ({ input }) => {
+        const { getDb } = await import("./db");
+        const { externalEventRules } = await import("../drizzle/schema");
+        const { eq, and } = await import("drizzle-orm");
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        await db
+          .delete(externalEventRules)
+          .where(and(eq(externalEventRules.id, input.id), eq(externalEventRules.agentId, input.agentId)));
+        return { ok: true } as const;
+      }),
+
+    // ---- LOG / EVENTS ----
+    listEvents: protectedProcedure
+      .input(
+        z.object({
+          agentId: z.number().int().positive(),
+          status: z
+            .enum(["received", "matched", "unmatched", "processed", "ignored", "failed"])
+            .optional(),
+          eventType: z.string().max(80).optional(),
+          limit: z.number().int().min(1).max(200).default(100),
+        })
+      )
+      .query(async ({ input }) => {
+        const { getDb } = await import("./db");
+        const { externalEvents } = await import("../drizzle/schema");
+        const { eq, and, desc } = await import("drizzle-orm");
+        const db = await getDb();
+        if (!db) return [];
+        const conds = [eq(externalEvents.agentId, input.agentId)];
+        if (input.status) conds.push(eq(externalEvents.status, input.status));
+        if (input.eventType) conds.push(eq(externalEvents.eventType, input.eventType));
+        return db
+          .select()
+          .from(externalEvents)
+          .where(and(...conds))
+          .orderBy(desc(externalEvents.receivedAt))
+          .limit(input.limit);
+      }),
+    retryEvent: protectedProcedure
+      .input(z.object({ id: z.number().int().positive(), agentId: z.number().int().positive() }))
+      .mutation(async ({ input }) => {
+        const { getDb } = await import("./db");
+        const { externalEvents, externalEventSources } = await import("../drizzle/schema");
+        const { eq, and } = await import("drizzle-orm");
+        const { extractIdentifiers } = await import("./external/identify");
+        const { loadRulesFor, executeRuleActions } = await import("./external/engine");
+        const { findOrCreateLead } = await import("./db");
+        const db = await getDb();
+        if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+        const evRows = await db
+          .select()
+          .from(externalEvents)
+          .where(and(eq(externalEvents.id, input.id), eq(externalEvents.agentId, input.agentId)))
+          .limit(1);
+        const ev = evRows[0];
+        if (!ev) throw new TRPCError({ code: "NOT_FOUND" });
+        const srcRows = await db
+          .select()
+          .from(externalEventSources)
+          .where(eq(externalEventSources.id, ev.sourceId))
+          .limit(1);
+        const src = srcRows[0];
+        if (!src) throw new TRPCError({ code: "NOT_FOUND", message: "source removida" });
+
+        const ids = extractIdentifiers(ev.payload);
+        const rules = await loadRulesFor(input.agentId, ev.eventType, src.id);
+        if (rules.length === 0) {
+          await db
+            .update(externalEvents)
+            .set({ status: "ignored", processedAt: new Date(), errorMessage: "nenhuma regra" })
+            .where(eq(externalEvents.id, input.id));
+          return { ok: true, status: "ignored" } as const;
+        }
+        let leadId = ev.leadId;
+        if (!leadId && ids.phone) {
+          leadId = await findOrCreateLead(input.agentId, ids.phone, ids.name ?? undefined);
+        }
+        if (!leadId) {
+          await db
+            .update(externalEvents)
+            .set({ status: "unmatched", processedAt: new Date(), errorMessage: "sem lead" })
+            .where(eq(externalEvents.id, input.id));
+          return { ok: true, status: "unmatched" } as const;
+        }
+        const allApplied: any[] = [];
+        let anyError = false;
+        for (const rule of rules) {
+          const applied = await executeRuleActions({
+            agentId: input.agentId,
+            leadId,
+            eventType: ev.eventType,
+            rule,
+            payload: ev.payload,
+          });
+          allApplied.push({ ruleId: rule.id, name: rule.name, applied });
+          if (applied.some((a) => !a.ok)) anyError = true;
+        }
+        await db
+          .update(externalEvents)
+          .set({
+            status: anyError ? "failed" : "processed",
+            leadId,
+            actionsApplied: allApplied,
+            processedAt: new Date(),
+          })
+          .where(eq(externalEvents.id, input.id));
+        return { ok: true, status: anyError ? "failed" : "processed" } as const;
+      }),
+  }),
 });
 
 function csvEscape(s: string): string {
