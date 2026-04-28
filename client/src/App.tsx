@@ -23,6 +23,7 @@ import Agents from "./pages/Agents";
 import Settings from "./pages/Settings";
 import Costs from "./pages/Costs";
 import ExternalEvents from "./pages/ExternalEvents";
+import Retries from "./pages/Retries";
 
 function Router() {
   return (
@@ -44,6 +45,7 @@ function Router() {
       <Route path="/agents" component={Agents} />
       <Route path="/costs" component={Costs} />
       <Route path="/external-events" component={ExternalEvents} />
+      <Route path="/retries" component={Retries} />
       <Route path="/settings" component={Settings} />
       <Route path="/404" component={NotFound} />
       <Route component={NotFound} />

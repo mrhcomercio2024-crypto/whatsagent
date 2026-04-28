@@ -28,6 +28,9 @@ import {
   costExtras,
   restrictedTerms,
   leadStatusRules,
+  messageRetries,
+  type MessageRetry,
+  type InsertMessageRetry,
   type RestrictedTerm,
   type InsertRestrictedTerm,
   type LeadStatusRule,
@@ -1563,4 +1566,100 @@ export async function resetConversation(conversationId: number) {
   } catch {
     // ignored
   }
+}
+
+
+/* ────────────────────────────────────────────────────────────
+ * Message retries — reenvio automático de mensagens falhadas
+ * ──────────────────────────────────────────────────────────── */
+
+export async function enqueueMessageRetry(input: InsertMessageRetry): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("DB not configured");
+  const r = await db.insert(messageRetries).values(input);
+  return Number((r as any)[0]?.insertId ?? 0);
+}
+
+export async function listDueMessageRetries(now: Date, limit = 25): Promise<MessageRetry[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const { and, eq, lte } = await import("drizzle-orm");
+  const rows = await db
+    .select()
+    .from(messageRetries)
+    .where(and(eq(messageRetries.status, "pending"), lte(messageRetries.nextRetryAt, now)))
+    .limit(limit);
+  return rows;
+}
+
+export async function listMessageRetries(
+  agentId: number,
+  opts?: { status?: MessageRetry["status"]; limit?: number }
+): Promise<MessageRetry[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const { and, desc, eq } = await import("drizzle-orm");
+  const where = opts?.status
+    ? and(eq(messageRetries.agentId, agentId), eq(messageRetries.status, opts.status))
+    : eq(messageRetries.agentId, agentId);
+  const rows = await db
+    .select()
+    .from(messageRetries)
+    .where(where)
+    .orderBy(desc(messageRetries.id))
+    .limit(opts?.limit ?? 100);
+  return rows;
+}
+
+export async function getMessageRetry(id: number): Promise<MessageRetry | undefined> {
+  const db = await getDb();
+  if (!db) return undefined;
+  const { eq } = await import("drizzle-orm");
+  const rows = await db.select().from(messageRetries).where(eq(messageRetries.id, id)).limit(1);
+  return rows[0];
+}
+
+export async function updateMessageRetry(
+  id: number,
+  patch: Partial<typeof messageRetries.$inferInsert>
+): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  const { eq } = await import("drizzle-orm");
+  await db.update(messageRetries).set(patch).where(eq(messageRetries.id, id));
+}
+
+/**
+ * Cancela retries pendentes de uma conversa quando o lead respondeu.
+ * Usado pelo handleInbound: se chega mensagem do lead, qualquer retry pendente
+ * de mensagem pra ele perde o sentido — marca como `cancelled_by_reply`.
+ */
+export async function cancelPendingRetriesForConversation(
+  conversationId: number,
+  reason: "cancelled_by_reply" | "cancelled" = "cancelled_by_reply"
+): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const { and, eq } = await import("drizzle-orm");
+  const r = await db
+    .update(messageRetries)
+    .set({ status: reason, completedAt: new Date() })
+    .where(
+      and(
+        eq(messageRetries.conversationId, conversationId),
+        eq(messageRetries.status, "pending")
+      )
+    );
+  return Number((r as any)[0]?.affectedRows ?? 0);
+}
+
+export async function countPendingRetries(agentId: number): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const { and, eq, sql } = await import("drizzle-orm");
+  const rows = await db
+    .select({ c: sql<number>`count(*)` })
+    .from(messageRetries)
+    .where(and(eq(messageRetries.agentId, agentId), eq(messageRetries.status, "pending")));
+  return Number(rows[0]?.c ?? 0);
 }

@@ -1306,6 +1306,75 @@ export const appRouter = router({
         return { ok: true, status: anyError ? "failed" : "processed" } as const;
       }),
   }),
+
+  // ============================================================
+  // MESSAGE RETRIES — reenvio automático de mensagens falhadas
+  // ============================================================
+  messageRetries: router({
+    list: protectedProcedure
+      .input(
+        z.object({
+          agentId: z.number().int().positive(),
+          status: z
+            .enum(["pending", "succeeded", "exhausted", "cancelled", "cancelled_by_reply"])
+            .optional(),
+          limit: z.number().int().min(1).max(500).default(100),
+        })
+      )
+      .query(async ({ input }) => {
+        const { listMessageRetries } = await import("./db");
+        const rows = await listMessageRetries(input.agentId, {
+          status: input.status,
+          limit: input.limit,
+        });
+        return rows;
+      }),
+    countPending: protectedProcedure
+      .input(agentScopedSchema)
+      .query(async ({ input }) => {
+        const { countPendingRetries } = await import("./db");
+        const count = await countPendingRetries(input.agentId);
+        return { count } as const;
+      }),
+    retryNow: protectedProcedure
+      .input(
+        z.object({ id: z.number().int().positive(), agentId: z.number().int().positive() })
+      )
+      .mutation(async ({ input }) => {
+        const { getMessageRetry, updateMessageRetry } = await import("./db");
+        const r = await getMessageRetry(input.id);
+        if (!r || r.agentId !== input.agentId)
+          throw new TRPCError({ code: "NOT_FOUND" });
+        if (r.status !== "pending" && r.status !== "exhausted") {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `cannot retry from status=${r.status}`,
+          });
+        }
+        await updateMessageRetry(input.id, {
+          status: "pending",
+          nextRetryAt: new Date(),
+          completedAt: null as any,
+        });
+        return { ok: true } as const;
+      }),
+    cancel: protectedProcedure
+      .input(
+        z.object({ id: z.number().int().positive(), agentId: z.number().int().positive() })
+      )
+      .mutation(async ({ input }) => {
+        const { getMessageRetry, updateMessageRetry } = await import("./db");
+        const r = await getMessageRetry(input.id);
+        if (!r || r.agentId !== input.agentId)
+          throw new TRPCError({ code: "NOT_FOUND" });
+        await updateMessageRetry(input.id, {
+          status: "cancelled",
+          lastError: "cancelled by user",
+          completedAt: new Date(),
+        });
+        return { ok: true } as const;
+      }),
+  }),
 });
 
 function csvEscape(s: string): string {

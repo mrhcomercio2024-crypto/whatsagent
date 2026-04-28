@@ -47,6 +47,7 @@ import {
   Sparkles,
   DollarSign,
   Webhook,
+  RefreshCcw,
 } from "lucide-react";
 import { useEffect } from "react";
 import { Link, useLocation } from "wouter";
@@ -84,6 +85,7 @@ const groups: Array<{
       { icon: MessageSquare, label: "Templates HSM", path: "/templates" },
       { icon: Clock, label: "Horário & Handoff", path: "/ops" },
       { icon: Webhook, label: "Eventos Externos", path: "/external-events" },
+      { icon: RefreshCcw, label: "Reenvios", path: "/retries" },
     ],
   },
   {

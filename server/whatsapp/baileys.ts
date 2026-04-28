@@ -560,6 +560,21 @@ async function handleInbound(agentId: number, sock: WASocket, msg: any) {
     eventType: "message_received",
   });
 
+  // Cancela retries pendentes desta conversa: o lead acabou de responder, então
+  // mensagens "pendentes de reenvio" perdem o sentido (não queremos mandar
+  // "Boa tarde, tudo bem?" 5 minutos depois do lead já ter retomado o papo).
+  try {
+    const { cancelPendingRetriesForConversation } = await import("../db");
+    const cancelled = await cancelPendingRetriesForConversation(convId, "cancelled_by_reply");
+    if (cancelled > 0) {
+      console.log(
+        `[baileys] conv ${convId} inbound: cancelled ${cancelled} pending retry/retries`
+      );
+    }
+  } catch (e) {
+    console.warn(`[baileys] failed to cancel retries on inbound: ${(e as Error).message}`);
+  }
+
   const conv = await getConversationById(convId);
   if (!conv) return;
   if (conv.aiPaused || conv.status === "human_handoff") {
@@ -714,6 +729,7 @@ export async function dispatchViaBaileys(opts: {
     }
     let id: string | undefined;
     let sendOk = false;
+    let lastErrorMsg: string | null = null;
     try {
       // Wrap every sendMessage with a hard 20s timeout. Sem isso, um envio para
       // @lid que nunca confirma o ack pode segurar o orchestrator por minutos
@@ -773,12 +789,47 @@ export async function dispatchViaBaileys(opts: {
         }
       }
     } catch (e) {
+      lastErrorMsg = (e as Error).message;
       console.warn(
-        `[baileys] send failed (jid=${jid}, type=${a.type}): ${(e as Error).message}`
+        `[baileys] send failed (jid=${jid}, type=${a.type}): ${lastErrorMsg}`
       );
     }
     waMessageIds.push(id);
     markOutbound(agent.id, sendOk);
+
+    // Enfileira retry se o envio não foi confirmado e não estamos já dentro
+    // de uma execução do retry-worker (evita loop). O "já dentro do worker"
+    // é sinalizado por opts.__isRetry (passado pelo retry-worker).
+    const __isRetry = (opts as any).__isRetry as { retryId: number } | undefined;
+    if (!sendOk && !__isRetry) {
+      try {
+        const { enqueueMessageRetry } = await import("../db");
+        const { nextRetryAt } = await import("./retryBackoff");
+        const payload =
+          a.type === "text"
+            ? { type: "text", text: a.text }
+            : { type: "media", mediaId: (a as any).mediaId };
+        await enqueueMessageRetry({
+          agentId: agent.id,
+          conversationId,
+          leadId: conv.leadId,
+          payload: payload as any,
+          sender: sender === "ai" ? "ai" : "operator",
+          attempt: 0,
+          maxAttempts: 5,
+          nextRetryAt: nextRetryAt(1),
+          status: "pending",
+          lastError: lastErrorMsg ?? "send did not confirm",
+        });
+        console.log(
+          `[baileys] enqueued retry for failed send (conv=${conversationId}, type=${a.type})`
+        );
+      } catch (eq) {
+        console.error(
+          `[baileys] failed to enqueue retry: ${(eq as Error).message}`
+        );
+      }
+    }
     await recordMetric({
       agentId: agent.id,
       conversationId,
@@ -967,6 +1018,8 @@ export function startBaileysLifecycle(): void {
     },
     { intervalMs: 30_000 }
   );
+  // Worker de reenvio automático de mensagens que falharam.
+  void import("./retryWorker").then(({ startRetryWorker }) => startRetryWorker());
 }
 
 /**
@@ -975,6 +1028,7 @@ export function startBaileysLifecycle(): void {
 export function stopBaileysLifecycle(): void {
   stopWatchdog();
   stopHeartbeat();
+  void import("./retryWorker").then(({ stopRetryWorker }) => stopRetryWorker());
 }
 
 /**

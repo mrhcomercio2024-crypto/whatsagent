@@ -476,3 +476,17 @@
 - [x] Fix backend: `processDueConversations` agora paraleliza com `Promise.all` + hard-cap de 90s por conversa — uma conversa lenta não bloqueia mais o tick
 - [x] 3 testes vitest novos (sendTimeout) + suite total 284/284 verde
 - [x] Checkpoint v34
+
+
+## Fase 70: Reenvio automático de mensagens falhadas — CONCLUÍDA
+- [x] Schema: tabela `message_retries` (agentId, conversationId, leadId, payload JSON, attempt, maxAttempts, nextRetryAt, status enum, lastError, createdAt, completedAt)
+- [x] Migration 0019 aplicada
+- [x] Helper `enqueueRetry(payload, error)` chamado em todo `catch` do `dispatchViaBaileys` (texto + 4 tipos de mídia + caso "no live socket")
+- [x] Flag `__isRetry` evita loop infinito (uma falha de retry não cria outro retry, marca direto como exhausted)
+- [x] Worker `retryWorker` tica a cada 10s; pega `pending` com `nextRetryAt <= now`; reenvia via `dispatchActions`
+- [x] Backoff exponencial: 30s, 2min, 5min, 15min, 30min (5 tentativas máximas, configurável)
+- [x] Cancelamento automático: ao receber inbound, todos os retries pendentes da conversa viram `cancelled_by_reply` (chamada em `handleInbound`)
+- [x] Procedures tRPC: `messageRetries.{list, countPending, retryNow, cancel}`
+- [x] Página **/retries** no menu lateral: tabs Pendentes/Todos, contador de pendentes, status badges, tooltip com erro completo, botões Reenviar agora / Cancelar
+- [x] 15 testes vitest novos (retryBackoff: nextRetryAt 8, hasMoreAttempts 2, sanitizeError 5) — suite total 299/299 verde
+- [x] Checkpoint v35

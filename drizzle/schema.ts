@@ -837,3 +837,53 @@ export const externalEventRules = mysqlTable(
 );
 export type ExternalEventRule = typeof externalEventRules.$inferSelect;
 export type InsertExternalEventRule = typeof externalEventRules.$inferInsert;
+
+
+/**
+ * ────────────────────────────────────────────────────────────
+ * Message retries — reenvio automático de mensagens que falharam
+ *
+ * Toda vez que `dispatchViaBaileys` (ou Cloud API) não consegue confirmar o
+ * envio (timeout, exception, mídia ausente), uma linha é gravada aqui com o
+ * payload completo para tentar de novo mais tarde. O `retryWorker` tica a
+ * cada 10s, pega o que está vencido e reenvia respeitando rate limit.
+ *
+ * Cancelamento automático: se o lead respondeu DEPOIS do createdAt deste
+ * retry, cancela com motivo `cancelled_by_reply` (não faz sentido mandar
+ * follow-up depois da pessoa já ter retomado a conversa).
+ * ────────────────────────────────────────────────────────────
+ */
+export const messageRetries = mysqlTable(
+  "message_retries",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    agentId: int("agentId").notNull(),
+    conversationId: int("conversationId").notNull(),
+    leadId: int("leadId").notNull(),
+    // Payload completo para refazer o envio: { type: "text"|"media", text?, mediaId?, jid }
+    payload: json("payload").notNull(),
+    sender: mysqlEnum("sender", ["ai", "operator", "system"]).notNull().default("ai"),
+    attempt: int("attempt").notNull().default(0),
+    maxAttempts: int("maxAttempts").notNull().default(5),
+    nextRetryAt: timestamp("nextRetryAt").notNull(),
+    status: mysqlEnum("status", [
+      "pending",
+      "succeeded",
+      "exhausted",
+      "cancelled",
+      "cancelled_by_reply",
+    ])
+      .notNull()
+      .default("pending"),
+    lastError: text("lastError"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    completedAt: timestamp("completedAt"),
+  },
+  table => ({
+    statusIdx: index("idx_msg_retries_status").on(table.status, table.nextRetryAt),
+    convIdx: index("idx_msg_retries_conv").on(table.conversationId),
+    agentIdx: index("idx_msg_retries_agent").on(table.agentId, table.status),
+  })
+);
+export type MessageRetry = typeof messageRetries.$inferSelect;
+export type InsertMessageRetry = typeof messageRetries.$inferInsert;
