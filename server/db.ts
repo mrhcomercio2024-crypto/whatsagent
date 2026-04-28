@@ -1169,6 +1169,26 @@ export async function concatRecentInbound(
   const db = await getDb();
   if (!db) return "";
   const since = new Date(Date.now() - sinceMs);
+
+  // BUGFIX: pegar apenas inbound posteriores à última outbound.
+  // Senão, a cada tick a IA recebe novamente as mensagens que já
+  // respondeu e gera a mesma resposta de abertura em loop.
+  const lastOutbound = await db
+    .select({ createdAt: messages.createdAt })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.conversationId, conversationId),
+        eq(messages.direction, "outbound")
+      )
+    )
+    .orderBy(desc(messages.createdAt))
+    .limit(1);
+  const cutoff =
+    lastOutbound[0]?.createdAt && lastOutbound[0].createdAt > since
+      ? lastOutbound[0].createdAt
+      : since;
+
   const rows = await db
     .select()
     .from(messages)
@@ -1176,7 +1196,7 @@ export async function concatRecentInbound(
       and(
         eq(messages.conversationId, conversationId),
         eq(messages.direction, "inbound"),
-        gt(messages.createdAt, since)
+        gt(messages.createdAt, cutoff)
       )
     )
     .orderBy(asc(messages.createdAt));

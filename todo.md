@@ -502,17 +502,26 @@
 - [x] Checkpoint v36
 
 
-## Fase 72: Chats em tempo real com indicadores de digitação
-- [ ] Estender `realtime/bus` com tipos `message.received | message.sent | presence.lead.composing | presence.agent.composing | conversation.updated`
-- [ ] Endpoint SSE `GET /api/live/stream?agentId=` (com auth) que emite eventos do bus filtrados por agente
-- [ ] Capturar `presence.update` do Baileys (composing/paused/available) e emitir no bus
-- [ ] Marcar `agent.composing` quando o orchestrator inicia geração e desmarcar ao despachar
-- [ ] Backend `liveActivity`: agregador in-memory de conversas com atividade nos últimos 5min (ordem desc por última atividade)
-- [ ] Procedure tRPC `live.{listActive, getConversation}` (snapshot inicial; o stream cuida do delta)
-- [ ] Helper `formatTypingState` puro (testável)
-- [ ] Página `/live`: lista lateral (avatar inicial, nome/telefone, prévia, badge "ao vivo" + dot pulsante quando atividade <30s, "digitando…" embaixo do nome)
-- [ ] Página `/live`: janela de chat (mensagens em ordem, indicador "lead digitando…" e "agente digitando…" com 3 pontinhos animados, auto-scroll para o fim)
-- [ ] Item "Ao vivo" no menu lateral com contador de conversas ativas (badge)
-- [ ] Reconexão automática do SSE em caso de queda (com backoff)
-- [ ] Testes vitest: bus, agregador liveActivity, formatTypingState
-- [ ] Checkpoint v37
+## Fase 72: Chats em tempo real com indicadores de digitação — CONCLUÍDA
+- [x] Bus estendido com `typing.agent` (thinking/writing/delivering/idle), `typing.lead` (composing/paused/idle) + canal global por agente; `bindConversationToAgent` rotea automaticamente
+- [x] Endpoint SSE `GET /api/live/stream?agentId=` (auth + validação de agente) com heartbeat de 25s
+- [x] `presence.update` do Baileys capturado (composing→composing, paused/available→idle)
+- [x] Orchestrator emite `typing.agent` em todas as fases (thinking/writing/delivering) + idle final
+- [x] Agregador `liveActivity` in-memory com TTL 8s typing, prune 5min, snapshot ordenado desc
+- [x] Procedures tRPC `live.{listActive, recentMessages}` (snapshot + mensagens recentes)
+- [x] Página `/live`: 3 cards de métricas + lista lateral com badge "Ao vivo", dot pulsante <4s, indicador IA pensando/escrevendo/enviando + Lead digitando com 3 pontinhos
+- [x] Janela de chat estilo WhatsApp (verde outbound / cinza inbound), auto-scroll, balão flutuante de "digitando…"
+- [x] Item **Chats ao vivo** no menu lateral com ícone Activity
+- [x] EventSource reconecta nativamente; refetch tRPC a cada 5s como rede de segurança
+- [x] 9 testes vitest novos (`liveActivity`) — suite total 314/314 verde
+- [x] Checkpoint v37
+
+
+## Fase 73: BUG agente repete a mesma mensagem ignorando o lead
+- [ ] Reproduzir nos logs (orchestrator + debounceWorker + retryWorker) o exato 15:20/15:21/15:22
+- [ ] Identificar causa raiz (debounce reagrupando, histórico não passado, etapa travada, ou retry duplicado)
+- [ ] Trava de idempotência: hash da última mensagem outbound — descarta se igual nas últimas N minutos
+- [ ] Corrigir causa raiz
+- [ ] Garantir que conteúdo das mensagens do lead pendentes seja sempre incluído no contexto da IA
+- [ ] Testes vitest do helper de idempotência
+- [ ] Checkpoint v38

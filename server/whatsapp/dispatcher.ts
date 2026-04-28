@@ -29,6 +29,11 @@ import {
 } from "../ai/humanize";
 import { listMessages } from "../db";
 import { splitMessage } from "../ai/splitter";
+import {
+  buildOutboundKey,
+  wasRecentlySent,
+  markSent,
+} from "./idempotency";
 
 /**
  * Roteia o envio para o transporte correto conforme o modo do agente:
@@ -41,15 +46,40 @@ export async function dispatchActions(opts: {
   actions: OutboundAction[];
   sender: "ai" | "human";
 }): Promise<void> {
+  // TRAVA DE IDEMPOTÊNCIA: filtra ações repetidas em janela de 90s
+  // (somente para envios da IA; humano pode reenviar de propósito).
+  const filtered =
+    opts.sender === "ai"
+      ? opts.actions.filter(a => {
+          const key = buildOutboundKey(a);
+          if (wasRecentlySent(opts.conversationId, key)) {
+            console.warn(
+              `[dispatch] DUPLICATE blocked conv=${opts.conversationId} type=${a.type} key=${key}`
+            );
+            return false;
+          }
+          markSent(opts.conversationId, key);
+          return true;
+        })
+      : opts.actions;
+
+  if (filtered.length === 0) {
+    console.warn(
+      `[dispatch] all ${opts.actions.length} action(s) blocked by idempotency for conv=${opts.conversationId}`
+    );
+    return;
+  }
+  const safeOpts = { ...opts, actions: filtered };
+
   if (opts.agent.connectionMode === "qr") {
     const { dispatchViaBaileys } = await import("./baileys");
-    await dispatchViaBaileys(opts);
+    await dispatchViaBaileys(safeOpts);
     // ainda agenda follow-ups (mesma lógica)
     const { scheduleFollowupJobs } = await import("../db");
     await scheduleFollowupJobs(opts.agent.id, opts.conversationId, new Date());
     return;
   }
-  await dispatchActionsOfficial(opts);
+  await dispatchActionsOfficial(safeOpts);
 }
 
 export async function dispatchActionsOfficial(opts: {
