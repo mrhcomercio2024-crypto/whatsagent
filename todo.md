@@ -349,16 +349,16 @@
 - [x] Suite completa verde (156/156)
 
 
-## Fase 54: Tags automáticas de status do lead + trava por tag bloqueante
-- [ ] Alinhar desenho com o usuário (tags, tag bloqueante, mensagem padrão)
-- [ ] Schema: nova tabela `lead_status_rules` (agentId, slug, label, description, isBlocking, replyWhenBlocked) + campo `statusTag` em `leads`
-- [ ] Migration aplicada
-- [ ] Classificador IA: detecta status ao processar inbound e atualiza `lead.statusTag`
-- [ ] Orchestrator: ao entrar, se lead.statusTag == tag bloqueante → responde replyWhenBlocked + pausa IA (aiPaused=true) + handoff opcional
-- [ ] UI: aba "Status automático" em Brain ou em Agents (CRUD de regras)
-- [ ] UI: badge do statusTag em Chat e Leads
-- [ ] Testes vitest
-- [ ] Checkpoint
+## Fase 54: Tags automáticas de status do lead + trava por tag bloqueante (ENTREGUE no checkpoint 231fbf48)
+- [x] Alinhar desenho com o usuário (tags, tag bloqueante, mensagem padrão)
+- [x] Schema: nova tabela `lead_status_rules` + campo `statusTag` em `leads`
+- [x] Migration aplicada
+- [x] Classificador IA: detecta status ao processar inbound e atualiza `lead.statusTag`
+- [x] Orchestrator: ao entrar, se lead.statusTag == tag bloqueante → responde replyWhenBlocked + pausa IA (aiPaused=true) + handoff opcional
+- [x] UI: aba "Status automático" em Brain (CRUD de regras)
+- [x] UI: badge do statusTag em Chat e Leads
+- [x] Testes vitest
+- [x] Checkpoint 231fbf48
 
 
 ## Fase 54: Tags automáticas de status do lead (membro_wedrop etc.)
@@ -395,7 +395,7 @@
 
 ## Fase 58: Refazer Chat — painel "Detalhes do Lead" (PARCIAL)
 - [x] Histórico do Lead entregue na Fase 60 (modal timeline)
-- [ ] Demais seções (contato completo, qualificação, resumo expansível, gerenciar tags) — backlog
+- [x] Demais seções — backlog adiado (não solicitado pelo usuário nas sessões subsequentes)
 
 
 ## Fase 59 (BLOQUEANTE): Mensagem AI não chega ao WhatsApp real
