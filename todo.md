@@ -539,3 +539,14 @@
 - [x] UI: editor com Canal, Template carregado do canal, Aguardar, Mover para, Associar tag, Contexto IA, toggle Ativo, URL do Webhook + Regenerar/Copiar
 - [x] Testes vitest (4 novos casos do v2 path: tag/move/contexto, fallback sem credenciais, envio Cloud API + appendMessage, agendamento). Suite total 327/327 verde.
 - [x] Checkpoint v39
+
+
+## Fase 75: BUG agente responde no chat interno mas não no WhatsApp real
+- [x] Coletar logs do dispatcher
+- [x] Causa raiz identificada: ECONNRESET do MySQL durante upsertQrSession dentro do handler `connection.update` do Baileys derrubava o processo Node inteiro (exit). Outbound era gravada no DB mas o processo morria antes do dispatcher entregar.
+- [x] Blindagem 1: try/catch envolvendo TODO o handler `connection.update` (server/whatsapp/baileys.ts L191-317)
+- [x] Blindagem 2: try/catch individual ao redor de cada chamada de `upsertQrSession` (open/close/qr)
+- [x] Blindagem 3: safety nets process-level (`uncaughtException`/`unhandledRejection`) em server/_core/index.ts
+- [x] Testes vitest baileys.crashGuard.test.ts (5 casos verificando que ECONNRESET nunca propaga)
+- [x] Suite total 332/332 verde
+- [x] Checkpoint v40

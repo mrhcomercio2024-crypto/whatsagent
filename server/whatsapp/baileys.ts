@@ -189,6 +189,7 @@ async function bootSocket(agentId: number): Promise<void> {
   sock.ev.on("creds.update", saveCreds);
 
   sock.ev.on("connection.update", async (u: ConnectionState) => {
+   try {
     const { connection, qr, lastDisconnect } = u as any;
     if (qr) {
       try {
@@ -201,14 +202,20 @@ async function bootSocket(agentId: number): Promise<void> {
     if (connection === "open") {
       const jid = sock.user?.id || null;
       const name = sock.user?.name || sock.user?.verifiedName || null;
-      await upsertQrSession(agentId, {
-        status: "connected",
-        lastQr: null,
-        jid,
-        displayName: name,
-        lastConnectedAt: new Date(),
-        lastError: null,
-      });
+      try {
+        await upsertQrSession(agentId, {
+          status: "connected",
+          lastQr: null,
+          jid,
+          displayName: name,
+          lastConnectedAt: new Date(),
+          lastError: null,
+        });
+      } catch (e) {
+        console.warn(
+          `[baileys] upsertQrSession on 'open' failed for agent ${agentId}: ${(e as Error).message}`
+        );
+      }
       markConnected(agentId);
       cancelReconnect(agentId); // garantia: qualquer reconnect pendente é cancelado
       console.log(`[baileys] agent ${agentId} connected as ${jid}`);
@@ -237,18 +244,24 @@ async function bootSocket(agentId: number): Promise<void> {
           code === 403 ||
           code === 440);
       const treatAsLogout = loggedOut || sessionExpired;
-      await upsertQrSession(agentId, {
-        status: banned
-          ? "banned"
-          : treatAsLogout
-          ? "logged_out"
-          : qrTimeout
-          ? "awaiting_qr"
-          : isRestartRequired
-          ? "connecting"
-          : "disconnected",
-        lastError: isRestartRequired ? null : qrTimeout ? "QR não escaneado a tempo—escaneie novamente" : reason,
-      });
+      try {
+        await upsertQrSession(agentId, {
+          status: banned
+            ? "banned"
+            : treatAsLogout
+            ? "logged_out"
+            : qrTimeout
+            ? "awaiting_qr"
+            : isRestartRequired
+            ? "connecting"
+            : "disconnected",
+          lastError: isRestartRequired ? null : qrTimeout ? "QR não escaneado a tempo—escaneie novamente" : reason,
+        });
+      } catch (e) {
+        console.warn(
+          `[baileys] upsertQrSession on 'close' failed for agent ${agentId}: ${(e as Error).message}`
+        );
+      }
       console.warn(
         `[baileys] agent ${agentId} closed: ${reason} (code=${code}, restartRequired=${isRestartRequired}, sessionExpired=${sessionExpired}, qrTimeout=${qrTimeout})`
       );
@@ -294,6 +307,14 @@ async function bootSocket(agentId: number): Promise<void> {
         scheduleReconnect(agentId, delay, () => startQrSession(agentId));
       }
     }
+   } catch (e) {
+     // BLINDAGEM: qualquer falha não tratada aqui (ex.: ECONNRESET no MySQL durante
+     // upsertQrSession) NUNCA deve derrubar o processo Node. Logamos e seguimos.
+     console.error(
+       `[baileys] connection.update handler crashed for agent ${agentId}:`,
+       (e as Error).message
+     );
+   }
   });
 
   sock.ev.on("messages.upsert", async (ev: any) => {

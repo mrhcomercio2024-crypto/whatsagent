@@ -109,6 +109,22 @@ async function startServer() {
   };
   process.on("SIGTERM", () => void shutdown("SIGTERM"));
   process.on("SIGINT", () => void shutdown("SIGINT"));
+
+  // SAFETY NETS process-level: erros não tratados em handlers assíncronos
+  // (ex.: ECONNRESET no MySQL durante um event listener do Baileys) NUNCA
+  // devem derrubar o processo — isso pararia o dispatcher e o usuário
+  // veria mensagens "enviadas" no painel mas nada chegando no WhatsApp.
+  process.on("uncaughtException", (err) => {
+    console.error("[process] uncaughtException:", err?.message, err?.stack);
+  });
+  process.on("unhandledRejection", (reason) => {
+    const r = reason as any;
+    console.error(
+      "[process] unhandledRejection:",
+      r?.message ?? String(reason),
+      r?.stack
+    );
+  });
 }
 
 startServer().catch(console.error);
