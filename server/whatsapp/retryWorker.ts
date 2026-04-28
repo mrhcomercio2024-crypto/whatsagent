@@ -42,6 +42,19 @@ export function startRetryWorker() {
   void tick();
 }
 
+/**
+ * Dispara um tick imediato (fora do intervalo regular).
+ * Usado quando uma conexão WhatsApp acaba de voltar (markConnected) para
+ * reentregar a fila de mensagens pendentes do agente sem esperar 10s.
+ *
+ * Idempotente: se já há um tick rodando, o `running` flag interno
+ * faz o segundo no-op.
+ */
+export function runRetryWorkerNow(reason?: string) {
+  if (reason) console.log(`[retry-worker] runNow triggered: ${reason}`);
+  void tick();
+}
+
 export function stopRetryWorker() {
   if (timer) {
     clearInterval(timer);

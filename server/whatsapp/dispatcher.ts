@@ -149,6 +149,9 @@ export async function dispatchActionsOfficial(opts: {
         }
       : undefined;
 
+  // Flag para evitar loop quando a tentativa já é do retry-worker
+  const __isRetry = (opts as any).__isRetry as { retryId: number } | undefined;
+
   for (let i = 0; i < expanded.length; i++) {
     const a = expanded[i];
     // Pausa natural ANTES da mídia (humano "procurando/anexando")
@@ -193,6 +196,40 @@ export async function dispatchActionsOfficial(opts: {
       }
     }
     await persistAction(conversationId, a, sender, waId, errorMsg);
+
+    // DLQ: se houve erro de envio e não estamos já dentro do retry-worker,
+    // enfileira para reenvio automático. Isso garante que falhas temporárias
+    // (token expirando, rate-limit, network) não resultem em mensagens perdidas.
+    if (errorMsg && !__isRetry) {
+      try {
+        const { enqueueMessageRetry } = await import("../db");
+        const { nextRetryAt } = await import("./retryBackoff");
+        const payload =
+          a.type === "text"
+            ? { type: "text", text: a.text }
+            : { type: "media", mediaId: (a as any).mediaId };
+        await enqueueMessageRetry({
+          agentId: agent.id,
+          conversationId,
+          leadId: lead.id,
+          payload: payload as any,
+          sender: sender === "ai" ? "ai" : "operator",
+          attempt: 0,
+          maxAttempts: 5,
+          nextRetryAt: nextRetryAt(1),
+          status: "pending",
+          lastError: errorMsg,
+        });
+        console.log(
+          `[dispatch-cloud] enqueued DLQ for failed send (conv=${conversationId}, type=${a.type}, err=${errorMsg})`
+        );
+      } catch (eq) {
+        console.error(
+          `[dispatch-cloud] failed to enqueue DLQ: ${(eq as Error).message}`
+        );
+      }
+    }
+
     await recordMetric({
       agentId: agent.id,
       conversationId,

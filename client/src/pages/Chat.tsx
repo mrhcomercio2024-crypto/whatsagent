@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
 import {
+  AlertTriangle,
   Bot,
   CheckCircle,
   CheckCheck,
@@ -16,6 +17,7 @@ import {
   Mic,
   Pause,
   Play,
+  RefreshCw,
   Search,
   Send,
   Snowflake,
@@ -385,6 +387,9 @@ function Conversation({ convId }: { convId: number }) {
         </div>
       </div>
 
+      {/* DLQ banner: avisa quando há mensagens pendentes de reentrega */}
+      <DlqBanner conversationId={convId} />
+
       <LeadHistoryDialog
         open={historyOpen}
         onOpenChange={setHistoryOpen}
@@ -600,4 +605,52 @@ function TempBadge({ t }: { t: string }) {
       </Badge>
     );
   return null;
+}
+
+/**
+ * DlqBanner — mostra um aviso no topo da conversa quando há mensagens
+ * pendentes de reentrega (Dead-Letter Queue). Permite ao operador forçar
+ * um flush imediato da fila para esta conversa.
+ */
+function DlqBanner({ conversationId }: { conversationId: number }) {
+  const utils = trpc.useUtils();
+  const { data } = trpc.messageRetries.countByConversation.useQuery(
+    { conversationId },
+    { refetchInterval: 8000 },
+  );
+  const flush = trpc.messageRetries.flushConversation.useMutation({
+    onSuccess: (r) => {
+      toast.success(
+        r.updated === 0
+          ? "Nada para reenviar"
+          : `Reenviando ${r.updated} mensagem(ns) agora…`,
+      );
+      void utils.messageRetries.countByConversation.invalidate({ conversationId });
+    },
+    onError: (e) => toast.error(e.message),
+  });
+  const count = data?.count ?? 0;
+  if (count === 0) return null;
+  return (
+    <div className="border-b border-amber-500/30 bg-amber-500/10 px-4 sm:px-10 py-2 flex items-center gap-3">
+      <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0" />
+      <p className="text-sm text-amber-200 flex-1">
+        <strong>{count}</strong>{" "}
+        {count === 1 ? "mensagem pendente" : "mensagens pendentes"} de envio.
+        Serão reenviadas automaticamente quando a conexão voltar.
+      </p>
+      <Button
+        size="sm"
+        variant="outline"
+        className="border-amber-500/40 text-amber-200 hover:bg-amber-500/20"
+        disabled={flush.isPending}
+        onClick={() => flush.mutate({ conversationId })}
+      >
+        <RefreshCw
+          className={`h-3.5 w-3.5 mr-1 ${flush.isPending ? "animate-spin" : ""}`}
+        />
+        Reenviar agora
+      </Button>
+    </div>
+  );
 }

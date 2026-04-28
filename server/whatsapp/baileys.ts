@@ -219,6 +219,16 @@ async function bootSocket(agentId: number): Promise<void> {
       markConnected(agentId);
       cancelReconnect(agentId); // garantia: qualquer reconnect pendente é cancelado
       console.log(`[baileys] agent ${agentId} connected as ${jid}`);
+      // DLQ: dispara um tick imediato do retry-worker para reentregar
+      // mensagens que ficaram pendentes enquanto este socket estava offline.
+      try {
+        const { runRetryWorkerNow } = await import("./retryWorker");
+        runRetryWorkerNow(`agent ${agentId} reconnected`);
+      } catch (e) {
+        console.warn(
+          `[baileys] failed to trigger retry-worker on reconnect: ${(e as Error).message}`
+        );
+      }
     }
     if (connection === "close") {
       sockets.delete(agentId);
@@ -703,13 +713,50 @@ export async function dispatchViaBaileys(opts: {
       : opts.actions;
   const sock = sockets.get(agent.id);
   if (!sock) {
-    console.warn(`[baileys] no live socket for agent ${agent.id}; persisting only`);
+    console.warn(`[baileys] no live socket for agent ${agent.id}; persisting and enqueueing DLQ`);
     await persistOutboundActions({
       conversationId,
       agentId: agent.id,
       actions,
       sender,
     });
+    // DLQ: socket morto = entrega falhou. Enfileira para reenvio assim que a
+    // conexão voltar (markConnected dispara um tick imediato do retry-worker).
+    const __isRetry = (opts as any).__isRetry as { retryId: number } | undefined;
+    if (!__isRetry) {
+      try {
+        const conv = await getConversationById(conversationId);
+        if (conv) {
+          const { enqueueMessageRetry } = await import("../db");
+          const { nextRetryAt } = await import("./retryBackoff");
+          for (const a of actions) {
+            const payload =
+              a.type === "text"
+                ? { type: "text", text: a.text }
+                : { type: "media", mediaId: (a as any).mediaId };
+            await enqueueMessageRetry({
+              agentId: agent.id,
+              conversationId,
+              leadId: conv.leadId,
+              payload: payload as any,
+              sender: sender === "ai" ? "ai" : "operator",
+              attempt: 0,
+              maxAttempts: 5,
+              nextRetryAt: nextRetryAt(1),
+              status: "pending",
+              lastError: "no live socket (offline)",
+            });
+          }
+          console.log(
+            `[baileys] enqueued ${actions.length} action(s) to DLQ (agent ${agent.id} offline, conv=${conversationId})`
+          );
+        }
+      } catch (eq) {
+        console.error(
+          `[baileys] failed to enqueue DLQ for offline socket: ${(eq as Error).message}`
+        );
+      }
+    }
     return;
   }
   const conv = await getConversationById(conversationId);

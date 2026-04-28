@@ -1437,6 +1437,49 @@ export const appRouter = router({
         });
         return { ok: true } as const;
       }),
+
+    // ---- DLQ por conversa (usado pelo Chat) ----
+    countByConversation: protectedProcedure
+      .input(z.object({ conversationId: z.number().int().positive() }))
+      .query(async ({ input }) => {
+        const { countPendingRetriesByConversation } = await import("./db");
+        const count = await countPendingRetriesByConversation(input.conversationId);
+        return { count } as const;
+      }),
+
+    listByConversation: protectedProcedure
+      .input(
+        z.object({
+          conversationId: z.number().int().positive(),
+          limit: z.number().int().min(1).max(100).default(50),
+        })
+      )
+      .query(async ({ input }) => {
+        const { listMessageRetriesByConversation } = await import("./db");
+        return listMessageRetriesByConversation(input.conversationId, input.limit);
+      }),
+
+    /**
+     * Força flush imediato da DLQ de uma conversa: marca todos os pendings
+     * como `nextRetryAt = now` e dispara um tick imediato do retry-worker.
+     */
+    flushConversation: protectedProcedure
+      .input(z.object({ conversationId: z.number().int().positive() }))
+      .mutation(async ({ input }) => {
+        const { flushDlqForConversation } = await import("./db");
+        const updated = await flushDlqForConversation(input.conversationId);
+        if (updated > 0) {
+          try {
+            const { runRetryWorkerNow } = await import(
+              "./whatsapp/retryWorker"
+            );
+            runRetryWorkerNow(`manual flush conv=${input.conversationId}`);
+          } catch {
+            /* ignora */
+          }
+        }
+        return { updated } as const;
+      }),
   }),
 
   // ============================================================

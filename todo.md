@@ -550,3 +550,15 @@
 - [x] Testes vitest baileys.crashGuard.test.ts (5 casos verificando que ECONNRESET nunca propaga)
 - [x] Suite total 332/332 verde
 - [x] Checkpoint v40
+
+
+## Fase 76: Dead-Letter Queue (DLQ) para outbounds não entregues
+- [x] Investigar dispatcher: estrutura DLQ já existia parcialmente (tabela `message_retries`, `enqueueMessageRetry`, `retryWorker` de 10s, cancelamento automático se lead responder, exhaustion após N tentativas, backoff [30s,2m,5m,15m,30m])
+- [x] Cloud API dispatcher: agora enfileira DLQ quando sendText/sendMedia retorna `ok:false` (antes só marcava `waStatus=failed`)
+- [x] Baileys: agora enfileira DLQ também no caso de socket morto (antes só persistia sem entregar)
+- [x] Gatilho automático: `markConnected` no Baileys dispara `runRetryWorkerNow()` para reentregar a fila assim que o socket volta
+- [x] UI Chat: componente `DlqBanner` no topo da conversa mostra "N mensagens pendentes" + botão "Reenviar agora" (chama `flushConversation`)
+- [x] Procedures novas: `messageRetries.countByConversation`, `listByConversation`, `flushConversation` (marca pendings como `nextRetryAt=now` e dispara tick imediato)
+- [x] Testes vitest (`server/whatsapp/dlq.test.ts`): backoff sequence, clamping, hasMoreAttempts, sanitizeError, payload contract
+- [x] Suite completa 340/340 verde
+- [x] Checkpoint v41

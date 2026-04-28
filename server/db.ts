@@ -1756,3 +1756,68 @@ export async function countPendingRetries(agentId: number): Promise<number> {
     .where(and(eq(messageRetries.agentId, agentId), eq(messageRetries.status, "pending")));
   return Number(rows[0]?.c ?? 0);
 }
+
+/**
+ * Conta itens DLQ pendentes para uma conversa específica.
+ * Usado pelo Chat para mostrar badge "N mensagens pendentes".
+ */
+export async function countPendingRetriesByConversation(
+  conversationId: number
+): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const { and, eq, sql } = await import("drizzle-orm");
+  const rows = await db
+    .select({ c: sql<number>`count(*)` })
+    .from(messageRetries)
+    .where(
+      and(
+        eq(messageRetries.conversationId, conversationId),
+        eq(messageRetries.status, "pending")
+      )
+    );
+  return Number(rows[0]?.c ?? 0);
+}
+
+/**
+ * Lista DLQ de uma conversa (qualquer status), do mais recente ao mais antigo.
+ * Usado pelo Chat para o painel "Mensagens pendentes".
+ */
+export async function listMessageRetriesByConversation(
+  conversationId: number,
+  limit = 50
+) {
+  const db = await getDb();
+  if (!db) return [];
+  const { eq, desc } = await import("drizzle-orm");
+  const rows = await db
+    .select()
+    .from(messageRetries)
+    .where(eq(messageRetries.conversationId, conversationId))
+    .orderBy(desc(messageRetries.id))
+    .limit(limit);
+  return rows;
+}
+
+/**
+ * Força um "flush" da DLQ de uma conversa: marca todos os pendings como
+ * `nextRetryAt = now`, fazendo o retry-worker pegar no próximo tick.
+ * Idempotente: se não houver pendings, retorna 0.
+ */
+export async function flushDlqForConversation(
+  conversationId: number
+): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const { and, eq } = await import("drizzle-orm");
+  const r = await db
+    .update(messageRetries)
+    .set({ nextRetryAt: new Date() })
+    .where(
+      and(
+        eq(messageRetries.conversationId, conversationId),
+        eq(messageRetries.status, "pending")
+      )
+    );
+  return Number((r as any)[0]?.affectedRows ?? 0);
+}
