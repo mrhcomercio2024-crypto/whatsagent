@@ -297,9 +297,30 @@ async function bootSocket(agentId: number): Promise<void> {
             (err as Error).message
           );
         }
+      } else if (isRestartRequired) {
+        // ✅ EXCEÇÃO ÚNICA ao modo on-demand:
+        // `restart required` (código 515) NÃO é uma queda — é parte normal do
+        // handshake do Baileys. Logo após o usuário escanear o QR, o WhatsApp
+        // fecha o socket pedindo um reopen para subir como dispositivo registrado.
+        // Sem essa religação automática, o pareamento NUNCA se completa e o
+        // status fica preso em "awaiting_qr" eternamente.
+        // Religamos UMA vez, imediatamente, sem backoff e sem ficar tentando.
+        markDisconnected(agentId, reason);
+        console.log(
+          `[baileys] agent ${agentId}: restart required (parte do handshake) — reabrindo socket imediatamente`
+        );
+        // Religa no próximo tick para evitar reentrância no handler atual.
+        setTimeout(() => {
+          startQrSession(agentId).catch((err) =>
+            console.warn(
+              `[baileys] agent ${agentId} restart-required reopen failed: ${(err as Error).message}`
+            )
+          );
+        }, 250);
       } else {
-        // ⚠️ Reconnect automático DESLIGADO. Quando a conexão cai, deixamos o
-        // socket morto e marcamos o status como `disconnected` no banco.
+        // ⚠️ Reconnect automático DESLIGADO para quedas reais.
+        // Quando a conexão cai por qualquer outro motivo (conflict, timeout, rede,
+        // etc.), deixamos o socket morto e marcamos `disconnected` no banco.
         // O usuário precisa clicar "Iniciar conexão" novamente para gerar QR.
         // Isso evita: QR rotacionando em loop, reconexões agressivas que disparam
         // "conflict (replaced)" e gastos de recursos sem permissão explícita.

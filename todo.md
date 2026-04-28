@@ -575,13 +575,13 @@
 
 
 ## Fase 78: QR Code só ao clicar Iniciar Conexão (zero auto-start)
-- [ ] Mapear todas as chamadas a startQrSession() no projeto
-- [ ] Boot do servidor: NÃO chamar reconnectAllQrSessions automaticamente para sessões em awaiting_qr/connecting
-- [ ] Página de Conexão: NÃO disparar startQrSession() em useEffect/mount
-- [ ] Reconnect/watchdog: já corrigido na Fase 77 (não religa awaiting_qr) — manter assim
-- [ ] Manter botão "Iniciar conexão" como ÚNICO ponto que chama startQrSession()
-- [ ] Testes vitest do contrato (mount não dispara, click dispara)
-- [ ] Checkpoint v43
+- [x] Mapear todas as chamadas a startQrSession() no projeto (consolidado na Fase 78 final)
+- [x] Boot do servidor: removido auto-start completamente
+- [x] Página de Conexão: nunca disparou startQrSession no mount (validado)
+- [x] Reconnect/watchdog: removido também do onClose — zero auto-religação
+- [x] Botão "Iniciar conexão" é o Único ponto que chama startQrSession()
+- [x] Testes vitest `onDemand.test.ts` (7 casos garantem o contrato)
+- [x] Checkpoint v43 (a3d1c978)
 
 
 ## Fase 78: QR só ao clicar "Iniciar conexão" + parar após conectado + notificação
@@ -595,3 +595,12 @@
 - [x] Testes vitest `onDemand.test.ts` (7 casos: lê o código de boot e onClose, garante ausência de auto-start)
 - [x] Suite completa 351/351 verde
 - [x] Checkpoint v43
+
+
+## Fase 79: BUG erro ao conectar QR após Fase 78
+- [x] Coletar logs recentes do baileys (qr.start funciona, QR aparece, scan acontece, mas pareamento não se completa)
+- [x] Causa raiz: a Fase 78 removeu TODO reconnect automático do onClose, mas o código `515 (restart required)` que o WhatsApp envia logo após o scan **é parte do handshake** — sem religar imediatamente nesse caso, o pareamento fica preso para sempre
+- [x] Corrigido: branch dedicado para `isRestartRequired` no onClose que chama `startQrSession(agentId)` 250ms depois (uma única vez, sem backoff). Outros caminhos de queda continuam exigindo clique manual
+- [x] Testes atualizados em `onDemand.test.ts` (caminho restart-required é verificado, regra de quedas reais permanece)
+- [x] Suite completa 352/352 verde
+- [x] Checkpoint v44

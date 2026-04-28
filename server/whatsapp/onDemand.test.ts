@@ -54,20 +54,26 @@ describe("Baileys onClose não agenda reconnect (Fase 78)", () => {
   const baileysPath = path.resolve(__dirname, "baileys.ts");
   const src = fs.readFileSync(baileysPath, "utf-8");
 
-  it("não chama scheduleReconnect dentro do bloco de quedas temporárias", () => {
-    // Procuramos o bloco "Quedas temporárias / desconectado" — antes tinha
-    // scheduleReconnect(...). Após a Fase 78, esse bloco só marca disconnected
-    // e cancela qualquer reconnect pendente. Verificamos que a string ficou
-    // referenciada apenas em código de cancelamento.
-    const block = src.split("// Quedas")[1] ?? "";
-    expect(block.includes("scheduleReconnect(")).toBe(false);
+  it("não chama scheduleReconnect dentro do handler onClose", () => {
+    // Após a Fase 78, scheduleReconnect foi removido do onClose. Para o caminho
+    // de quedas reais, o usuário precisa clicar "Iniciar conexão" novamente.
+    // Para o caminho restart_required (handshake), usamos setTimeout direto
+    // chamando startQrSession — NÃO passamos por scheduleReconnect.
+    expect(src.includes("scheduleReconnect(agentId")).toBe(false);
   });
 
   it("usa cancelReconnect() para garantir que nada agendado sobrevive", () => {
     expect(src).toMatch(/cancelReconnect\(agentId\)/);
   });
 
-  it("registra explicitamente que aguarda clique manual", () => {
+  it("registra explicitamente que aguarda clique manual em quedas reais", () => {
     expect(src).toMatch(/aguardando clique manual/);
+  });
+
+  it("reabre o socket automaticamente em restart required (handshake)", () => {
+    // Exceção única ao modo on-demand: após scan do QR, o WhatsApp manda
+    // um restart required. Sem religar nesse caso, o pareamento fica preso.
+    expect(src).toMatch(/restart required \(parte do handshake\)/);
+    expect(src).toMatch(/reabrindo socket imediatamente/);
   });
 });
