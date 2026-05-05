@@ -38,6 +38,7 @@ vi.mock("./zapi", () => ({
   sendAudio: vi.fn(),
   sendVideo: vi.fn(),
   sendDocument: vi.fn(),
+  sendPresence: vi.fn(),
   getStatus: vi.fn(),
 }));
 

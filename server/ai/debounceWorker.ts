@@ -4,11 +4,11 @@
  * mensagens recentes do lead coalesced em um único turno.
  */
 import {
+  claimConversationForProcessing,
   concatRecentInbound,
   getAgentById,
   getConversationById,
   listConversationsDueForProcessing,
-  setConversationPendingProcessAt,
 } from "../db";
 import { processInboundForReply } from "./orchestrator";
 import { dispatchActions } from "../whatsapp/dispatcher";
@@ -69,8 +69,14 @@ async function processOneWithTimeout(conv: any, timeoutMs: number) {
 }
 
 async function processOne(conv: any) {
-  // Limpa o pending logo de cara para evitar processamento duplicado.
-  await setConversationPendingProcessAt(conv.id, null);
+  // Lock atômico: só prossegue se ESTE worker conseguiu zerar o pendingProcessAt.
+  // Outro tick paralelo que pegou a mesma row no SELECT vai falhar aqui (affectedRows=0)
+  // — assim garantimos UMA única execução do orchestrator por turno.
+  const claimed = await claimConversationForProcessing(conv.id, new Date());
+  if (!claimed) {
+    console.log(`[debounce] conv ${conv.id} skipped (lock já obtido por outro worker)`);
+    return;
+  }
   if (conv.aiPaused || conv.status === "human_handoff" || conv.status === "closed") {
     console.log(
       `[debounce] conv ${conv.id} skipped (aiPaused=${conv.aiPaused}, status=${conv.status})`

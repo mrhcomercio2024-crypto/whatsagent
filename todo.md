@@ -638,3 +638,12 @@
 - [x] 6 novos testes vitest cobrindo o resolver (URL absoluta, /manus-storage, fallback, casos de erro)
 - [x] Suite total 378/378 verde
 - [x] Checkpoint v47
+
+## Fase 83: Revisão profunda integração Z-API (v48)
+- [x] Lock atômico em conversations.pendingProcessAt (claimConversationForProcessing) — corrige duplicação de "Boa tarde!"
+- [x] Idempotência inbound Z-API por waMessageId (inboundMessageExists)
+- [x] Anti greeting-loop guard: detecta saída trivial, regenera 1x e silencia se persistir
+- [x] SAFETY NET deixa de empurrar fallback genérico quando aiOutput foi suprimido (silêncio > spam)
+- [x] sendPresence Z-API (composing/recording) integrado no dispatcher antes de cada texto
+- [x] Cache em memória (TTL 25 min) para signed URLs em mediaUrlResolver
+- [x] Suite vitest 392/392 verde

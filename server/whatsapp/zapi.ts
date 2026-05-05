@@ -152,6 +152,31 @@ export async function sendDocument(
   });
 }
 
+/**
+ * Envia o status de presença ("digitando", "gravando", etc.) para um chat.
+ * Equivale ao indicator "...digitando" que aparece no WhatsApp do lead.
+ *
+ * Status válidos na Z-API:
+ *   - composing  → mostra "digitando..."
+ *   - recording  → mostra "gravando áudio..."
+ *   - available  → online
+ *   - unavailable → offline
+ *
+ * Documentação: https://developer.z-api.io/message/send-message-presence
+ */
+export async function sendPresence(
+  creds: ZapiCredentials,
+  phone: string,
+  status: "composing" | "recording" | "available" | "unavailable" = "composing",
+  durationMs?: number
+): Promise<ZapiSendResult> {
+  return callZapi(creds, "send-message-presence", {
+    phone: normalizePhone(phone),
+    status,
+    ...(durationMs ? { delay: durationMs } : {}),
+  });
+}
+
 export type ZapiStatus = {
   connected: boolean;
   session: boolean;

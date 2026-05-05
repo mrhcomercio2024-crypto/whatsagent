@@ -55,6 +55,7 @@ import {
   getLeadStatusRuleBySlug,
 } from "../db";
 import { classifyLeadStatus } from "./statusClassifier";
+import { isTrivialOutputInContext } from "./trivialOutputGuard";
 import { classifyReaction, isReactionLikelyIgnored } from "./reactionClassifier";
 import { notifyOwner } from "../_core/notification";
 import {
@@ -681,12 +682,77 @@ export async function processInboundForReply(opts: {
     }
   }
 
-  const parsed = parseAgentOutput(aiOutput);
-
-  // Bloqueia STEP_ADVANCE em primeiro turno (regra dura)
+  // Bloqueia STEP_ADVANCE em primeiro turno (regra dura) — calculado mais abaixo,
+  // após o guard anti greeting-loop (que pode reescrever aiOutput).
   const inboundCountInStep = history.filter(
     h => h.direction === "inbound" && h.sender === "lead"
   ).length;
+
+  // VALIDADOR anti greeting-loop: o LLM às vezes responde só "Boa tarde!" quando
+  // o histórico já contém saudações — padrão de "copy from history". Detectamos
+  // ANTES de compor as ações para poder pular o envio se a regeneração falhar.
+  {
+    const parsedTmp = parseAgentOutput(aiOutput);
+    const trivial = isTrivialOutputInContext({
+      cleanText: parsedTmp.cleanText,
+      hasMediaActions: parsedTmp.mediaIds.length > 0 || triggeredMediaIds.length > 0,
+      isFirstAiTurn: isFirstTurn,
+    });
+    if (trivial) {
+      console.log(
+        `[orchestrator] greeting-loop detectado ("${parsedTmp.cleanText.slice(0,40)}"); regenerando 1x`
+      );
+      try {
+        const r4 = await invokeWithModel({
+          model,
+          messages: [
+            ...messages,
+            { role: "assistant", content: aiOutput },
+            {
+              role: "user",
+              content:
+                `Sua última resposta foi APENAS um cumprimento ("${parsedTmp.cleanText}"), mas você já cumprimentou o lead antes nesta conversa. ` +
+                `REESCREVA respondendo de fato à última mensagem do lead, com conteúdo útil, em 1–3 frases curtas. ` +
+                `NÃO cumprimente de novo. NÃO explique nada — apenas escreva a próxima mensagem.`,
+            },
+          ],
+          maxTokens: 400,
+          temperature: 0.6,
+          tracking: {
+            purpose: "validator",
+            agentId: agent.id,
+            conversationId,
+            leadId: lead?.id,
+          },
+        });
+        const newOut = (r4.text || "").trim();
+        if (newOut) {
+          // Só aceita se a regeneração NÃO for trivial também
+          const reparsed = parseAgentOutput(newOut);
+          if (
+            !isTrivialOutputInContext({
+              cleanText: reparsed.cleanText,
+              hasMediaActions: reparsed.mediaIds.length > 0 || triggeredMediaIds.length > 0,
+              isFirstAiTurn: isFirstTurn,
+            })
+          ) {
+            aiOutput = newOut;
+          } else {
+            console.warn(
+              `[orchestrator] greeting-loop persistiu após regeneração; suprimindo envio para evitar spam`
+            );
+            aiOutput = ""; // SAFETY NET irá evitar spam: actions.length===0 deve apenas SILENCIAR neste caso.
+          }
+        }
+      } catch (e) {
+        console.warn("[orchestrator] greeting-loop regenerate failed:", (e as Error).message);
+        aiOutput = "";
+      }
+    }
+  }
+
+  // Parser FINAL (depois do guard anti greeting-loop)
+  const parsed = parseAgentOutput(aiOutput);
   const allowAdvance = canAdvanceStep({
     parsedAdvance: parsed.stepAdvance,
     isFirstTurn,
@@ -809,18 +875,27 @@ export async function processInboundForReply(opts: {
     // não queremos derrubar a resposta caso o resumidor falhe.
   }
 
-  // SAFETY NET: se chegamos até aqui sem nenhuma ação textual ou de mídia em
-  // conversa normal (não handoff, não out-of-hours), é sintoma de bug a
-  // montante (LLM devolveu vazio, parser limpou tudo, etc.). Devolvemos um
-  // texto curto neutro pra evitar silêncio percebido pelo lead/usuário.
+  // SAFETY NET: actions vazias em conversa normal.
+  // Antes:  caíamos num fallback genérico ("Pode me contar um pouco mais...")
+  // Problema: greeting-loop suprimia aiOutput de propósito — e o fallback acabava
+  // mandando texto genérico que o lead já viu antes (poluindo a conversa).
+  // Agora:  se aiOutput estava vazio ANTES do parser (sintoma de loop suprimido),
+  // SILENCIAMOS — é melhor não responder do que repetir bobeira.
   if (actions.length === 0 && !parsed.handoff) {
-    console.warn(
-      `[orchestrator] actions vazias em conv ${conversationId} (LLM devolveu '${aiOutput.slice(0,80)}'); usando fallback neutro`
-    );
-    actions.push({
-      type: "text",
-      text: "Pode me contar um pouco mais? Quero te entender melhor pra te ajudar do jeito certo.",
-    });
+    if (!aiOutput.trim()) {
+      console.warn(
+        `[orchestrator] suprimindo envio em conv ${conversationId} (greeting-loop ou LLM vazio após regeneração)`
+      );
+      // NÃO empurra fallback: melhor silêncio do que spam.
+    } else {
+      console.warn(
+        `[orchestrator] actions vazias em conv ${conversationId} (LLM devolveu '${aiOutput.slice(0,80)}'); usando fallback neutro`
+      );
+      actions.push({
+        type: "text",
+        text: "Pode me contar um pouco mais? Quero te entender melhor pra te ajudar do jeito certo.",
+      });
+    }
   }
 
   return {

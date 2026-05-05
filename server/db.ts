@@ -1151,6 +1151,61 @@ export async function setConversationPendingProcessAt(
 }
 
 /**
+ * Tenta reivindicar atomicamente uma conversa para processamento.
+ * Retorna true SE conseguiu (UPDATE afetou 1 linha), false caso contrário.
+ *
+ * Isso é a primitiva crítica para evitar a race do debounce worker:
+ * dois ticks paralelos podem pegar a mesma row no SELECT, mas só UM
+ * conseguir o UPDATE atômico (porque o WHERE exige `pendingProcessAt < now`).
+ */
+export async function claimConversationForProcessing(
+  conversationId: number,
+  now: Date
+): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+  const r: any = await db
+    .update(conversations)
+    .set({ pendingProcessAt: null })
+    .where(
+      and(
+        eq(conversations.id, conversationId),
+        isNotNull(conversations.pendingProcessAt),
+        lt(conversations.pendingProcessAt, now)
+      )
+    );
+  // mysql2 retorna { affectedRows } no header — drizzle envolve em array no driver mysql2
+  const affected =
+    (r?.[0]?.affectedRows as number | undefined) ??
+    (r?.affectedRows as number | undefined) ??
+    0;
+  return affected > 0;
+}
+
+/**
+ * Verifica se já existe uma mensagem inbound com o waMessageId fornecido
+ * (idempotência contra retransmissão de webhook).
+ */
+export async function inboundMessageExists(
+  conversationId: number,
+  waMessageId: string
+): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+  const rows = await db
+    .select({ id: messages.id })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.conversationId, conversationId),
+        eq(messages.waMessageId, waMessageId)
+      )
+    )
+    .limit(1);
+  return rows.length > 0;
+}
+
+/**
  * Lista conversas cujo debounce já venceu (prontas para processar).
  */
 export async function listConversationsDueForProcessing(now: Date, limit = 25) {

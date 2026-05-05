@@ -16,10 +16,38 @@
  *    via `storageGetSignedUrl(key)` (CloudFront com Expires + Signature).
  * 3. Fallback: se PUBLIC_BASE_URL estiver definido, devolve a URL absoluta
  *    apontando para o nosso domínio (a Z-API ainda terá que aceitar o redirect).
+ *
+ * Cache: signed URLs são caras (chamada externa para o gateway de storage).
+ * Cacheamos por chave por 25 minutos (signed URLs costumam valer bem mais
+ * que isso, mas damos folga pra evitar entregar URL prestes a expirar).
  */
 import { storageGetSignedUrl } from "../storage";
 
 const STORAGE_PREFIX = "/manus-storage/";
+const CACHE_TTL_MS = 25 * 60_000; // 25 minutos
+
+type CacheEntry = { url: string; expiresAt: number };
+const signedUrlCache = new Map<string, CacheEntry>();
+
+async function getSignedUrlCached(key: string): Promise<string> {
+  const now = Date.now();
+  const hit = signedUrlCache.get(key);
+  if (hit && hit.expiresAt > now) return hit.url;
+  const url = await storageGetSignedUrl(key);
+  signedUrlCache.set(key, { url, expiresAt: now + CACHE_TTL_MS });
+  // Pruning leve para evitar growth ilimitado
+  if (signedUrlCache.size > 500) {
+    signedUrlCache.forEach((v, k) => {
+      if (v.expiresAt <= now) signedUrlCache.delete(k);
+    });
+  }
+  return url;
+}
+
+/** Helper para testes: limpa o cache em memória */
+export function _resetMediaUrlCache() {
+  signedUrlCache.clear();
+}
 
 export async function resolvePublicMediaUrl(
   storageUrl: string | null | undefined,
@@ -27,7 +55,7 @@ export async function resolvePublicMediaUrl(
 ): Promise<string> {
   const url = (storageUrl ?? "").trim();
   if (!url) {
-    if (storageKey) return await storageGetSignedUrl(storageKey);
+    if (storageKey) return await getSignedUrlCached(storageKey);
     throw new Error("Mídia sem URL e sem chave de storage");
   }
   if (/^https?:\/\//i.test(url)) return url;
@@ -35,12 +63,12 @@ export async function resolvePublicMediaUrl(
   // Caminho /manus-storage/<key> → extrai a key e gera signed URL
   if (url.startsWith(STORAGE_PREFIX)) {
     const key = url.slice(STORAGE_PREFIX.length).replace(/^\/+/, "");
-    if (key) return await storageGetSignedUrl(key);
+    if (key) return await getSignedUrlCached(key);
   }
 
   // Tem uma key explícita? usa-a
   if (storageKey) {
-    return await storageGetSignedUrl(storageKey);
+    return await getSignedUrlCached(storageKey);
   }
 
   // Último recurso: prefixar com PUBLIC_BASE_URL

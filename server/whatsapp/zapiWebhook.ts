@@ -17,6 +17,7 @@ import {
   getAgentByZapiInstanceId,
   getConversationById,
   getZapiInstance,
+  inboundMessageExists,
   recordMetric,
   setConversationPendingProcessAt,
   upsertZapiInstance,
@@ -77,6 +78,18 @@ async function handleZapiIncoming(req: Request) {
 
   const leadId = await findOrCreateLead(agentIdNum, payload.phone, payload.senderName ?? undefined);
   const convId = await findOrCreateConversation(agentIdNum, leadId);
+
+  // Idempotência: Z-API às vezes retransmite o mesmo webhook (timeouts/retries do painel deles).
+  // Se já temos uma mensagem com este waMessageId, ignoramos para não duplicar.
+  if (payload.messageId) {
+    const exists = await inboundMessageExists(convId, payload.messageId);
+    if (exists) {
+      console.log(
+        `[zapi-webhook] duplicate inbound ignorado conv=${convId} waMessageId=${payload.messageId}`
+      );
+      return;
+    }
+  }
 
   await appendMessage({
     conversationId: convId,

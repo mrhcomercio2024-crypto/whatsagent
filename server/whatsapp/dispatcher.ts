@@ -333,6 +333,7 @@ export async function dispatchActionsZapi(opts: {
     sendVideo: zSendVideo,
     sendAudio: zSendAudio,
     sendDocument: zSendDocument,
+    sendPresence: zSendPresence,
   } = await import("./zapi");
 
   const creds = {
@@ -363,9 +364,18 @@ export async function dispatchActionsZapi(opts: {
       await pauseBeforeMedia(agent);
     }
     if (sender === "ai" && a.type === "text") {
-      // Z-API não expõe typing_indicator separado: usamos o parâmetro
-      // delayTyping no próprio send, calculado via humanize.simulateTypingForMessage
-      // (na prática, o cliente já traduz para `delayMessage`/`delayTyping`).
+      // 1) Disparamos o presence "composing" — isso aciona o indicador
+      //    "...digitando" no WhatsApp do lead, igual a uma pessoa real digitando.
+      //    A Z-API expira esse status sozinha; não bloqueamos no resultado.
+      if (agent.typingSimulationEnabled) {
+        zSendPresence(creds, lead.phoneNumber, "composing").catch((e: unknown) =>
+          console.warn(
+            `[dispatch-zapi] sendPresence falhou (não-fatal): ${(e as Error).message}`
+          )
+        );
+      }
+      // 2) Aguarda o tempo proporcional ao tamanho do texto antes de enviar
+      //    (humanização real — além do delayTyping interno do client).
       await simulateTypingForMessage({ agent, textLength: a.text.length });
     }
 

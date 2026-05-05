@@ -6,7 +6,7 @@ vi.mock("../storage", () => ({
   storageGetSignedUrl: (key: string) => signedSpy(key),
 }));
 
-import { resolvePublicMediaUrl } from "./mediaUrlResolver";
+import { resolvePublicMediaUrl, _resetMediaUrlCache } from "./mediaUrlResolver";
 
 describe("resolvePublicMediaUrl", () => {
   beforeEach(() => {
@@ -14,6 +14,7 @@ describe("resolvePublicMediaUrl", () => {
     signedSpy.mockResolvedValue("https://cdn.example.com/key?Signature=abc");
     delete process.env.PUBLIC_BASE_URL;
     delete process.env.APP_URL;
+    _resetMediaUrlCache();
   });
 
   it("retorna como está quando já é http(s) absoluto", async () => {
@@ -50,5 +51,26 @@ describe("resolvePublicMediaUrl", () => {
 
   it("lança erro quando ambos storageUrl e storageKey vazios", async () => {
     await expect(resolvePublicMediaUrl("", "")).rejects.toThrow(/sem URL/);
+  });
+
+  it("cacheia signed URLs por chave — segunda chamada não re-invoca o storage", async () => {
+    const out1 = await resolvePublicMediaUrl(
+      "/manus-storage/agent-1/foo.mp4",
+      "agent-1/foo.mp4",
+    );
+    const out2 = await resolvePublicMediaUrl(
+      "/manus-storage/agent-1/foo.mp4",
+      "agent-1/foo.mp4",
+    );
+    expect(out1).toBe(out2);
+    expect(signedSpy).toHaveBeenCalledTimes(1); // segunda chamada veio do cache
+  });
+
+  it("chaves diferentes geram chamadas diferentes", async () => {
+    await resolvePublicMediaUrl("/manus-storage/k1.mp4", "k1.mp4");
+    await resolvePublicMediaUrl("/manus-storage/k2.mp4", "k2.mp4");
+    expect(signedSpy).toHaveBeenCalledTimes(2);
+    expect(signedSpy).toHaveBeenNthCalledWith(1, "k1.mp4");
+    expect(signedSpy).toHaveBeenNthCalledWith(2, "k2.mp4");
   });
 });
