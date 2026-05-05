@@ -77,10 +77,20 @@ describe("zapi client", () => {
     expect(call[1].method ?? "GET").toMatch(/GET/i);
   });
 
-  it("erro de rede / status não-ok devolve ok:false com mensagem", async () => {
-    globalThis.fetch = vi.fn().mockRejectedValue(new Error("ECONNRESET")) as any;
-    const r = await sendText(creds, "+5511999994444", "boom");
-    expect(r.ok).toBe(false);
-    expect(r.error).toMatch(/ECONNRESET|fetch|network/i);
+  it("erro de rede / status não-ok devolve ok:false com mensagem após esgotar retries", async () => {
+    vi.useFakeTimers();
+    try {
+      globalThis.fetch = vi.fn().mockRejectedValue(new Error("ECONNRESET")) as any;
+      const promise = sendText(creds, "+5511999994444", "boom");
+      // Dispara todos os setTimeout de backoff sem esperar tempo real
+      await vi.runAllTimersAsync();
+      const r = await promise;
+      expect(r.ok).toBe(false);
+      expect(r.error).toMatch(/ECONNRESET|fetch|network/i);
+      // ECONNRESET é transitório: 4 tentativas (1 + 3 retries)
+      expect((globalThis.fetch as any).mock.calls.length).toBe(4);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

@@ -661,3 +661,9 @@
 - [x] Remover botão "Entrar com Manus" do Home/Login
 - [x] Limpar TODOS users existentes e criar admin mrhcomercio@hotmail.com (Ferramenta1703$)
 - [x] Testes vitest: hash bcrypt, login válido/inválido, autorização adminProcedure
+
+
+## Fase 86: Bug crítico — fetch failed Z-API
+- [x] Diagnosticar erro "fetch failed" no dispatcher Z-API
+- [x] Aplicar fix (timeout, AbortController, retry interno, retry-worker no boot)
+- [x] Reprocessar DLQ pendente

@@ -47,19 +47,52 @@ export function normalizePhone(input: string): string {
   return input.split("@")[0].replace(/\D/g, "");
 }
 
-async function callZapi(
+/**
+ * Erros que merecem retry imediato (problema transitório na rede ou no servidor).
+ * "fetch failed" é o erro genérico do undici (Node fetch nativo) para qualquer
+ * problema de socket/DNS/TLS antes da resposta HTTP chegar.
+ */
+const TRANSIENT_ERROR_PATTERNS = [
+  /fetch failed/i,
+  /econnreset/i,
+  /etimedout/i,
+  /eai_again/i,
+  /socket hang up/i,
+  /network\s*error/i,
+  /enotfound/i,
+  /aborted/i,
+  /timeout/i,
+];
+
+function isTransientError(message: string): boolean {
+  return TRANSIENT_ERROR_PATTERNS.some((re) => re.test(message));
+}
+
+function isMediaPath(path: string): boolean {
+  return /^send-(image|video|audio|document)/i.test(path);
+}
+
+// Backoff em ms para 1ª, 2ª e 3ª retentativa interna
+const RETRY_DELAYS_MS = [800, 1_500, 3_000];
+
+function sleep(ms: number) {
+  return new Promise<void>((r) => setTimeout(r, ms));
+}
+
+async function callZapiOnce(
   creds: ZapiCredentials,
   path: string,
-  body: Record<string, unknown>
+  body: Record<string, unknown>,
+  timeoutMs: number,
 ): Promise<ZapiSendResult> {
-  if (!creds.instanceId || !creds.token) {
-    return { ok: false, error: "Z-API não configurada (faltam instanceId/token)" };
-  }
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetch(buildUrl(creds, path), {
       method: "POST",
       headers: buildHeaders(creds),
       body: JSON.stringify(body),
+      signal: controller.signal,
     });
     const data = (await res.json().catch(() => ({}))) as {
       messageId?: string;
@@ -72,7 +105,7 @@ async function callZapi(
       return {
         ok: false,
         error: data?.error || data?.message || `HTTP ${res.status}`,
-        raw: data,
+        raw: { status: res.status, body: data },
       };
     }
     return {
@@ -83,7 +116,54 @@ async function callZapi(
     };
   } catch (err) {
     return { ok: false, error: (err as Error).message };
+  } finally {
+    clearTimeout(t);
   }
+}
+
+async function callZapi(
+  creds: ZapiCredentials,
+  path: string,
+  body: Record<string, unknown>,
+): Promise<ZapiSendResult> {
+  if (!creds.instanceId || !creds.token) {
+    return { ok: false, error: "Z-API não configurada (faltam instanceId/token)" };
+  }
+
+  // Timeouts diferentes para texto vs mídia (mídia precisa que a Z-API
+  // baixe a URL antes de responder).
+  const timeoutMs = isMediaPath(path) ? 90_000 : 30_000;
+
+  // Tenta até 4 vezes (1 inicial + 3 retries). Só retenta erros transitórios
+  // ou HTTP 5xx; erros 4xx (auth, payload inválido) já devolvem na 1ª.
+  const maxAttempts = 1 + RETRY_DELAYS_MS.length;
+  let lastResult: ZapiSendResult | null = null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const result = await callZapiOnce(creds, path, body, timeoutMs);
+    if (result.ok) {
+      if (attempt > 1) {
+        console.log(
+          `[zapi] succeeded on attempt ${attempt}/${maxAttempts} (path=${path})`,
+        );
+      }
+      return result;
+    }
+    lastResult = result;
+    const errMsg = result.error || "";
+    const rawStatus = (result.raw as { status?: number } | undefined)?.status;
+    const isHttp5xx =
+      /^HTTP 5\d\d$/.test(errMsg) ||
+      (typeof rawStatus === "number" && rawStatus >= 500 && rawStatus < 600);
+    const shouldRetry =
+      attempt < maxAttempts && (isTransientError(errMsg) || isHttp5xx);
+    if (!shouldRetry) break;
+    const delay = RETRY_DELAYS_MS[attempt - 1] ?? 3_000;
+    console.warn(
+      `[zapi] transient error on attempt ${attempt}/${maxAttempts} (path=${path}, err="${errMsg}") — retrying in ${delay}ms`,
+    );
+    await sleep(delay);
+  }
+  return lastResult ?? { ok: false, error: "Z-API não respondeu" };
 }
 
 export async function sendText(
