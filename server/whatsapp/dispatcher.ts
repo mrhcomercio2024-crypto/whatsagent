@@ -34,6 +34,7 @@ import {
   wasRecentlySent,
   markSent,
 } from "./idempotency";
+import { resolvePublicMediaUrl } from "./mediaUrlResolver";
 
 /**
  * Roteia o envio para o transporte correto conforme o modo do agente:
@@ -378,31 +379,43 @@ export async function dispatchActionsZapi(opts: {
       const m = await getMediaById(a.mediaId);
       if (m?.storageUrl) {
         const fullUrl = absolutize(m.storageUrl);
-        if (m.mediaType === "image") {
-          const r = await zSendImage(creds, lead.phoneNumber, fullUrl, m.caption ?? undefined);
-          waId = r.messageId;
-          errorMsg = r.ok ? undefined : r.error;
-        } else if (m.mediaType === "video") {
-          const r = await zSendVideo(creds, lead.phoneNumber, fullUrl, m.caption ?? undefined);
-          waId = r.messageId;
-          errorMsg = r.ok ? undefined : r.error;
-        } else if (m.mediaType === "audio") {
-          const r = await zSendAudio(creds, lead.phoneNumber, fullUrl);
-          waId = r.messageId;
-          errorMsg = r.ok ? undefined : r.error;
-        } else {
-          // document
-          const ext =
-            (m.storageUrl.split(".").pop() || "pdf").split("?")[0].toLowerCase() || "pdf";
-          const r = await zSendDocument(
-            creds,
-            lead.phoneNumber,
-            fullUrl,
-            m.caption ?? undefined,
-            ext,
-          );
-          waId = r.messageId;
-          errorMsg = r.ok ? undefined : r.error;
+        // Z-API precisa BAIXAR a URL do servidor dela. Caminhos /manus-storage/...
+        // são internos: precisamos resolvê-los para uma URL S3/CloudFront pública
+        // assinada, senão a Z-API rejeita com "Base64/Url could not be read".
+        let publicUrl = fullUrl;
+        try {
+          publicUrl = await resolvePublicMediaUrl(m.storageUrl, m.storageKey);
+        } catch (eUrl) {
+          errorMsg = `Falha ao resolver URL pública da mídia: ${(eUrl as Error).message}`;
+        }
+
+        if (!errorMsg) {
+          if (m.mediaType === "image") {
+            const r = await zSendImage(creds, lead.phoneNumber, publicUrl, m.caption ?? undefined);
+            waId = r.messageId;
+            errorMsg = r.ok ? undefined : r.error;
+          } else if (m.mediaType === "video") {
+            const r = await zSendVideo(creds, lead.phoneNumber, publicUrl, m.caption ?? undefined);
+            waId = r.messageId;
+            errorMsg = r.ok ? undefined : r.error;
+          } else if (m.mediaType === "audio") {
+            const r = await zSendAudio(creds, lead.phoneNumber, publicUrl);
+            waId = r.messageId;
+            errorMsg = r.ok ? undefined : r.error;
+          } else {
+            // document
+            const ext =
+              (m.storageUrl.split(".").pop() || "pdf").split("?")[0].toLowerCase() || "pdf";
+            const r = await zSendDocument(
+              creds,
+              lead.phoneNumber,
+              publicUrl,
+              m.caption ?? undefined,
+              ext,
+            );
+            waId = r.messageId;
+            errorMsg = r.ok ? undefined : r.error;
+          }
         }
       } else {
         errorMsg = "Mídia sem URL";

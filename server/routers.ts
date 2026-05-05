@@ -394,7 +394,7 @@ export const appRouter = router({
   whatsapp: router({
     getConfig: protectedProcedure
       .input(agentScopedSchema)
-      .query(({ input }) => getWhatsappConfig(input.agentId)),
+      .query(async ({ input }) => (await getWhatsappConfig(input.agentId)) ?? null),
     saveConfig: protectedProcedure
       .input(
         z.object({

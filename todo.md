@@ -629,3 +629,12 @@
 - [x] Procedures tRPC: `zapi.get`, `zapi.upsert`, `zapi.ping`, `zapi.regenerateWebhook`, `zapi.disconnect`
 - [x] Testes vitest (5 cliente Z-API + 9 parser/webhook + 3 dispatcher routing) e suite total 372/372 verde
 - [x] Checkpoint v46
+
+
+## Fase 82: Bugfixes pós-checkpoint v46 — vídeo Z-API + getConfig undefined
+- [x] Bug 1 (vídeo não chega no WhatsApp real): causa raiz nos logs do DB — Z-API recusava `/manus-storage/...` com erro `Base64/Url could not be read` porque a URL é interna e exige Authorization para o redirect 307
+- [x] Criado helper `server/whatsapp/mediaUrlResolver.ts` que converte `/manus-storage/<key>` em URL CloudFront assinada via `storageGetSignedUrl(key)` antes de enviar para a Z-API (image, video, audio, document)
+- [x] Bug 2 (whatsapp.getConfig retornando undefined): `getWhatsappConfig` em `server/db.ts` agora retorna `null` em vez de `undefined`; procedure faz `?? null` defensivamente
+- [x] 6 novos testes vitest cobrindo o resolver (URL absoluta, /manus-storage, fallback, casos de erro)
+- [x] Suite total 378/378 verde
+- [x] Checkpoint v47

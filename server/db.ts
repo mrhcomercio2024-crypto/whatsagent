@@ -318,13 +318,13 @@ export async function deleteTrigger(id: number) {
  * ============================================================ */
 export async function getWhatsappConfig(agentId: number) {
   const db = await getDb();
-  if (!db) return undefined;
+  if (!db) return null;
   const r = await db
     .select()
     .from(whatsappConfig)
     .where(eq(whatsappConfig.agentId, agentId))
     .limit(1);
-  return r[0];
+  return r[0] ?? null;
 }
 
 export async function upsertWhatsappConfig(input: typeof whatsappConfig.$inferInsert) {
