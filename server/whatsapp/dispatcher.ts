@@ -72,11 +72,16 @@ export async function dispatchActions(opts: {
   const safeOpts = { ...opts, actions: filtered };
 
   if (opts.agent.connectionMode === "qr") {
-    const { dispatchViaBaileys } = await import("./baileys");
-    await dispatchViaBaileys(safeOpts);
+    // Modo "qr" agora usa Z-API por baixo (Baileys descontinuado).
+    // O nome "qr" é mantido por compatibilidade com agentes existentes.
+    await dispatchActionsZapi(safeOpts);
     // ainda agenda follow-ups (mesma lógica)
     const { scheduleFollowupJobs } = await import("../db");
     await scheduleFollowupJobs(opts.agent.id, opts.conversationId, new Date());
+    return;
+  }
+  if (opts.agent.connectionMode === "zapi") {
+    await dispatchActionsZapi(safeOpts);
     return;
   }
   await dispatchActionsOfficial(safeOpts);
@@ -295,4 +300,157 @@ function absolutize(url: string): string {
   const base = process.env.PUBLIC_BASE_URL || "";
   if (!base) return url;
   return base.replace(/\/$/, "") + url;
+}
+
+
+/**
+ * Despacha ações via Z-API (provedor não-oficial).
+ * Mesmo formato de persistência e DLQ do caminho oficial; só muda o transporte.
+ */
+export async function dispatchActionsZapi(opts: {
+  agent: Agent;
+  conversationId: number;
+  actions: OutboundAction[];
+  sender: "ai" | "human";
+}): Promise<void> {
+  const { agent, conversationId, actions, sender } = opts;
+  const { getZapiInstance } = await import("../db");
+  const zapi = await getZapiInstance(agent.id);
+  const conv = await getConversationById(conversationId);
+  if (!conv) return;
+  const lead = await getLeadById(conv.leadId);
+  if (!lead) return;
+
+  if (!zapi?.instanceId || !zapi?.token) {
+    for (const a of actions) await persistAction(conversationId, a, sender, undefined, "Z-API não configurada");
+    return;
+  }
+
+  const {
+    sendText: zSendText,
+    sendImage: zSendImage,
+    sendVideo: zSendVideo,
+    sendAudio: zSendAudio,
+    sendDocument: zSendDocument,
+  } = await import("./zapi");
+
+  const creds = {
+    instanceId: zapi.instanceId,
+    token: zapi.token,
+    clientToken: zapi.clientToken,
+  };
+
+  // Expansão de mensagens longas em vários balões (mesma regra do caminho oficial)
+  const expanded: OutboundAction[] =
+    sender === "ai"
+      ? actions.flatMap<OutboundAction>((a) =>
+          a.type === "text"
+            ? splitMessage(a.text, {
+                enabled: agent.splitLongMessages,
+                maxChars: agent.splitMaxChars,
+              }).map((piece) => ({ type: "text" as const, text: piece }))
+            : [a],
+        )
+      : actions;
+
+  // Flag para evitar loop quando a tentativa já é do retry-worker
+  const __isRetry = (opts as any).__isRetry as { retryId: number } | undefined;
+
+  for (let i = 0; i < expanded.length; i++) {
+    const a = expanded[i];
+    if (sender === "ai" && a.type === "media" && i > 0) {
+      await pauseBeforeMedia(agent);
+    }
+    if (sender === "ai" && a.type === "text") {
+      // Z-API não expõe typing_indicator separado: usamos o parâmetro
+      // delayTyping no próprio send, calculado via humanize.simulateTypingForMessage
+      // (na prática, o cliente já traduz para `delayMessage`/`delayTyping`).
+      await simulateTypingForMessage({ agent, textLength: a.text.length });
+    }
+
+    let waId: string | undefined;
+    let errorMsg: string | undefined;
+    if (a.type === "text") {
+      const r = await zSendText(creds, lead.phoneNumber, a.text);
+      waId = r.messageId;
+      errorMsg = r.ok ? undefined : r.error;
+    } else if (a.type === "media") {
+      const m = await getMediaById(a.mediaId);
+      if (m?.storageUrl) {
+        const fullUrl = absolutize(m.storageUrl);
+        if (m.mediaType === "image") {
+          const r = await zSendImage(creds, lead.phoneNumber, fullUrl, m.caption ?? undefined);
+          waId = r.messageId;
+          errorMsg = r.ok ? undefined : r.error;
+        } else if (m.mediaType === "video") {
+          const r = await zSendVideo(creds, lead.phoneNumber, fullUrl, m.caption ?? undefined);
+          waId = r.messageId;
+          errorMsg = r.ok ? undefined : r.error;
+        } else if (m.mediaType === "audio") {
+          const r = await zSendAudio(creds, lead.phoneNumber, fullUrl);
+          waId = r.messageId;
+          errorMsg = r.ok ? undefined : r.error;
+        } else {
+          // document
+          const ext =
+            (m.storageUrl.split(".").pop() || "pdf").split("?")[0].toLowerCase() || "pdf";
+          const r = await zSendDocument(
+            creds,
+            lead.phoneNumber,
+            fullUrl,
+            m.caption ?? undefined,
+            ext,
+          );
+          waId = r.messageId;
+          errorMsg = r.ok ? undefined : r.error;
+        }
+      } else {
+        errorMsg = "Mídia sem URL";
+      }
+    }
+    await persistAction(conversationId, a, sender, waId, errorMsg);
+
+    if (errorMsg && !__isRetry) {
+      try {
+        const { enqueueMessageRetry } = await import("../db");
+        const { nextRetryAt } = await import("./retryBackoff");
+        const payload =
+          a.type === "text"
+            ? { type: "text", text: a.text }
+            : { type: "media", mediaId: (a as any).mediaId };
+        await enqueueMessageRetry({
+          agentId: agent.id,
+          conversationId,
+          leadId: lead.id,
+          payload: payload as any,
+          sender: sender === "ai" ? "ai" : "operator",
+          attempt: 0,
+          maxAttempts: 5,
+          nextRetryAt: nextRetryAt(1),
+          status: "pending",
+          lastError: errorMsg,
+        });
+        console.log(
+          `[dispatch-zapi] enqueued DLQ for failed send (conv=${conversationId}, type=${a.type}, err=${errorMsg})`
+        );
+      } catch (eq) {
+        console.error(
+          `[dispatch-zapi] failed to enqueue DLQ: ${(eq as Error).message}`
+        );
+      }
+    }
+
+    await recordMetric({
+      agentId: agent.id,
+      conversationId,
+      eventType: "message_sent",
+    });
+
+    if (sender === "ai" && i < expanded.length - 1) {
+      if (a.type === "media") await pauseAfterMedia(agent);
+      else await pauseBetweenMessages(agent);
+    }
+  }
+
+  await scheduleFollowupJobs(agent.id, conversationId, new Date());
 }

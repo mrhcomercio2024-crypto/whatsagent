@@ -49,7 +49,7 @@ export const agents = mysqlTable("agents", {
   // Idioma principal
   language: varchar("language", { length: 10 }).default("pt-BR").notNull(),
   // Modo de conexão WhatsApp: 'official' (Meta Cloud API) ou 'qr' (Baileys não oficial)
-  connectionMode: mysqlEnum("connectionMode", ["official", "qr"]).default("official").notNull(),
+  connectionMode: mysqlEnum("connectionMode", ["official", "qr", "zapi"]).default("official").notNull(),
 
   // — Comportamento humano —
   // Tempo (segundos) que o agente espera desde a última mensagem do lead antes de processar
@@ -580,6 +580,34 @@ export type InsertMetricsEvent = typeof metricsEvents.$inferInsert;
  * Um por agente.
  * ────────────────────────────────────────────────────────────
  */
+/**
+ * ─────────────────────────────────────────────────────────
+ * Z-API INSTANCES — conexão não-oficial via Z-API (substitui Baileys)
+ * O usuário cola Instance ID + Token (e opcionalmente Client-Token de segurança)
+ * O sistema envia mensagens via REST e recebe inbound via webhook configurado no painel da Z-API.
+ * ─────────────────────────────────────────────────────────
+ */
+export const zapiInstances = mysqlTable("zapi_instances", {
+  id: int("id").autoincrement().primaryKey(),
+  agentId: int("agentId").notNull().unique(),
+  instanceId: varchar("instanceId", { length: 120 }).notNull(),
+  token: varchar("token", { length: 200 }).notNull(),
+  // Header opcional Client-Token (token de segurança da conta Z-API)
+  clientToken: varchar("clientToken", { length: 200 }),
+  // Webhook secret hex assinado em todo POST /api/zapi/:agentId/inbound
+  webhookSecret: varchar("webhookSecret", { length: 80 }).notNull(),
+  // Resultado do último health-check feito via GET /status
+  isConnected: boolean("isConnected").default(false).notNull(),
+  lastStatusCheckAt: timestamp("lastStatusCheckAt"),
+  // Número do telefone conectado, retornado por GET /status
+  connectedPhone: varchar("connectedPhone", { length: 40 }),
+  lastError: text("lastError"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type ZapiInstance = typeof zapiInstances.$inferSelect;
+export type InsertZapiInstance = typeof zapiInstances.$inferInsert;
+
 export const qrSessions = mysqlTable("qr_sessions", {
   id: int("id").autoincrement().primaryKey(),
   agentId: int("agentId").notNull().unique(),

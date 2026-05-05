@@ -23,6 +23,9 @@ import {
   whatsappConfig,
   whatsappTemplates,
   qrSessions,
+  zapiInstances,
+  type ZapiInstance,
+  type InsertZapiInstance,
   llmPrices,
   llmUsage,
   costExtras,
@@ -1827,4 +1830,74 @@ export async function flushDlqForConversation(
       )
     );
   return Number((r as any)[0]?.affectedRows ?? 0);
+}
+
+
+// ============================================================================
+//  Z-API (provedor não-oficial alternativo ao Baileys)
+// ============================================================================
+
+export async function getZapiInstance(agentId: number): Promise<ZapiInstance | undefined> {
+  const db = await getDb();
+  if (!db) return undefined;
+  const r = await db
+    .select()
+    .from(zapiInstances)
+    .where(eq(zapiInstances.agentId, agentId))
+    .limit(1);
+  return r[0];
+}
+
+export async function upsertZapiInstance(
+  agentId: number,
+  patch: Partial<InsertZapiInstance>
+): Promise<ZapiInstance | undefined> {
+  const db = await getDb();
+  if (!db) return undefined;
+  const existing = await getZapiInstance(agentId);
+  if (existing) {
+    await db
+      .update(zapiInstances)
+      .set({ ...patch, updatedAt: new Date() })
+      .where(eq(zapiInstances.agentId, agentId));
+  } else {
+    if (!patch.instanceId || !patch.token || !patch.webhookSecret) {
+      throw new Error("instanceId, token e webhookSecret são obrigatórios na criação");
+    }
+    await db.insert(zapiInstances).values({
+      agentId,
+      instanceId: patch.instanceId,
+      token: patch.token,
+      clientToken: patch.clientToken ?? null,
+      webhookSecret: patch.webhookSecret,
+      isConnected: patch.isConnected ?? false,
+      lastStatusCheckAt: patch.lastStatusCheckAt ?? null,
+      connectedPhone: patch.connectedPhone ?? null,
+      lastError: patch.lastError ?? null,
+    });
+  }
+  return getZapiInstance(agentId);
+}
+
+export async function getAgentByZapiInstanceId(instanceId: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const r = await db
+    .select()
+    .from(zapiInstances)
+    .where(eq(zapiInstances.instanceId, instanceId))
+    .limit(1);
+  if (!r[0]) return undefined;
+  const [agent] = await db
+    .select()
+    .from(agents)
+    .where(eq(agents.id, r[0].agentId))
+    .limit(1);
+  return agent;
+}
+
+export async function deleteZapiInstance(agentId: number): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(zapiInstances).where(eq(zapiInstances.agentId, agentId));
 }

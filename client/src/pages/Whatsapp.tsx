@@ -80,8 +80,8 @@ function Inner({ agentId }: { agentId: number }) {
           active={mode === "qr"}
           onClick={() => setMode("qr")}
           icon={<QrCode className="h-5 w-5" />}
-          title="QR Code (não oficial)"
-          subtitle="Conecta via celular, sem aprovação"
+          title="Z-API (não oficial)"
+          subtitle="Conecta via instância Z-API"
           tone="amber"
         />
       </div>
@@ -89,7 +89,7 @@ function Inner({ agentId }: { agentId: number }) {
       {mode === "official" ? (
         <OfficialPanel agentId={agentId} />
       ) : (
-        <QrPanel agentId={agentId} />
+        <ZapiPanel agentId={agentId} />
       )}
     </div>
   );
@@ -268,10 +268,298 @@ function OfficialPanel({ agentId }: { agentId: number }) {
   );
 }
 
-/* ──────────────────────────────────────────────────────────────
- *  PAINEL: QR CODE (Baileys)
- * ────────────────────────────────────────────────────────────── */
-function QrPanel({ agentId }: { agentId: number }) {
+/* PAINEL: Z-API (não oficial via instância paga) */
+function ZapiPanel({ agentId }: { agentId: number }) {
+  const utils = trpc.useUtils();
+  const { data, isLoading } = trpc.zapi.get.useQuery({ agentId });
+  const upsert = trpc.zapi.upsert.useMutation({
+    onSuccess: () => {
+      utils.zapi.get.invalidate({ agentId });
+      toast.success("Instância Z-API salva");
+    },
+    onError: e => toast.error(`Erro ao salvar: ${e.message}`),
+  });
+  const ping = trpc.zapi.ping.useMutation({
+    onSuccess: r => {
+      utils.zapi.get.invalidate({ agentId });
+      if (r.ok && r.connected) {
+        toast.success("Instância conectada com sucesso");
+      } else if (r.ok) {
+        toast.warning("Instância configurada, mas WhatsApp não está pareado");
+      } else {
+        toast.error(`Falha: ${r.error}`);
+      }
+    },
+    onError: e => toast.error(`Falha ao verificar: ${e.message}`),
+  });
+  const rotate = trpc.zapi.rotateSecret.useMutation({
+    onSuccess: () => {
+      utils.zapi.get.invalidate({ agentId });
+      toast.success("Webhook secret renovado");
+    },
+  });
+  const disconnect = trpc.zapi.disconnect.useMutation({
+    onSuccess: () => {
+      utils.zapi.get.invalidate({ agentId });
+      toast.success("Instância removida");
+    },
+  });
+
+  const [form, setForm] = useState({
+    instanceId: "",
+    token: "",
+    clientToken: "",
+  });
+
+  useEffect(() => {
+    if (data) {
+      setForm({
+        instanceId: data.instanceId ?? "",
+        token: data.token ?? "",
+        clientToken: data.clientToken ?? "",
+      });
+    }
+  }, [data]);
+
+  const origin =
+    typeof window !== "undefined" ? window.location.origin : "";
+  const webhookUrl =
+    data?.webhookSecret
+      ? `${origin}/api/zapi/${agentId}/inbound?secret=${data.webhookSecret}`
+      : "";
+  const statusUrl =
+    data?.webhookSecret
+      ? `${origin}/api/zapi/${agentId}/status?secret=${data.webhookSecret}`
+      : "";
+
+  const isConfigured = !!data?.instanceId && !!data?.token;
+  const isConnected = !!data?.isConnected;
+
+  return (
+    <>
+      <div className="rounded-2xl border border-amber-500/40 bg-amber-500/5 p-4 mb-6 flex gap-3">
+        <AlertTriangle className="h-5 w-5 text-amber-400 shrink-0 mt-0.5" />
+        <div className="text-sm text-amber-100/90">
+          <p className="font-medium text-amber-200 mb-1">Atenção: modo não oficial</p>
+          <p className="text-xs leading-relaxed">
+            Esta conexão usa a Z-API, um serviço de terceiros que faz a ponte
+            com o WhatsApp Web. <strong>Viola os Termos da Meta</strong> e o
+            número pode ser bloqueado em alto volume. Para produção séria,
+            prefira a API Oficial.
+          </p>
+        </div>
+      </div>
+
+      <div className="elevated-card rounded-2xl p-6 space-y-5">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="font-medium">Credenciais Z-API</h3>
+            <p className="text-xs text-muted-foreground">
+              Cole os dados da instância em &quot;Dados da instância web&quot; no
+              painel da Z-API.
+            </p>
+          </div>
+          <ZapiStatusBadge
+            connected={isConnected}
+            configured={isConfigured}
+            loading={isLoading}
+          />
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Field
+            label="ID da instância"
+            value={form.instanceId}
+            onChange={v => setForm({ ...form, instanceId: v })}
+            placeholder="3F2AD05C995C523918BB76F7F124D212"
+            mono
+          />
+          <Field
+            label="Token da instância"
+            value={form.token}
+            onChange={v => setForm({ ...form, token: v })}
+            placeholder="44D76761D30B593D2353DB27"
+            mono
+          />
+        </div>
+        <Field
+          label="Client-Token (opcional, em Conta → Segurança)"
+          value={form.clientToken}
+          onChange={v => setForm({ ...form, clientToken: v })}
+          placeholder="Fa45..."
+          mono
+        />
+
+        <div className="pt-2 flex justify-between gap-2">
+          <Button
+            variant="outline"
+            onClick={() => disconnect.mutate({ agentId })}
+            disabled={disconnect.isPending || !isConfigured}
+            className="text-destructive hover:text-destructive"
+          >
+            <Unplug className="h-4 w-4 mr-1.5" />
+            Desconectar
+          </Button>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={() => ping.mutate({ agentId })}
+              disabled={ping.isPending || !isConfigured}
+            >
+              {ping.isPending ? (
+                <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4 mr-1.5" />
+              )}
+              Verificar conexão
+            </Button>
+            <Button
+              onClick={() =>
+                upsert.mutate({
+                  agentId,
+                  instanceId: form.instanceId.trim(),
+                  token: form.token.trim(),
+                  clientToken: form.clientToken.trim() || null,
+                })
+              }
+              disabled={
+                upsert.isPending ||
+                !form.instanceId.trim() ||
+                !form.token.trim()
+              }
+            >
+              <Save className="h-4 w-4 mr-1.5" />
+              Salvar
+            </Button>
+          </div>
+        </div>
+
+        {data?.lastError && !isConnected && (
+          <div className="text-xs text-destructive/80 pt-1">
+            Último erro: {data.lastError}
+          </div>
+        )}
+        {data?.connectedPhone && (
+          <div className="text-xs text-muted-foreground pt-1">
+            Número conectado: <span className="text-foreground font-mono">+{data.connectedPhone}</span>
+          </div>
+        )}
+      </div>
+
+      <div className="mt-6 elevated-card rounded-2xl p-6 space-y-4">
+        <div className="flex items-center gap-3">
+          <div className="h-10 w-10 rounded-lg bg-amber-500/15 grid place-items-center text-amber-400">
+            <PhoneCall className="h-5 w-5" />
+          </div>
+          <div className="flex-1">
+            <h3 className="font-medium">URL do Webhook (configurar na Z-API)</h3>
+            <p className="text-xs text-muted-foreground">
+              Aba &quot;Webhooks e configurações gerais&quot; → cole no campo
+              &quot;Ao receber&quot;.
+            </p>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => rotate.mutate({ agentId })}
+            disabled={rotate.isPending || !isConfigured}
+          >
+            <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+            Renovar secret
+          </Button>
+        </div>
+        <div className="space-y-2">
+          <Label className="text-xs">Ao receber</Label>
+          <div className="flex items-center gap-2">
+            <Input
+              value={webhookUrl}
+              readOnly
+              className="font-mono text-xs"
+              placeholder="Salve as credenciais primeiro"
+            />
+            <Button
+              variant="outline"
+              size="icon"
+              disabled={!webhookUrl}
+              onClick={() => {
+                navigator.clipboard.writeText(webhookUrl);
+                toast.success("Copiado");
+              }}
+            >
+              <Copy className="h-4 w-4" />
+            </Button>
+          </div>
+          <Label className="text-xs">Ao conectar / Ao desconectar (opcional)</Label>
+          <div className="flex items-center gap-2">
+            <Input
+              value={statusUrl}
+              readOnly
+              className="font-mono text-xs"
+              placeholder="Salve as credenciais primeiro"
+            />
+            <Button
+              variant="outline"
+              size="icon"
+              disabled={!statusUrl}
+              onClick={() => {
+                navigator.clipboard.writeText(statusUrl);
+                toast.success("Copiado");
+              }}
+            >
+              <Copy className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+        <div className="text-xs text-muted-foreground space-y-1 pt-2">
+          <p>1. Ative <strong>&quot;Notificar as enviadas por mim também&quot;</strong> desligado para não receber eco.</p>
+          <p>2. Mantenha <strong>&quot;Ler mensagens automático&quot;</strong> ligado.</p>
+          <p>3. Use <strong>Verificar conexão</strong> para confirmar que está pareado antes de enviar.</p>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function ZapiStatusBadge({
+  connected,
+  configured,
+  loading,
+}: {
+  connected: boolean;
+  configured: boolean;
+  loading: boolean;
+}) {
+  if (loading) {
+    return (
+      <span className="text-xs text-muted-foreground inline-flex items-center gap-1.5">
+        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        Carregando
+      </span>
+    );
+  }
+  if (!configured) {
+    return (
+      <span className="text-xs text-muted-foreground inline-flex items-center gap-1.5">
+        <XCircle className="h-3.5 w-3.5" />
+        Não configurado
+      </span>
+    );
+  }
+  return connected ? (
+    <span className="text-xs inline-flex items-center gap-1.5 text-emerald-400">
+      <CheckCircle2 className="h-3.5 w-3.5" />
+      Conectado
+    </span>
+  ) : (
+    <span className="text-xs inline-flex items-center gap-1.5 text-amber-400">
+      <AlertTriangle className="h-3.5 w-3.5" />
+      Desconectado
+    </span>
+  );
+}
+
+/* QrPanel legado mantido para compatibilidade interna (não roteado) */
+function _QrPanelLegacy({ agentId }: { agentId: number }) {
   const utils = trpc.useUtils();
   const { data, isLoading } = trpc.qr.status.useQuery(
     { agentId },

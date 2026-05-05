@@ -9,6 +9,7 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { registerWhatsappWebhook } from "../whatsapp/webhook";
+import { registerZapiWebhook } from "../whatsapp/zapiWebhook";
 import { registerExternalEventsWebhook } from "../external/webhook";
 import { registerRealtimeRoutes } from "../realtime/sse";
 import { startFollowupEngine } from "../followup/engine";
@@ -48,6 +49,7 @@ async function startServer() {
   registerStorageProxy(app);
   registerOAuthRoutes(app);
   registerWhatsappWebhook(app);
+  registerZapiWebhook(app);
   registerExternalEventsWebhook(app);
   registerRealtimeRoutes(app);
   // tRPC API

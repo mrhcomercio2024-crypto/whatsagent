@@ -59,6 +59,9 @@ import {
   upsertBusinessHours,
   upsertWhatsappConfig,
   getQrSession,
+  getZapiInstance,
+  upsertZapiInstance,
+  deleteZapiInstance,
   listLlmPrices,
   upsertLlmPrice,
   seedLlmPricesIfEmpty,
@@ -467,6 +470,97 @@ export const appRouter = router({
     health: protectedProcedure
       .input(agentScopedSchema)
       .query(({ input }) => getAgentRuntimeStats(input.agentId)),
+  }),
+
+  // ─── Z-API (provedor não-oficial alternativo) ───
+  zapi: router({
+    get: protectedProcedure
+      .input(agentScopedSchema)
+      .query(async ({ input }) => {
+        const inst = await getZapiInstance(input.agentId);
+        if (!inst) return null;
+        return {
+          instanceId: inst.instanceId,
+          token: inst.token,
+          clientToken: inst.clientToken,
+          webhookSecret: inst.webhookSecret,
+          isConnected: inst.isConnected,
+          connectedPhone: inst.connectedPhone,
+          lastStatusCheckAt: inst.lastStatusCheckAt,
+          lastError: inst.lastError,
+        };
+      }),
+    upsert: protectedProcedure
+      .input(
+        z.object({
+          agentId: z.number().int().positive(),
+          instanceId: z.string().min(8),
+          token: z.string().min(8),
+          clientToken: z.string().nullable().optional(),
+        })
+      )
+      .mutation(async ({ input }) => {
+        const existing = await getZapiInstance(input.agentId);
+        const webhookSecret =
+          existing?.webhookSecret ||
+          (await import("crypto")).randomBytes(24).toString("hex");
+        await upsertZapiInstance(input.agentId, {
+          instanceId: input.instanceId,
+          token: input.token,
+          clientToken: input.clientToken ?? null,
+          webhookSecret,
+        });
+        return { ok: true, webhookSecret };
+      }),
+    rotateSecret: protectedProcedure
+      .input(agentScopedSchema)
+      .mutation(async ({ input }) => {
+        const newSecret = (await import("crypto"))
+          .randomBytes(24)
+          .toString("hex");
+        await upsertZapiInstance(input.agentId, { webhookSecret: newSecret });
+        return { webhookSecret: newSecret };
+      }),
+    /** Faz GET /status na Z-API e atualiza isConnected/connectedPhone. */
+    ping: protectedProcedure
+      .input(agentScopedSchema)
+      .mutation(async ({ input }) => {
+        const inst = await getZapiInstance(input.agentId);
+        if (!inst) {
+          return { ok: false, error: "Instância Z-API não configurada" };
+        }
+        const { getStatus } = await import("./whatsapp/zapi");
+        const r = await getStatus({
+          instanceId: inst.instanceId,
+          token: inst.token,
+          clientToken: inst.clientToken,
+        });
+        if (!r.ok) {
+          await upsertZapiInstance(input.agentId, {
+            isConnected: false,
+            lastError: r.error,
+            lastStatusCheckAt: new Date(),
+          });
+          return { ok: false, error: r.error };
+        }
+        await upsertZapiInstance(input.agentId, {
+          isConnected: r.data.connected,
+          lastError: null,
+          lastStatusCheckAt: new Date(),
+        });
+        return {
+          ok: true,
+          connected: r.data.connected,
+          smartphoneConnected: r.data.smartphoneConnected,
+          session: r.data.session,
+        };
+      }),
+    disconnect: protectedProcedure
+      .input(agentScopedSchema)
+      .mutation(async ({ input }) => {
+        await deleteZapiInstance(input.agentId);
+        return { ok: true };
+      }),
   }),
 
   // ─── BUSINESS HOURS / HANDOFF ───

@@ -218,13 +218,13 @@ async function processOneJob(job: typeof followupJobs.$inferSelect, now: Date) {
     }
 
     if (isQrMode) {
-      // Envia via Baileys; se desconectado, dispatchViaBaileys persiste
-      const { dispatchViaBaileys } = await import("../whatsapp/baileys");
+      // Modo não oficial: roteia através do dispatcher principal (que usa Z-API).
+      const { dispatchActions } = await import("../whatsapp/dispatcher");
       const actions: Array<{ type: "text"; text: string } | { type: "media"; mediaId: number }> = [];
       if (cleanText.trim()) actions.push({ type: "text", text: cleanText });
       actions.push(...mediaActions);
       if (actions.length === 0) actions.push({ type: "text", text: "Olá!" });
-      await dispatchViaBaileys({
+      await dispatchActions({
         agent,
         conversationId: conv.id,
         actions,

@@ -615,3 +615,17 @@
 - [x] Teste vitest `socketReconcile.test.ts` (5 casos: persiste antes de tudo, reconcilia status, auto-religa com creds, lastError correto, não duplica em retry).
 - [x] Suite completa 357/357 verde.
 - [x] Checkpoint v45
+
+
+## Fase 81: Substituir Baileys/QR Code por Z-API
+- [x] Pesquisei docs Z-API (send-text, send-image, send-audio, send-video, send-document, webhook on-receive, /status, header Client-Token)
+- [x] Schema: nova tabela `zapi_instances` (agentId, instanceId, token, clientToken, webhookSecret, isConnected, smartphoneConnected, lastStatusJson, lastSyncedAt, lastError, lastErrorAt, createdAt, updatedAt) + enum connectionMode estendido com 'zapi'
+- [x] Migrations 0021 (tabela) e 0022 (enum) aplicadas no banco
+- [x] Cliente Z-API server-side (`server/whatsapp/zapi.ts`): normalizePhone, sendText, sendImage, sendAudio, sendVideo, sendDocument, getStatus, verifyWebhookSecret, extractInboundContent
+- [x] Webhook handler `/api/zapi/:agentId/inbound` (server/whatsapp/zapiWebhook.ts) com validação de secret na URL e mesmo pipeline de inbound do Baileys/Cloud (findOrCreateLead → appendMessage → orchestrator)
+- [x] Roteamento do dispatcher: `connectionMode='qr'` e `connectionMode='zapi'` agora roteiam para Z-API. Baileys mantido como `_QrPanelLegacy` não roteado (fallback)
+- [x] Follow-up engine atualizado para usar `dispatchActions` em vez de `dispatchViaBaileys` direto (assim modo qr passa pelo Z-API)
+- [x] UI: substituí o painel QR pelo `ZapiPanel` — inputs para Instance ID, Token, Client-Token (opcional), URL do Webhook gerada com secret embutido, botão copiar URL, botão testar conexão (chama /status), badge Conectado/Desconectado
+- [x] Procedures tRPC: `zapi.get`, `zapi.upsert`, `zapi.ping`, `zapi.regenerateWebhook`, `zapi.disconnect`
+- [x] Testes vitest (5 cliente Z-API + 9 parser/webhook + 3 dispatcher routing) e suite total 372/372 verde
+- [x] Checkpoint v46

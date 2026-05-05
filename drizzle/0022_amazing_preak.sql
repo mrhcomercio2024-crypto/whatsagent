@@ -1,0 +1,1 @@
+ALTER TABLE `agents` MODIFY COLUMN `connectionMode` enum('official','qr','zapi') NOT NULL DEFAULT 'official';
