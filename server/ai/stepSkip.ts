@@ -231,9 +231,23 @@ export function canAdvanceStep(opts: {
   parsedAdvance: boolean;
   isFirstTurn: boolean;
   inboundCountInStep: number;
+  /** Última fala do lead (texto bruto). Se for muito curta, não avança. */
+  lastInboundText?: string | null;
+  /** Última fala do lead foi pergunta direta? Se sim, não avançamos antes de responder. */
+  lastInboundIsQuestion?: boolean;
 }): boolean {
   if (!opts.parsedAdvance) return false;
   if (opts.isFirstTurn) return false;
   if (opts.inboundCountInStep < 1) return false;
+  // Se o lead acabou de fazer uma pergunta direta, NÃO avançamos antes de
+  // responder — mesmo que a IA tenha incluído [STEP_ADVANCE].
+  if (opts.lastInboundIsQuestion) return false;
+  // Se foi passado lastInboundText (string vazia conta como sem conteúdo), exigimos
+  // pelo menos 1 char para considerar o inbound substantivo. Se for `undefined`
+  // (não informado), mantemos o comportamento legado (autoriza com base no count).
+  if (opts.lastInboundText !== undefined) {
+    const lastTrim = (opts.lastInboundText || "").trim();
+    if (lastTrim.length < 1) return false;
+  }
   return true;
 }

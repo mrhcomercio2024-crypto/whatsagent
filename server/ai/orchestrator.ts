@@ -56,6 +56,10 @@ import {
 } from "../db";
 import { classifyLeadStatus } from "./statusClassifier";
 import { isTrivialOutputInContext } from "./trivialOutputGuard";
+import { detectRepetition } from "./antiRepetition";
+import { resolveLeadNameForPrompt } from "./leadNameGuard";
+import { filterMediaForTurn } from "./mediaCooldown";
+import { leadQuestionUnaddressed, classifyQuestion } from "./questionGuard";
 import { classifyReaction, isReactionLikelyIgnored } from "./reactionClassifier";
 import { notifyOwner } from "../_core/notification";
 import {
@@ -409,6 +413,12 @@ export async function processInboundForReply(opts: {
     }
   }
 
+  // GUARD: só usamos `lead.name` no prompt se o lead REALMENTE se apresentou no chat.
+  // Senão, o nome veio do perfil do WhatsApp/Z-API e não devemos confiar.
+  const safeLeadName = resolveLeadNameForPrompt({
+    history,
+    dbName: lead?.name ?? null,
+  });
   const ctx: PromptContext = {
     agent,
     brain,
@@ -417,7 +427,7 @@ export async function processInboundForReply(opts: {
     knowledge: knowledgeRelevant,
     availableMedia,
     history,
-    leadName: lead?.name ?? null,
+    leadName: safeLeadName,
     leadPhone: lead?.phoneNumber ?? null,
     restrictedTerms: restricted,
     conversationSummary: conv.summary ?? null,
@@ -632,21 +642,20 @@ export async function processInboundForReply(opts: {
     }
   }
 
-  // ANTI-REPETIÇÃO: nunca reenvie EXATAMENTE a mesma frase da última saída.
+  // ANTI-REPETIÇÃO: detecta repetição exata OU paráfrase contra as ÚLTIMAS 3
+  // mensagens da própria IA. Bloqueia se Jaccard >= 0.65~0.72 (vide antiRepetition.ts).
   {
-    const lastOutbound = [...history]
+    const lastThreeAi = [...history]
       .reverse()
-      .find(h => h.direction === "outbound" && h.sender === "ai" && (h.body || "").trim());
-    const normLine = (s: string) =>
-      (s || "")
-        .toLowerCase()
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .replace(/[^a-z0-9 ]+/g, " ")
-        .replace(/\s+/g, " ")
-        .trim();
-    if (lastOutbound && normLine(aiOutput) === normLine(lastOutbound.body || "")) {
-      console.log("[orchestrator] resposta duplicada detectada; regenerando 1x com instrução anti-repetição");
+      .filter(h => h.direction === "outbound" && h.sender === "ai" && (h.body || "").trim())
+      .slice(0, 3)
+      .map(h => h.body || "");
+    const rep = detectRepetition(aiOutput, lastThreeAi);
+    if (rep.repeats) {
+      console.log(
+        `[orchestrator] repetição detectada (${rep.reason}, sim=${rep.similarity?.toFixed(2)}); regenerando 1x`
+      );
+      const matchedExcerpt = (rep.matched || "").slice(0, 140);
       try {
         const r3 = await invokeWithModel({
           model,
@@ -655,11 +664,15 @@ export async function processInboundForReply(opts: {
             { role: "assistant", content: aiOutput },
             {
               role: "system" as const,
-              content: `⚠️ Você acabou de repetir literalmente a mesma frase: "${(lastOutbound.body || "").slice(0,140)}". Reaja à ÚLTIMA mensagem do lead com algo COMPLETAMENTE diferente, em 1–2 frases. Avance a conversa.`,
+              content:
+                `⚠️ Sua resposta está repetindo (${rep.reason === "exact" ? "identicamente" : "em paráfrase"}) algo que você já enviou: "${matchedExcerpt}". ` +
+                `Reaja à ÚLTIMA mensagem do lead com conteúdo COMPLETAMENTE NOVO, em 1–2 frases. ` +
+                `NÃO reformule, NÃO repita conceito — traga uma informação ou pergunta diferente. ` +
+                `Se não tiver nada novo a dizer, faça uma pergunta específica relacionada ao que o lead disse por último.`,
             },
           ],
           maxTokens: 500,
-          temperature: 0.7,
+          temperature: 0.8,
           tracking: {
             purpose: "orchestrator",
             agentId: agent.id,
@@ -667,14 +680,14 @@ export async function processInboundForReply(opts: {
           },
         });
         const text3 = (r3.text || "").trim();
-        if (text3 && normLine(text3) !== normLine(lastOutbound.body || "")) {
-          aiOutput = text3;
-        } else {
-          // Ainda duplicado: NÃO suprimimos (isso causava "Sem resposta" no Simulador).
-          // Mantemos a saída regenerada mesmo que ainda pareça parecida — é
-          // melhor que silêncio e o usuário pode redirecionar a conversa.
-          console.warn("[orchestrator] duplicata persistiu; mantendo resposta regenerada para evitar silêncio");
-          if (text3) aiOutput = text3;
+        if (text3) {
+          const rep2 = detectRepetition(text3, lastThreeAi);
+          if (!rep2.repeats) {
+            aiOutput = text3;
+          } else {
+            console.warn("[orchestrator] repetição persistiu após regen; mantendo a regen mesmo assim");
+            aiOutput = text3;
+          }
         }
       } catch (e) {
         console.warn("[orchestrator] regen anti-repetição falhou:", (e as Error).message);
@@ -751,27 +764,101 @@ export async function processInboundForReply(opts: {
     }
   }
 
-  // Parser FINAL (depois do guard anti greeting-loop)
+  // VALIDADOR question-first: se o lead fez uma pergunta direta (preço, como
+  // funciona, garantia, catálogo) e a saída da IA não contém marcadores de
+  // resposta substantiva, regeneramos 1x exigindo a resposta antes de avançar.
+  {
+    const lastInboundForQ = [...history]
+      .reverse()
+      .find(h => h.direction === "inbound" && h.sender === "lead" && (h.body || "").trim());
+    const lastInboundTextForQ = lastInboundForQ?.body || inboundText || "";
+    const probe = leadQuestionUnaddressed({
+      inboundText: lastInboundTextForQ,
+      aiText: parseAgentOutput(aiOutput).cleanText,
+    });
+    if (probe.unaddressed) {
+      console.log(
+        `[orchestrator] pergunta direta não respondida (categoria=${probe.category}); regenerando 1x`
+      );
+      try {
+        const r5 = await invokeWithModel({
+          model,
+          messages: [
+            ...messages,
+            { role: "assistant", content: aiOutput },
+            {
+              role: "user",
+              content:
+                `⚠️ O lead fez uma pergunta DIRETA (categoria: ${probe.category}) e você NÃO respondeu objetivamente. ` +
+                `Releia a última mensagem do lead: "${(lastInboundTextForQ || "").slice(0, 200)}". ` +
+                `RESPONDA primeiro a pergunta dele com base no Cérebro/Base de Conhecimento (preço, garantia, como funciona, catálogo, etc.). ` +
+                `Se a informação não estiver no cérebro, diga educadamente que vai verificar. ` +
+                `Depois, se fizer sentido, emende com 1 pergunta curta da etapa atual. ` +
+                `1–3 frases, sem markdown, sem lista, sem ignorar a pergunta.`,
+            },
+          ],
+          maxTokens: 500,
+          temperature: 0.5,
+          tracking: {
+            purpose: "validator",
+            agentId: agent.id,
+            conversationId,
+            leadId: lead?.id,
+          },
+        });
+        const text5 = (r5.text || "").trim();
+        if (text5) aiOutput = text5;
+      } catch (e) {
+        console.warn("[orchestrator] question-first regen falhou:", (e as Error).message);
+      }
+    }
+  }
+
+  // Parser FINAL (depois do guard anti greeting-loop e question-first)
   const parsed = parseAgentOutput(aiOutput);
+
+  // Último inbound do lead para reforçar canAdvanceStep
+  const lastLeadMsgForAdvance = [...history]
+    .reverse()
+    .find(h => h.direction === "inbound" && h.sender === "lead");
+  const lastInboundIsQuestion =
+    classifyQuestion(lastLeadMsgForAdvance?.body || inboundText || "") !== "none";
+
   const allowAdvance = canAdvanceStep({
     parsedAdvance: parsed.stepAdvance,
     isFirstTurn,
     inboundCountInStep,
+    lastInboundText: lastLeadMsgForAdvance?.body ?? inboundText,
+    lastInboundIsQuestion,
   });
   if (parsed.stepAdvance && !allowAdvance) {
     console.log(
-      `[orchestrator] STEP_ADVANCE bloqueado (firstTurn=${isFirstTurn}, inbound=${inboundCountInStep})`
+      `[orchestrator] STEP_ADVANCE bloqueado (firstTurn=${isFirstTurn}, inbound=${inboundCountInStep}, isQuestion=${lastInboundIsQuestion})`
     );
   }
 
+  // FILTRO DE MÍDIAS: aplica idempotência (já enviadas), cooldown 60s e
+  // limite de 1 mídia por turno para evitar duplicatas/spam.
+  const proposedMediaIds = Array.from(
+    new Set([...triggeredMediaIds, ...parsed.mediaIds])
+  );
+  const mediaFilter = filterMediaForTurn({
+    proposedIds: proposedMediaIds,
+    alreadySentIds: sentIds,
+    history,
+  });
+  if (mediaFilter.dropped.length > 0) {
+    console.log(
+      `[orchestrator] mídias filtradas: ${mediaFilter.dropped
+        .map(d => `${d.id}(${d.reason})`)
+        .join(", ")}`
+    );
+  }
+  const allowedMediaIds = mediaFilter.allowed;
+
   // 6. Compor ações
   const actions: OutboundAction[] = [];
-  // mídias por gatilho explícito vão primeiro
-  for (const id of triggeredMediaIds) actions.push({ type: "media", mediaId: id });
-  // mídias pedidas pela IA
-  for (const id of parsed.mediaIds) {
-    if (!triggeredMediaIds.includes(id)) actions.push({ type: "media", mediaId: id });
-  }
+  for (const id of allowedMediaIds) actions.push({ type: "media", mediaId: id });
   // texto principal
   if (parsed.cleanText) actions.push({ type: "text", text: parsed.cleanText });
 

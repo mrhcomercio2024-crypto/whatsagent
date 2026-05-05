@@ -107,13 +107,40 @@ describe("canAdvanceStep", () => {
   });
   it("avança quando há advance, não é primeiro turno e há inbound", () => {
     expect(
-      canAdvanceStep({ parsedAdvance: true, isFirstTurn: false, inboundCountInStep: 1 })
+      canAdvanceStep({
+        parsedAdvance: true,
+        isFirstTurn: false,
+        inboundCountInStep: 1,
+        lastInboundText: "sim",
+      })
     ).toBe(true);
   });
   it("não avança se nenhum inbound real ainda existe", () => {
     expect(
       canAdvanceStep({ parsedAdvance: true, isFirstTurn: false, inboundCountInStep: 0 })
     ).toBe(false);
+  });
+  it("não avança quando o lead acabou de fazer pergunta direta", () => {
+    expect(
+      canAdvanceStep({
+        parsedAdvance: true,
+        isFirstTurn: false,
+        inboundCountInStep: 2,
+        lastInboundText: "quanto custa?",
+        lastInboundIsQuestion: true,
+      })
+    ).toBe(false);
+  });
+  it("avança quando o lead respondeu sem pergunta", () => {
+    expect(
+      canAdvanceStep({
+        parsedAdvance: true,
+        isFirstTurn: false,
+        inboundCountInStep: 2,
+        lastInboundText: "sim, beleza",
+        lastInboundIsQuestion: false,
+      })
+    ).toBe(true);
   });
 });
 

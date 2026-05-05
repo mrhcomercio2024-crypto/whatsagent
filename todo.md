@@ -667,3 +667,14 @@
 - [x] Diagnosticar erro "fetch failed" no dispatcher Z-API
 - [x] Aplicar fix (timeout, AbortController, retry interno, retry-worker no boot)
 - [x] Reprocessar DLQ pendente
+
+## Fase 87: Adesão 100% ao script (anti-alucinação)
+- [x] Auditar prompt builder e parseAgentOutput
+- [x] Anti-repetição: detecção de paráfrase nas últimas 3 outbounds (antiRepetition.ts, Jaccard 0.6) + regen 1x
+- [x] Idempotência de mídia: filterMediaForTurn descarta ids já enviados na conversa
+- [x] Regra "responda perguntas diretas antes de avançar": questionGuard + canAdvanceStep com lastInboundIsQuestion
+- [x] Não usar nome do lead se ele não disse no chat: leadNameGuard.resolveLeadNameForPrompt
+- [x] System prompt já destaca ETAPA ATUAL como diretiva interna (auditado, sem mudança necessária)
+- [x] Bloquear envio de mídia em cooldown 60s + máximo 1 mídia por turno
+- [x] STEP_ADVANCE estrito quando lead acabou de perguntar (canAdvanceStep reforçado)
+- [x] Testes vitest: 5 novos arquivos (antiRepetition, leadNameGuard, mediaCooldown, questionGuard, stepSkip estendido) — suite 438/438 verde
