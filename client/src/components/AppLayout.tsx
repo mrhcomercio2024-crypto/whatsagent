@@ -1,4 +1,5 @@
 import { useAuth } from "@/_core/hooks/useAuth";
+import { Redirect } from "wouter";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -49,16 +50,18 @@ import {
   Webhook,
   RefreshCcw,
   Activity,
+  ShieldCheck,
 } from "lucide-react";
 import { useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import { Button } from "./ui/button";
 import { DashboardLayoutSkeleton } from "./DashboardLayoutSkeleton";
 
-const groups: Array<{
+function buildGroups(isAdmin: boolean): Array<{
   label: string;
   items: Array<{ icon: any; label: string; path: string }>;
-}> = [
+}> {
+  return [
   {
     label: "Operação",
     items: [
@@ -90,46 +93,23 @@ const groups: Array<{
       { icon: RefreshCcw, label: "Reenvios", path: "/retries" },
     ],
   },
-  {
-    label: "Sistema",
-    items: [
-      { icon: Sparkles, label: "Agentes", path: "/agents" },
-      { icon: Settings, label: "Ajustes", path: "/settings" },
-    ],
-  },
-];
+    {
+      label: "Sistema",
+      items: [
+        { icon: Sparkles, label: "Agentes", path: "/agents" },
+        ...(isAdmin
+          ? [{ icon: ShieldCheck, label: "Usuários", path: "/admin/users" }]
+          : []),
+        { icon: Settings, label: "Ajustes", path: "/settings" },
+      ],
+    },
+  ];
+}
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { loading, user } = useAuth();
   if (loading) return <DashboardLayoutSkeleton />;
-  if (!user) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="elevated-card rounded-2xl p-10 max-w-md w-full">
-          <div className="flex flex-col items-center gap-6">
-            <div className="h-12 w-12 rounded-2xl bg-primary/15 grid place-items-center">
-              <MessageSquare className="h-6 w-6 text-primary" />
-            </div>
-            <div className="text-center space-y-2">
-              <h1 className="text-2xl font-serif">WhatsAgent</h1>
-              <p className="text-sm text-muted-foreground max-w-sm">
-                Plataforma de Agente de IA para WhatsApp. Faça login para acessar o painel.
-              </p>
-            </div>
-            <Button
-              size="lg"
-              className="w-full"
-              onClick={() => {
-                window.location.href = getLoginUrl();
-              }}
-            >
-              Entrar
-            </Button>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  if (!user) return <Redirect to="/login" />;
   return (
     <SidebarProvider style={{ "--sidebar-width": "276px" } as React.CSSProperties}>
       <AppLayoutInner>{children}</AppLayoutInner>
@@ -143,6 +123,7 @@ function AppLayoutInner({ children }: { children: React.ReactNode }) {
   const isMobile = useIsMobile();
   const { selectedAgentId, setSelectedAgentId } = useAgent();
   const { data: agents } = trpc.agents.list.useQuery();
+  const groups = buildGroups(user?.role === "admin");
 
   // Auto-selecionar o primeiro agente disponível
   useEffect(() => {

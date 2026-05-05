@@ -25,11 +25,15 @@ import Costs from "./pages/Costs";
 import ExternalEvents from "./pages/ExternalEvents";
 import Retries from "./pages/Retries";
 import Live from "./pages/Live";
+import Login from "./pages/Login";
+import AdminUsers from "./pages/AdminUsers";
 
 function Router() {
   return (
     <Switch>
       <Route path="/" component={Home} />
+      <Route path="/login" component={Login} />
+      <Route path="/admin/users" component={AdminUsers} />
       <Route path="/dashboard" component={Dashboard} />
       <Route path="/chat" component={Chat} />
       <Route path="/inbox" component={Inbox} />

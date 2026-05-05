@@ -101,6 +101,99 @@ export async function getUserByOpenId(openId: string) {
   return r[0];
 }
 
+export async function getUserByEmail(email: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const r = await db
+    .select()
+    .from(users)
+    .where(eq(users.email, email.trim().toLowerCase()))
+    .limit(1);
+  return r[0];
+}
+
+export async function listAllUsers() {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select({
+      id: users.id,
+      openId: users.openId,
+      name: users.name,
+      email: users.email,
+      role: users.role,
+      loginMethod: users.loginMethod,
+      passwordUpdatedAt: users.passwordUpdatedAt,
+      lastSignedIn: users.lastSignedIn,
+      createdAt: users.createdAt,
+    })
+    .from(users)
+    .orderBy(desc(users.createdAt));
+}
+
+export async function createPasswordUser(input: {
+  email: string;
+  name: string;
+  passwordHash: string;
+  role: "user" | "admin";
+  openId?: string;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("db unavailable");
+  const openId =
+    input.openId ?? `local-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  await db.insert(users).values({
+    openId,
+    email: input.email.trim().toLowerCase(),
+    name: input.name,
+    role: input.role,
+    loginMethod: "password",
+    passwordHash: input.passwordHash,
+    passwordUpdatedAt: new Date(),
+    lastSignedIn: new Date(),
+  });
+  const r = await db
+    .select()
+    .from(users)
+    .where(eq(users.openId, openId))
+    .limit(1);
+  return r[0];
+}
+
+export async function setUserPassword(userId: number, passwordHash: string) {
+  const db = await getDb();
+  if (!db) return;
+  await db
+    .update(users)
+    .set({ passwordHash, passwordUpdatedAt: new Date(), loginMethod: "password" })
+    .where(eq(users.id, userId));
+}
+
+export async function updateUserBasic(
+  userId: number,
+  patch: { name?: string; role?: "user" | "admin" },
+) {
+  const db = await getDb();
+  if (!db) return;
+  const set: Record<string, unknown> = {};
+  if (patch.name !== undefined) set.name = patch.name;
+  if (patch.role !== undefined) set.role = patch.role;
+  if (Object.keys(set).length === 0) return;
+  await db.update(users).set(set).where(eq(users.id, userId));
+}
+
+export async function deleteUserById(userId: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(users).where(eq(users.id, userId));
+}
+
+export async function touchUserLastSignedIn(userId: number) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(users).set({ lastSignedIn: new Date() }).where(eq(users.id, userId));
+}
+
 /* ============================================================
  * AGENTS
  * ============================================================ */

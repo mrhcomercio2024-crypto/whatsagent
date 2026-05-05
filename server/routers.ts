@@ -1,9 +1,15 @@
-import { COOKIE_NAME } from "@shared/const";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
+import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
-import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
+import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc";
+import { sdk } from "./_core/sdk";
+import {
+  hashPassword,
+  isStrongEnough,
+  verifyPassword,
+} from "./_core/passwords";
 import {
   appendMessage,
   cancelPendingJobsForConversation,
@@ -78,6 +84,13 @@ import {
   deleteLeadStatusRule,
   deleteRestrictedTerm,
   updateStepLiteralMode,
+  getUserByEmail,
+  listAllUsers,
+  createPasswordUser,
+  setUserPassword,
+  updateUserBasic,
+  deleteUserById,
+  touchUserLastSignedIn,
 } from "./db";
 import {
   startQrSession,
@@ -104,6 +117,141 @@ export const appRouter = router({
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
       return { success: true } as const;
     }),
+    /**
+     * Login local por email e senha. Retorna { ok: true } e seta cookie de sessão.
+     * Não revela se o email existe ou não (mesma mensagem para ambos).
+     */
+    login: publicProcedure
+      .input(
+        z.object({
+          email: z.string().email().max(320),
+          password: z.string().min(1).max(200),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        const email = input.email.trim().toLowerCase();
+        const user = await getUserByEmail(email);
+        const ok = user ? await verifyPassword(input.password, user.passwordHash) : false;
+        if (!user || !ok) {
+          // Log para auditoria sem expor detalhes
+          console.warn(`[auth.login] falha email=${email.slice(0, 3)}***`);
+          throw new TRPCError({
+            code: "UNAUTHORIZED",
+            message: "E-mail ou senha incorretos.",
+          });
+        }
+        await touchUserLastSignedIn(user.id);
+        const sessionToken = await sdk.createSessionToken(user.openId, {
+          name: user.name || "",
+          expiresInMs: ONE_YEAR_MS,
+        });
+        const cookieOptions = getSessionCookieOptions(ctx.req);
+        ctx.res.cookie(COOKIE_NAME, sessionToken, {
+          ...cookieOptions,
+          maxAge: ONE_YEAR_MS,
+        });
+        return {
+          ok: true as const,
+          user: {
+            id: user.id,
+            email: user.email,
+            name: user.name,
+            role: user.role,
+          },
+        };
+      }),
+  }),
+
+  // ─── ADMIN: gestão de usuários (somente role=admin) ───
+  adminUsers: router({
+    list: adminProcedure.query(() => listAllUsers()),
+    create: adminProcedure
+      .input(
+        z.object({
+          email: z.string().email().max(320),
+          name: z.string().min(1).max(120),
+          password: z.string().min(8).max(200),
+          role: z.enum(["user", "admin"]).default("user"),
+        }),
+      )
+      .mutation(async ({ input }) => {
+        if (!isStrongEnough(input.password)) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Senha fraca: mínimo 8 caracteres, com letra e número.",
+          });
+        }
+        const exists = await getUserByEmail(input.email);
+        if (exists) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "Já existe um usuário com este e-mail.",
+          });
+        }
+        const passwordHash = await hashPassword(input.password);
+        const u = await createPasswordUser({
+          email: input.email,
+          name: input.name,
+          passwordHash,
+          role: input.role,
+        });
+        return { id: u?.id, email: u?.email, role: u?.role };
+      }),
+    update: adminProcedure
+      .input(
+        z.object({
+          id: z.number().int().positive(),
+          patch: z.object({
+            name: z.string().min(1).max(120).optional(),
+            role: z.enum(["user", "admin"]).optional(),
+          }),
+        }),
+      )
+      .mutation(async ({ ctx, input }) => {
+        // Impede que o próprio admin remova seu próprio papel admin (deixaria sistema sem admin).
+        if (
+          input.id === ctx.user.id &&
+          input.patch.role &&
+          input.patch.role !== "admin"
+        ) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Você não pode remover o próprio papel de admin.",
+          });
+        }
+        await updateUserBasic(input.id, input.patch);
+        return { ok: true } as const;
+      }),
+    resetPassword: adminProcedure
+      .input(
+        z.object({
+          id: z.number().int().positive(),
+          newPassword: z.string().min(8).max(200),
+        }),
+      )
+      .mutation(async ({ input }) => {
+        if (!isStrongEnough(input.newPassword)) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Senha fraca: mínimo 8 caracteres, com letra e número.",
+          });
+        }
+        const passwordHash = await hashPassword(input.newPassword);
+        await setUserPassword(input.id, passwordHash);
+        return { ok: true } as const;
+      }),
+    delete: adminProcedure
+      .input(z.object({ id: z.number().int().positive() }))
+      .mutation(async ({ ctx, input }) => {
+        if (input.id === ctx.user.id) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Você não pode excluir a própria conta.",
+          });
+        }
+        await deleteUserById(input.id);
+        return { ok: true } as const;
+      }),
   }),
 
   // ─── Catálogo ───

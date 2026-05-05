@@ -647,3 +647,17 @@
 - [x] sendPresence Z-API (composing/recording) integrado no dispatcher antes de cada texto
 - [x] Cache em memória (TTL 25 min) para signed URLs em mediaUrlResolver
 - [x] Suite vitest 392/392 verde
+
+
+## Fase 84: Reset operacional (manual, on-demand)
+- [x] Resetar TODAS as conversas (preservar leads/agentes/mídias/scripts/knowledge)
+
+
+## Fase 85: Auth email/senha exclusivo (admin-managed)
+- [x] Adicionar passwordHash, passwordUpdatedAt em users + migration
+- [x] Backend: bcrypt + procedures auth.login/logout/me e admin.users.{list,create,update,resetPassword,delete}
+- [x] Cadastro fechado: bloquear OAuth callback do fluxo do usuário (manter procedure só para owner)
+- [x] Frontend: rota /login com email+senha, ProtectedRoute redirect, página /admin/users
+- [x] Remover botão "Entrar com Manus" do Home/Login
+- [x] Limpar TODOS users existentes e criar admin mrhcomercio@hotmail.com (Ferramenta1703$)
+- [x] Testes vitest: hash bcrypt, login válido/inválido, autorização adminProcedure
