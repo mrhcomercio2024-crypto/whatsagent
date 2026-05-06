@@ -702,3 +702,15 @@
 - [x] Suíte verde 458/458 + checkpoint v52 + UI items v53
 - [x] (deferido) stepMediaLinks on_enter/on_advance — schema e CRUD prontos; integração no orchestrator fica para a Fase 89 quando houver demanda
 - [x] (deferido) UI dedicada para `step_media_links` — hoje gerenciável via tRPC `objections.stepMedia.*`; Fase 89
+
+
+## Fase 89: Chat ao vivo enriquecido + validação Z-API
+- [ ] Backend: emitir eventos `scheduled` (+ `eta`), `processing`, `typing_start`, `typing_end`, `sending`, `sent` no bus realtime
+- [ ] Backend: incluir `agentName` e `leadName` em cada evento de status
+- [ ] Frontend chat ao vivo: badge ao lado do nome do agente ("digitando…", "respondendo agora", "agendado em Xs")
+- [ ] Frontend chat ao vivo: countdown regressivo até começar a digitar (atualizado a cada 250ms)
+- [ ] Frontend chat ao vivo: badge ao lado do nome do lead ("processando resposta…")
+- [ ] Frontend chat ao vivo: linha do tempo de eventos abaixo da última mensagem
+- [ ] Fluxo end-to-end Z-API: validar pipeline completo recebendo via webhook real
+- [ ] Testes vitest do reducer de status
+- [ ] Checkpoint

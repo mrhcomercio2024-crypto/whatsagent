@@ -14,6 +14,25 @@ export type AgentTypingPhase =
 
 export type LeadTypingPhase = "composing" | "recording" | "paused" | "idle";
 
+/**
+ * Pipeline phase: representa onde o agente está no ciclo completo de resposta.
+ *  - `scheduled`: debounce ativo, IA começa a processar em `etaAt`
+ *  - `processing`: orquestrador rodando (carregando ctx, RAG, histórico)
+ *  - `composing`: LLM está gerando tokens ("thinking")
+ *  - `composed`:  saiu da LLM, vai entrar na fila de digitação
+ *  - `sending`:   dispatcher está simulando digitação e enviando para Z-API/WA
+ *  - `sent`:      entrega concluída
+ *  - `error`:     erro na pipeline (com motivo)
+ */
+export type PipelinePhase =
+  | "scheduled"
+  | "processing"
+  | "composing"
+  | "composed"
+  | "sending"
+  | "sent"
+  | "error";
+
 export type RealtimeEvent =
   | {
       type: "message";
@@ -35,6 +54,23 @@ export type RealtimeEvent =
       type: "status";
       conversationId: number;
       patch: Record<string, any>;
+    }
+  | {
+      type: "pipeline";
+      conversationId: number;
+      phase: PipelinePhase;
+      /** Quando começa a digitar (ms epoch) — válido em `scheduled`. */
+      etaAt?: number | null;
+      /** Mensagem-resumo do que está acontecendo (UI livre p/ exibir). */
+      label?: string | null;
+      /** Índice do balão atual quando vários estão sendo enviados em sequência. */
+      messageIndex?: number;
+      /** Total de balões nesta entrega. */
+      messageCount?: number;
+      /** Detalhe livre (ex: motivo do erro). */
+      detail?: string | null;
+      /** Timestamp do evento (ms epoch). Default: Date.now() ao publicar. */
+      at?: number;
     };
 
 type Subscriber = (event: RealtimeEvent) => void;
@@ -104,6 +140,10 @@ export function subscribeAgent(
  * estiver vinculado a um agente, o roteamento é feito automaticamente.
  */
 export function publish(event: RealtimeEvent, agentId?: number): void {
+  // Auto-stamp para eventos pipeline (UI usa para countdown/sequenciamento)
+  if (event.type === "pipeline" && event.at == null) {
+    event = { ...event, at: Date.now() };
+  }
   const set = channels.get(event.conversationId);
   if (set && set.size > 0) {
     for (const fn of Array.from(set)) {

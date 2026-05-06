@@ -209,7 +209,26 @@ async function handleIncoming(req: Request) {
           // de modo que o bot espere o lead 'parar de digitar' antes de responder.
           const { setConversationPendingProcessAt } = await import("../db");
           const { nextProcessAt } = await import("../ai/humanize");
-          await setConversationPendingProcessAt(convId, nextProcessAt(agent));
+          const eta = nextProcessAt(agent);
+          await setConversationPendingProcessAt(convId, eta);
+          try {
+            const { publish, bindConversationToAgent } = await import(
+              "../realtime/bus"
+            );
+            bindConversationToAgent(convId, agent.id);
+            publish(
+              {
+                type: "pipeline",
+                conversationId: convId,
+                phase: "scheduled",
+                etaAt: eta.getTime(),
+                label: `IA começa a digitar em ${Math.max(0, agent.debounceSeconds)}s`,
+              },
+              agent.id
+            );
+          } catch {
+            // ignored
+          }
         } catch (err) {
           console.error("[webhook] schedule debounce failed:", err);
         }

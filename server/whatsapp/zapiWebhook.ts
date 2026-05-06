@@ -122,7 +122,24 @@ async function handleZapiIncoming(req: Request) {
     const { getAgentById } = await import("../db");
     const agent = await getAgentById(agentIdNum);
     if (agent) {
-      await setConversationPendingProcessAt(convId, nextProcessAt(agent));
+      const eta = nextProcessAt(agent);
+      await setConversationPendingProcessAt(convId, eta);
+      try {
+        const { publish, bindConversationToAgent } = await import("../realtime/bus");
+        bindConversationToAgent(convId, agentIdNum);
+        publish(
+          {
+            type: "pipeline",
+            conversationId: convId,
+            phase: "scheduled",
+            etaAt: eta.getTime(),
+            label: `IA começa a digitar em ${Math.max(0, agent.debounceSeconds)}s`,
+          },
+          agentIdNum
+        );
+      } catch {
+        // realtime falho não pode quebrar o webhook
+      }
     }
   } catch (err) {
     console.error("[zapi-webhook] schedule debounce failed:", err);

@@ -698,6 +698,22 @@ async function handleInbound(agentId: number, sock: WASocket, msg: any) {
   const { nextProcessAt } = await import("../ai/humanize");
   const at = nextProcessAt(agent);
   await setConversationPendingProcessAt(convId, at);
+  try {
+    const { publish, bindConversationToAgent } = await import("../realtime/bus");
+    bindConversationToAgent(convId, agent.id);
+    publish(
+      {
+        type: "pipeline",
+        conversationId: convId,
+        phase: "scheduled",
+        etaAt: at.getTime(),
+        label: `IA começa a digitar em ${Math.max(0, agent.debounceSeconds)}s`,
+      },
+      agent.id
+    );
+  } catch {
+    // ignored
+  }
   console.log(
     `[baileys] conv ${convId} scheduled to process at ${at.toISOString()} (debounce=${agent.debounceSeconds}s)`
   );

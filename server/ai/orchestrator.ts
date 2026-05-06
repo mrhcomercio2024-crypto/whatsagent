@@ -112,6 +112,21 @@ export async function processInboundForReply(opts: {
   if (!conv) throw new Error("Conversation not found");
   const lead = await getLeadById(conv.leadId);
 
+  // Realtime: avisa o painel "ao vivo" que o orquestrador começou
+  if (!opts.isSimulation) {
+    try {
+      publishRealtime(
+        {
+          type: "pipeline",
+          conversationId,
+          phase: "processing",
+          label: "IA preparando resposta…",
+        },
+        agent.id
+      );
+    } catch {}
+  }
+
   // 0.a Comando interno /limpar — reset total da conversa.
   if (isResetCommand(inboundText)) {
     await resetConversation(conversationId);
@@ -521,6 +536,17 @@ export async function processInboundForReply(opts: {
       phase: "thinking",
       stepName: currentStep?.name ?? null,
     });
+    publishRealtime(
+      {
+        type: "pipeline",
+        conversationId,
+        phase: "composing",
+        label: currentStep?.name
+          ? `IA pensando (etapa: ${currentStep.name})`
+          : "IA pensando…",
+      },
+      agent.id
+    );
   } catch {}
   try {
     console.log(
@@ -1102,6 +1128,19 @@ export async function processInboundForReply(opts: {
       phase: actions.length > 0 ? "writing" : "idle",
       stepName: currentStep?.name ?? null,
     });
+    publishRealtime(
+      {
+        type: "pipeline",
+        conversationId,
+        phase: "composed",
+        messageCount: actions.length,
+        label:
+          actions.length > 0
+            ? `IA preparando ${actions.length} mensagem${actions.length > 1 ? "s" : ""}`
+            : "IA escolheu não responder agora",
+      },
+      agent.id
+    );
   } catch {}
 
   // Atualiza o RESUMO da conversa em background quando passamos do limite de
@@ -1166,7 +1205,7 @@ export async function persistOutboundActions(opts: {
   sender: "ai" | "human";
   waMessageIds?: Array<string | undefined>;
 }) {
-  const { conversationId, actions, sender, waMessageIds } = opts;
+  const { conversationId, agentId, actions, sender, waMessageIds } = opts;
   // Aviso de "delivering" para a UI antes de cada balão ser persistido
   try {
     publishRealtime({ type: "typing.agent", conversationId, phase: "delivering" });
@@ -1174,6 +1213,21 @@ export async function persistOutboundActions(opts: {
   for (let i = 0; i < actions.length; i++) {
     const a = actions[i];
     const waId = waMessageIds?.[i];
+    try {
+      publishRealtime(
+        {
+          type: "pipeline",
+          conversationId,
+          phase: "sending",
+          messageIndex: i,
+          messageCount: actions.length,
+          label: actions.length > 1
+            ? `Enviando balão ${i + 1}/${actions.length}…`
+            : "Enviando resposta…",
+        },
+        agentId
+      );
+    } catch {}
     if (a.type === "text") {
       await appendMessage({
         conversationId,
@@ -1200,6 +1254,20 @@ export async function persistOutboundActions(opts: {
   // Fecha o ciclo de digitação do agente para a UI "ao vivo".
   try {
     publishRealtime({ type: "typing.agent", conversationId, phase: "idle" });
+    publishRealtime(
+      {
+        type: "pipeline",
+        conversationId,
+        phase: "sent",
+        messageCount: actions.length,
+        label: actions.length > 1
+          ? `${actions.length} mensagens entregues`
+          : actions.length === 1
+          ? "Mensagem entregue"
+          : "Sem mensagens a enviar",
+      },
+      agentId
+    );
   } catch {}
 }
 

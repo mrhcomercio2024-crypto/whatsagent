@@ -5,10 +5,68 @@ import { trpc } from "@/lib/trpc";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Activity, MessageSquare, Sparkles, User2 } from "lucide-react";
+import {
+  Activity,
+  Clock,
+  MessageSquare,
+  Send,
+  Sparkles,
+  User2,
+  Zap,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type TypingPhase = "idle" | "thinking" | "writing" | "delivering";
+type LeadTyping = "composing" | "paused" | "idle";
+
+type PipelinePhase =
+  | "scheduled"
+  | "processing"
+  | "composing"
+  | "composed"
+  | "sending"
+  | "sent"
+  | "error"
+  | "idle";
+
+interface PipelineState {
+  phase: PipelinePhase;
+  etaAt: number | null;
+  label: string | null;
+  messageIndex: number | null;
+  messageCount: number | null;
+  at: number; // ms epoch — quando esta fase entrou
+}
+
+const PIPELINE_IDLE: PipelineState = {
+  phase: "idle",
+  etaAt: null,
+  label: null,
+  messageIndex: null,
+  messageCount: null,
+  at: 0,
+};
+
+interface ConvLiveState {
+  agentTyping: TypingPhase;
+  leadTyping: LeadTyping;
+  flashUntil: number;
+  pipeline: PipelineState;
+  /** Linha do tempo: até 12 últimos eventos para a barra inferior. */
+  timeline: Array<{
+    at: number;
+    kind: "lead_msg" | "ai_msg" | "pipeline";
+    label: string;
+  }>;
+}
+
+const EMPTY_CONV: ConvLiveState = {
+  agentTyping: "idle",
+  leadTyping: "idle",
+  flashUntil: 0,
+  pipeline: PIPELINE_IDLE,
+  timeline: [],
+};
 
 interface ActiveConv {
   conversationId: number;
@@ -16,9 +74,11 @@ interface ActiveConv {
   lastMessageText: string | null;
   lastMessageDirection: "inbound" | "outbound" | null;
   agentTyping: TypingPhase;
-  leadTyping: "composing" | "paused" | "idle";
+  leadTyping: LeadTyping;
   unreadFlash: boolean;
   lead: { id: number; name: string | null; phone: string | null } | null;
+  pipeline: PipelineState;
+  timeline: ConvLiveState["timeline"];
 }
 
 /** Hook que assina o SSE global do agente e expõe o estado por conversa. */
@@ -27,10 +87,10 @@ function useAgentLiveStream(
   onMessage: () => void
 ): {
   connected: boolean;
-  byConv: Map<number, { agentTyping: TypingPhase; leadTyping: "composing" | "paused" | "idle"; flashUntil: number }>;
+  byConv: Map<number, ConvLiveState>;
 } {
   const [connected, setConnected] = useState(false);
-  const [byConv, setByConv] = useState<Map<number, { agentTyping: TypingPhase; leadTyping: "composing" | "paused" | "idle"; flashUntil: number }>>(
+  const [byConv, setByConv] = useState<Map<number, ConvLiveState>>(
     () => new Map()
   );
   const onMessageRef = useRef(onMessage);
@@ -46,28 +106,32 @@ function useAgentLiveStream(
 
     const updateConv = (
       convId: number,
-      patch: Partial<{
-        agentTyping: TypingPhase;
-        leadTyping: "composing" | "paused" | "idle";
-        flashUntil: number;
-      }>
+      patch: (cur: ConvLiveState) => ConvLiveState
     ) => {
       setByConv((prev) => {
         const next = new Map(prev);
-        const cur = next.get(convId) ?? {
-          agentTyping: "idle" as TypingPhase,
-          leadTyping: "idle" as const,
-          flashUntil: 0,
-        };
-        next.set(convId, { ...cur, ...patch });
+        const cur = next.get(convId) ?? EMPTY_CONV;
+        next.set(convId, patch(cur));
         return next;
       });
+    };
+
+    const pushTimeline = (
+      cur: ConvLiveState,
+      entry: ConvLiveState["timeline"][number]
+    ): ConvLiveState["timeline"] => {
+      const t = [...cur.timeline, entry];
+      // mantém só as 12 últimas
+      return t.slice(-12);
     };
 
     es.addEventListener("typing.agent", (e: MessageEvent) => {
       try {
         const d = JSON.parse(e.data);
-        updateConv(d.conversationId, { agentTyping: d.phase });
+        updateConv(d.conversationId, (cur) => ({
+          ...cur,
+          agentTyping: d.phase,
+        }));
       } catch {
         // ignored
       }
@@ -75,7 +139,35 @@ function useAgentLiveStream(
     es.addEventListener("typing.lead", (e: MessageEvent) => {
       try {
         const d = JSON.parse(e.data);
-        updateConv(d.conversationId, { leadTyping: d.state });
+        updateConv(d.conversationId, (cur) => ({
+          ...cur,
+          leadTyping: d.phase ?? d.state ?? "idle",
+        }));
+      } catch {
+        // ignored
+      }
+    });
+    es.addEventListener("pipeline", (e: MessageEvent) => {
+      try {
+        const d = JSON.parse(e.data);
+        const phase: PipelinePhase = d.phase;
+        const next: PipelineState = {
+          phase,
+          etaAt: d.etaAt ?? null,
+          label: d.label ?? null,
+          messageIndex: d.messageIndex ?? null,
+          messageCount: d.messageCount ?? null,
+          at: d.at ?? Date.now(),
+        };
+        updateConv(d.conversationId, (cur) => ({
+          ...cur,
+          pipeline: next,
+          timeline: pushTimeline(cur, {
+            at: next.at,
+            kind: "pipeline",
+            label: d.label ?? phase,
+          }),
+        }));
       } catch {
         // ignored
       }
@@ -83,7 +175,18 @@ function useAgentLiveStream(
     es.addEventListener("message", (e: MessageEvent) => {
       try {
         const d = JSON.parse(e.data);
-        updateConv(d.conversationId, { flashUntil: Date.now() + 4000 });
+        const isInbound = d.message?.direction === "inbound";
+        updateConv(d.conversationId, (cur) => ({
+          ...cur,
+          flashUntil: Date.now() + 4000,
+          timeline: pushTimeline(cur, {
+            at: Date.now(),
+            kind: isInbound ? "lead_msg" : "ai_msg",
+            label:
+              (d.message?.body as string | null) ||
+              (isInbound ? "(mídia recebida)" : "(mensagem enviada)"),
+          }),
+        }));
       } catch {
         // ignored
       }
@@ -133,9 +236,139 @@ function TypingDots({ label, color }: { label: string; color: string }) {
   );
 }
 
+/** Conta os segundos até `etaAt`. Atualiza a cada 250ms. Retorna 0 se já passou. */
+function useCountdown(etaAt: number | null): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (etaAt == null) return;
+    const id = setInterval(() => setNow(Date.now()), 250);
+    return () => clearInterval(id);
+  }, [etaAt]);
+  if (etaAt == null) return 0;
+  return Math.max(0, Math.ceil((etaAt - now) / 1000));
+}
+
+/** Status tag ao lado do nome do agente. */
+function AgentStatusBadge({
+  pipeline,
+  agentTyping,
+}: {
+  pipeline: PipelineState;
+  agentTyping: TypingPhase;
+}) {
+  const seconds = useCountdown(
+    pipeline.phase === "scheduled" ? pipeline.etaAt : null
+  );
+
+  // Prioriza pipeline (mais granular). Se pipeline ocioso, cai no agentTyping.
+  if (pipeline.phase === "scheduled") {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-medium text-amber-300">
+        <Clock className="size-3" />
+        {seconds > 0 ? `digita em ${seconds}s` : "iniciando…"}
+      </span>
+    );
+  }
+  if (pipeline.phase === "processing") {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-500/15 px-2 py-0.5 text-[11px] font-medium text-blue-300">
+        <Activity className="size-3 animate-pulse" />
+        respondendo agora
+      </span>
+    );
+  }
+  if (pipeline.phase === "composing" || agentTyping === "thinking") {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-purple-500/15 px-2 py-0.5 text-[11px] font-medium text-purple-300">
+        <Sparkles className="size-3 animate-pulse" />
+        pensando…
+      </span>
+    );
+  }
+  if (
+    pipeline.phase === "composed" ||
+    agentTyping === "writing" ||
+    agentTyping === "delivering"
+  ) {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-medium text-emerald-300">
+        <span className="inline-flex items-center gap-0.5">
+          <span className="size-1 rounded-full bg-current animate-bounce [animation-delay:-0.3s]" />
+          <span className="size-1 rounded-full bg-current animate-bounce [animation-delay:-0.15s]" />
+          <span className="size-1 rounded-full bg-current animate-bounce" />
+        </span>
+        digitando
+        {pipeline.messageCount && pipeline.messageCount > 1
+          ? ` (${pipeline.messageCount} balões)`
+          : ""}
+      </span>
+    );
+  }
+  if (pipeline.phase === "sending") {
+    const total = pipeline.messageCount ?? 0;
+    const idx = (pipeline.messageIndex ?? 0) + 1;
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-medium text-emerald-300">
+        <Send className="size-3" />
+        {total > 1 ? `enviando ${idx}/${total}` : "enviando…"}
+      </span>
+    );
+  }
+  if (pipeline.phase === "sent") {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-600/20 px-2 py-0.5 text-[11px] font-medium text-emerald-200">
+        <Zap className="size-3" />
+        entregue
+      </span>
+    );
+  }
+  if (pipeline.phase === "error") {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-red-500/15 px-2 py-0.5 text-[11px] font-medium text-red-300">
+        erro
+      </span>
+    );
+  }
+  return null;
+}
+
+function LeadStatusBadge({
+  pipeline,
+  leadTyping,
+}: {
+  pipeline: PipelineState;
+  leadTyping: LeadTyping;
+}) {
+  if (leadTyping === "composing") {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-medium text-emerald-300">
+        <span className="inline-flex items-center gap-0.5">
+          <span className="size-1 rounded-full bg-current animate-bounce [animation-delay:-0.3s]" />
+          <span className="size-1 rounded-full bg-current animate-bounce [animation-delay:-0.15s]" />
+          <span className="size-1 rounded-full bg-current animate-bounce" />
+        </span>
+        digitando
+      </span>
+    );
+  }
+  if (
+    pipeline.phase === "scheduled" ||
+    pipeline.phase === "processing" ||
+    pipeline.phase === "composing"
+  ) {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-500/10 px-2 py-0.5 text-[11px] font-medium text-blue-300/80">
+        aguardando IA
+      </span>
+    );
+  }
+  return null;
+}
+
 function LiveContent({ agentId }: { agentId: number }) {
   const [selected, setSelected] = useState<number | null>(null);
   const utils = trpc.useUtils();
+  const { data: agentData } = trpc.agents.get.useQuery({ id: agentId });
   const { data, isLoading } = trpc.live.listActive.useQuery(
     { agentId, limit: 50 },
     { refetchInterval: 5000 }
@@ -162,9 +395,11 @@ function LiveContent({ agentId }: { agentId: number }) {
         lastMessageText: c.lastMessageText ?? null,
         lastMessageDirection: c.lastMessageDirection ?? null,
         agentTyping: (live?.agentTyping ?? "idle") as TypingPhase,
-        leadTyping: live?.leadTyping ?? "idle",
+        leadTyping: (live?.leadTyping ?? "idle") as LeadTyping,
         unreadFlash: live ? live.flashUntil > Date.now() : false,
         lead: c.lead ?? null,
+        pipeline: live?.pipeline ?? PIPELINE_IDLE,
+        timeline: live?.timeline ?? [],
       };
     });
   }, [data, byConv]);
@@ -177,6 +412,8 @@ function LiveContent({ agentId }: { agentId: number }) {
       setSelected(items[0].conversationId);
     }
   }, [items, selected]);
+
+  const selectedConv = items.find((c) => c.conversationId === selected) ?? null;
 
   return (
     <div className="container py-6 space-y-4">
@@ -215,7 +452,7 @@ function LiveContent({ agentId }: { agentId: number }) {
         </Card>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-[320px_1fr] gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-[340px_1fr] gap-4">
         {/* Lista lateral de conversas */}
         <Card className="overflow-hidden">
           <div className="px-3 py-2 border-b text-xs text-muted-foreground flex items-center justify-between">
@@ -251,10 +488,14 @@ function LiveContent({ agentId }: { agentId: number }) {
                 >
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-2">
-                      <div className="font-medium truncate text-sm">
-                        {c.lead?.name || "(sem nome)"}
+                      <div className="font-medium truncate text-sm flex items-center gap-2 min-w-0">
+                        <span className="truncate">{c.lead?.name || "(sem nome)"}</span>
+                        <LeadStatusBadge
+                          pipeline={c.pipeline}
+                          leadTyping={c.leadTyping}
+                        />
                       </div>
-                      <div className="flex items-center gap-1">
+                      <div className="flex items-center gap-1 shrink-0">
                         {c.unreadFlash && (
                           <span className="size-2 rounded-full bg-emerald-400 animate-pulse" />
                         )}
@@ -266,31 +507,21 @@ function LiveContent({ agentId }: { agentId: number }) {
                     <div className="text-[11px] text-muted-foreground truncate">
                       {formatPhone(c.lead?.phone)}
                     </div>
-                    {c.agentTyping !== "idle" && (
-                      <div className="mt-1">
-                        <TypingDots
-                          label={
-                            c.agentTyping === "thinking"
-                              ? "IA pensando"
-                              : c.agentTyping === "writing"
-                              ? "IA escrevendo"
-                              : "IA enviando"
-                          }
-                          color="text-purple-300"
-                        />
-                      </div>
-                    )}
-                    {c.leadTyping === "composing" && (
-                      <div className="mt-1">
-                        <TypingDots label="Lead digitando" color="text-emerald-300" />
-                      </div>
-                    )}
-                    {c.agentTyping === "idle" && c.leadTyping !== "composing" && c.lastMessageText && (
-                      <div className="text-xs text-muted-foreground truncate mt-1">
-                        {c.lastMessageDirection === "outbound" ? "→ " : "← "}
-                        {c.lastMessageText}
-                      </div>
-                    )}
+                    <div className="mt-1">
+                      <AgentStatusBadge
+                        pipeline={c.pipeline}
+                        agentTyping={c.agentTyping}
+                      />
+                    </div>
+                    {c.pipeline.phase === "idle" &&
+                      c.agentTyping === "idle" &&
+                      c.leadTyping !== "composing" &&
+                      c.lastMessageText && (
+                        <div className="text-xs text-muted-foreground truncate mt-1">
+                          {c.lastMessageDirection === "outbound" ? "→ " : "← "}
+                          {c.lastMessageText}
+                        </div>
+                      )}
                   </div>
                 </button>
               );
@@ -299,11 +530,15 @@ function LiveContent({ agentId }: { agentId: number }) {
         </Card>
 
         {/* Janela de chat */}
-        {selected ? (
+        {selected && selectedConv ? (
           <LiveChatWindow
             conversationId={selected}
-            agentTyping={byConv.get(selected)?.agentTyping ?? "idle"}
-            leadTyping={byConv.get(selected)?.leadTyping ?? "idle"}
+            agentName={agentData?.name ?? "Agente"}
+            leadName={selectedConv.lead?.name ?? "Lead"}
+            agentTyping={selectedConv.agentTyping}
+            leadTyping={selectedConv.leadTyping}
+            pipeline={selectedConv.pipeline}
+            timeline={selectedConv.timeline}
           />
         ) : (
           <Card className="flex items-center justify-center h-[60vh]">
@@ -320,12 +555,20 @@ function LiveContent({ agentId }: { agentId: number }) {
 
 function LiveChatWindow({
   conversationId,
+  agentName,
+  leadName,
   agentTyping,
   leadTyping,
+  pipeline,
+  timeline,
 }: {
   conversationId: number;
+  agentName: string;
+  leadName: string;
   agentTyping: TypingPhase;
-  leadTyping: "composing" | "paused" | "idle";
+  leadTyping: LeadTyping;
+  pipeline: PipelineState;
+  timeline: ConvLiveState["timeline"];
 }) {
   const { data, isLoading } = trpc.live.recentMessages.useQuery(
     { conversationId, limit: 50 },
@@ -338,30 +581,36 @@ function LiveChatWindow({
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages.length, agentTyping, leadTyping]);
+  }, [messages.length, agentTyping, leadTyping, pipeline.phase, pipeline.messageIndex]);
+
+  const seconds = useCountdown(
+    pipeline.phase === "scheduled" ? pipeline.etaAt : null
+  );
 
   return (
     <Card className="overflow-hidden flex flex-col h-[60vh]">
-      <div className="px-4 py-2 border-b text-xs text-muted-foreground flex items-center justify-between">
-        <span>Conversa #{conversationId}</span>
-        <div className="flex items-center gap-3">
-          {agentTyping !== "idle" && (
-            <TypingDots
-              label={
-                agentTyping === "thinking"
-                  ? "IA pensando"
-                  : agentTyping === "writing"
-                  ? "IA escrevendo"
-                  : "IA enviando"
-              }
-              color="text-purple-300"
-            />
-          )}
-          {leadTyping === "composing" && (
-            <TypingDots label="Lead digitando" color="text-emerald-300" />
-          )}
+      <div className="px-4 py-2 border-b flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="text-sm font-medium truncate flex items-center gap-2">
+            <User2 className="size-4 text-emerald-400 shrink-0" />
+            <span className="truncate">{leadName}</span>
+            <LeadStatusBadge pipeline={pipeline} leadTyping={leadTyping} />
+          </div>
+          <span className="text-muted-foreground text-xs">↔</span>
+          <div className="text-sm font-medium truncate flex items-center gap-2">
+            <Sparkles className="size-4 text-purple-400 shrink-0" />
+            <span className="truncate">{agentName}</span>
+            <AgentStatusBadge pipeline={pipeline} agentTyping={agentTyping} />
+          </div>
+        </div>
+        <div className="text-[11px] text-muted-foreground shrink-0">
+          #{conversationId}
         </div>
       </div>
+
+      {/* Barra de progresso da pipeline */}
+      <PipelineProgress pipeline={pipeline} secondsUntilTyping={seconds} />
+
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 space-y-2 bg-background">
         {isLoading && (
           <div className="space-y-2">
@@ -407,16 +656,18 @@ function LiveChatWindow({
             </div>
           );
         })}
-        {agentTyping !== "idle" && (
+        {/* Bolha de "digitando" do agente quando ele está em writing/delivering/sending */}
+        {(agentTyping === "writing" ||
+          agentTyping === "delivering" ||
+          pipeline.phase === "sending" ||
+          pipeline.phase === "composed") && (
           <div className="flex justify-end">
             <div className="rounded-2xl px-3 py-2 bg-emerald-600/20 text-emerald-200 rounded-br-sm text-xs">
               <TypingDots
                 label={
-                  agentTyping === "thinking"
-                    ? "pensando…"
-                    : agentTyping === "writing"
-                    ? "escrevendo…"
-                    : "enviando…"
+                  pipeline.phase === "sending" && (pipeline.messageCount ?? 0) > 1
+                    ? `enviando ${(pipeline.messageIndex ?? 0) + 1}/${pipeline.messageCount}`
+                    : "digitando…"
                 }
                 color="text-emerald-200"
               />
@@ -431,7 +682,116 @@ function LiveChatWindow({
           </div>
         )}
       </div>
+
+      {/* Linha do tempo de eventos da conversa */}
+      <Timeline timeline={timeline} />
     </Card>
+  );
+}
+
+function PipelineProgress({
+  pipeline,
+  secondsUntilTyping,
+}: {
+  pipeline: PipelineState;
+  secondsUntilTyping: number;
+}) {
+  if (pipeline.phase === "idle") return null;
+
+  const order: PipelinePhase[] = [
+    "scheduled",
+    "processing",
+    "composing",
+    "composed",
+    "sending",
+    "sent",
+  ];
+  const currentIdx = Math.max(0, order.indexOf(pipeline.phase));
+  const labels: Record<PipelinePhase, string> = {
+    scheduled: secondsUntilTyping > 0 ? `aguardando ${secondsUntilTyping}s` : "iniciando",
+    processing: "preparando",
+    composing: "pensando",
+    composed: "compondo",
+    sending:
+      (pipeline.messageCount ?? 0) > 1
+        ? `enviando ${(pipeline.messageIndex ?? 0) + 1}/${pipeline.messageCount}`
+        : "enviando",
+    sent: "entregue",
+    error: "erro",
+    idle: "",
+  };
+
+  return (
+    <div className="px-4 py-2 border-b bg-muted/20">
+      <div className="flex items-center gap-1.5">
+        {order.map((p, i) => {
+          const active = i <= currentIdx && pipeline.phase !== "error";
+          const isCurrent = i === currentIdx;
+          return (
+            <div key={p} className="flex-1 flex items-center gap-1.5">
+              <div
+                className={cn(
+                  "h-1.5 flex-1 rounded-full transition-all",
+                  active
+                    ? isCurrent
+                      ? "bg-emerald-400 animate-pulse"
+                      : "bg-emerald-500/60"
+                    : "bg-muted-foreground/20"
+                )}
+              />
+            </div>
+          );
+        })}
+      </div>
+      <div className="mt-1 flex items-center justify-between gap-2">
+        <div className="text-[11px] text-muted-foreground truncate">
+          {pipeline.label || labels[pipeline.phase]}
+        </div>
+        {pipeline.phase === "scheduled" && (
+          <div className="text-[11px] font-mono text-amber-300">
+            {secondsUntilTyping}s
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Timeline({ timeline }: { timeline: ConvLiveState["timeline"] }) {
+  if (timeline.length === 0) return null;
+  return (
+    <div className="px-3 py-2 border-t bg-muted/10 max-h-24 overflow-y-auto">
+      <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">
+        Linha do tempo
+      </div>
+      <div className="space-y-0.5">
+        {timeline
+          .slice()
+          .reverse()
+          .slice(0, 5)
+          .map((t, i) => (
+            <div key={i} className="flex items-center gap-2 text-[11px]">
+              <span className="text-muted-foreground tabular-nums w-12">
+                {new Date(t.at).toLocaleTimeString("pt-BR", {
+                  minute: "2-digit",
+                  second: "2-digit",
+                })}
+              </span>
+              <span
+                className={cn(
+                  "size-1.5 rounded-full",
+                  t.kind === "lead_msg"
+                    ? "bg-blue-400"
+                    : t.kind === "ai_msg"
+                    ? "bg-emerald-400"
+                    : "bg-purple-400"
+                )}
+              />
+              <span className="truncate text-muted-foreground">{t.label}</span>
+            </div>
+          ))}
+      </div>
+    </div>
   );
 }
 

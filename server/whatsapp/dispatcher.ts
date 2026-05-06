@@ -158,8 +158,47 @@ export async function dispatchActionsOfficial(opts: {
   // Flag para evitar loop quando a tentativa já é do retry-worker
   const __isRetry = (opts as any).__isRetry as { retryId: number } | undefined;
 
+  // Realtime: avisa o painel "ao vivo" do total de balões após expansão
+  let __realtime: typeof import("../realtime/bus") | null = null;
+  if (sender === "ai" && !__isRetry) {
+    try {
+      __realtime = await import("../realtime/bus");
+      __realtime.publish(
+        {
+          type: "pipeline",
+          conversationId,
+          phase: "composed",
+          messageCount: expanded.length,
+          label:
+            expanded.length > 1
+              ? `IA preparando ${expanded.length} balões`
+              : "IA pronta para enviar",
+        },
+        agent.id
+      );
+    } catch {}
+  }
+
   for (let i = 0; i < expanded.length; i++) {
     const a = expanded[i];
+    if (__realtime && sender === "ai" && !__isRetry) {
+      try {
+        __realtime.publish(
+          {
+            type: "pipeline",
+            conversationId,
+            phase: "sending",
+            messageIndex: i,
+            messageCount: expanded.length,
+            label:
+              expanded.length > 1
+                ? `Enviando balão ${i + 1}/${expanded.length}…`
+                : "Enviando resposta…",
+          },
+          agent.id
+        );
+      } catch {}
+    }
     // Pausa natural ANTES da mídia (humano "procurando/anexando")
     if (sender === "ai" && a.type === "media" && i > 0) {
       await pauseBeforeMedia(agent);
@@ -251,6 +290,26 @@ export async function dispatchActionsOfficial(opts: {
         await pauseBetweenMessages(agent);
       }
     }
+  }
+
+  if (__realtime && sender === "ai" && !__isRetry) {
+    try {
+      __realtime.publish(
+        {
+          type: "pipeline",
+          conversationId,
+          phase: "sent",
+          messageCount: expanded.length,
+          label:
+            expanded.length > 1
+              ? `${expanded.length} mensagens entregues`
+              : expanded.length === 1
+              ? "Mensagem entregue"
+              : "Sem mensagens a enviar",
+        },
+        agent.id
+      );
+    } catch {}
   }
 
   // (Re)agendar follow-ups com base no momento atual (agente respondeu agora)
@@ -358,8 +417,47 @@ export async function dispatchActionsZapi(opts: {
   // Flag para evitar loop quando a tentativa já é do retry-worker
   const __isRetry = (opts as any).__isRetry as { retryId: number } | undefined;
 
+  // Realtime: avisa o painel "ao vivo" do total de balões após expansão
+  let __realtime: typeof import("../realtime/bus") | null = null;
+  if (sender === "ai" && !__isRetry) {
+    try {
+      __realtime = await import("../realtime/bus");
+      __realtime.publish(
+        {
+          type: "pipeline",
+          conversationId,
+          phase: "composed",
+          messageCount: expanded.length,
+          label:
+            expanded.length > 1
+              ? `IA preparando ${expanded.length} balões`
+              : "IA pronta para enviar",
+        },
+        agent.id
+      );
+    } catch {}
+  }
+
   for (let i = 0; i < expanded.length; i++) {
     const a = expanded[i];
+    if (__realtime && sender === "ai" && !__isRetry) {
+      try {
+        __realtime.publish(
+          {
+            type: "pipeline",
+            conversationId,
+            phase: "sending",
+            messageIndex: i,
+            messageCount: expanded.length,
+            label:
+              expanded.length > 1
+                ? `Enviando balão ${i + 1}/${expanded.length}…`
+                : "Enviando resposta…",
+          },
+          agent.id
+        );
+      } catch {}
+    }
     if (sender === "ai" && a.type === "media" && i > 0) {
       await pauseBeforeMedia(agent);
     }
@@ -473,6 +571,26 @@ export async function dispatchActionsZapi(opts: {
       if (a.type === "media") await pauseAfterMedia(agent);
       else await pauseBetweenMessages(agent);
     }
+  }
+
+  if (__realtime && sender === "ai" && !__isRetry) {
+    try {
+      __realtime.publish(
+        {
+          type: "pipeline",
+          conversationId,
+          phase: "sent",
+          messageCount: expanded.length,
+          label:
+            expanded.length > 1
+              ? `${expanded.length} mensagens entregues`
+              : expanded.length === 1
+              ? "Mensagem entregue"
+              : "Sem mensagens a enviar",
+        },
+        agent.id
+      );
+    } catch {}
   }
 
   await scheduleFollowupJobs(agent.id, conversationId, new Date());
