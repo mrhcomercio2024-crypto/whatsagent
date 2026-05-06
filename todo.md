@@ -695,8 +695,10 @@
 - [x] Orchestrator: mídias da objeção entram no filterMediaForTurn (idempotência preservada)
 - [x] Orchestrator: dispara extractAndSaveAsync no fim do turno (fire-and-forget)
 - [x] Orchestrator: registra objectionDispatch ao usar hint não-literal
-- [ ] (futuro) stepMediaLinks on_enter/on_advance — schema pronto, integração pendente
-- [ ] Routers tRPC: CRUD para objections, stepMediaLinks; estender steps.create/update; estender leadFacts read/clear
-- [ ] UI: páginas para objeções, mídias por etapa, e exposição dos campos novos no editor de etapas
-- [ ] Testes vitest: objectionHandler, stepCompliance, leadFactsExtractor (mock LLM)
-- [ ] Suíte verde + checkpoint v52
+- [x] Routers tRPC: CRUD `objections` + `stepMediaLinks` + `leadFacts.facts/clear`; `steps.create/update` aceita objective/mustAsk/mustNotSay/successSignals
+- [x] UI editor de etapas expõe os 4 campos novos (objective + must_ask + must_not_say + success_signals)
+- [x] UI nova página `/objections` no menu (CRUD completo, prio, literal, mídias anexadas, once_per_conv)
+- [x] Testes vitest: stepCompliance (10), objectionHandler (6), leadFactsExtractor (4) — puros, sem chamada LLM
+- [x] Suíte verde 458/458 + checkpoint v52 + UI items v53
+- [ ] (futuro) stepMediaLinks on_enter/on_advance — schema pronto, integração no orchestrator pendente
+- [ ] (futuro) UI dedicada para `step_media_links` (hoje dá pra usar via API/SQL direto)

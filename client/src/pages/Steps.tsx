@@ -70,6 +70,11 @@ function StepsEditor({ agentId }: { agentId: number }) {
     literalText: "",
     // 0 = sem limite. UI converte para null no payload.
     maxMessages: 0,
+    // Anti-aluc.: reforços do script (1 item por linha)
+    objective: "",
+    mustAskText: "",
+    mustNotSayText: "",
+    successSignalsText: "",
   });
 
   function openCreate() {
@@ -83,10 +88,27 @@ function StepsEditor({ agentId }: { agentId: number }) {
       literalMode: false,
       literalText: "",
       maxMessages: 0,
+      objective: "",
+      mustAskText: "",
+      mustNotSayText: "",
+      successSignalsText: "",
     });
     setOpen(true);
   }
   function openEdit(s: any) {
+    const parseList = (v: unknown): string => {
+      if (!v) return "";
+      if (typeof v === "string") {
+        try {
+          const arr = JSON.parse(v);
+          if (Array.isArray(arr)) return arr.join("\n");
+        } catch {
+          return v;
+        }
+      }
+      if (Array.isArray(v)) return v.join("\n");
+      return "";
+    };
     setEditing(s);
     setForm({
       name: s.name,
@@ -97,6 +119,10 @@ function StepsEditor({ agentId }: { agentId: number }) {
       literalMode: !!s.literalMode,
       literalText: s.literalText ?? "",
       maxMessages: s.maxMessages ?? 0,
+      objective: s.objective ?? "",
+      mustAskText: parseList(s.mustAsk),
+      mustNotSayText: parseList(s.mustNotSay),
+      successSignalsText: parseList(s.successSignals),
     });
     setOpen(true);
   }
@@ -106,14 +132,26 @@ function StepsEditor({ agentId }: { agentId: number }) {
       toast.error("Nome e instruções são obrigatórios");
       return;
     }
+    const splitLines = (s: string): string[] | null => {
+      const arr = s
+        .split("\n")
+        .map(x => x.trim())
+        .filter(Boolean);
+      return arr.length > 0 ? arr : null;
+    };
+    const { mustAskText, mustNotSayText, successSignalsText, objective, ...rest } = form;
     const payload = {
-      ...form,
+      ...rest,
       llmModel: form.llmModel || null,
       completionCriteria: form.completionCriteria || null,
       literalText: form.literalMode ? form.literalText : null,
       // 0 ou negativo = sem limite → envia null para o backend
       maxMessages:
         form.maxMessages && form.maxMessages > 0 ? form.maxMessages : null,
+      objective: objective.trim() || null,
+      mustAsk: splitLines(mustAskText),
+      mustNotSay: splitLines(mustNotSayText),
+      successSignals: splitLines(successSignalsText),
     };
     if (editing) {
       update.mutate(
@@ -357,6 +395,59 @@ function StepsEditor({ agentId }: { agentId: number }) {
                   Auto-avanço ativo: após {form.maxMessages} mensagem(ns) da IA nesta etapa, o agente vai para a próxima etapa antes de gerar a resposta seguinte.
                 </p>
               )}
+            </div>
+
+            <div className="rounded-xl border border-border/60 p-4 space-y-3 bg-muted/20">
+              <div>
+                <Label className="text-sm">Reforços anti-alucinação</Label>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Diretivas obrigatórias usadas pelo validador de compliance e pelo prompt blindado.
+                  Cada item em uma linha.
+                </p>
+              </div>
+              <div>
+                <Label className="text-xs">Objetivo da etapa (1 frase)</Label>
+                <Input
+                  value={form.objective}
+                  onChange={e => setForm({ ...form, objective: e.target.value })}
+                  placeholder="Ex.: Descobrir renda mensal e ocupação do lead"
+                />
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs">Perguntas obrigatórias (must_ask)</Label>
+                  <Textarea
+                    rows={3}
+                    value={form.mustAskText}
+                    onChange={e => setForm({ ...form, mustAskText: e.target.value })}
+                    placeholder={"Quanto você ganha hoje?\nVocê é CLT ou autônomo?"}
+                    className="font-mono text-xs"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">Frases proibidas (must_not_say)</Label>
+                  <Textarea
+                    rows={3}
+                    value={form.mustNotSayText}
+                    onChange={e => setForm({ ...form, mustNotSayText: e.target.value })}
+                    placeholder={"empréstimo\ngarantido"}
+                    className="font-mono text-xs"
+                  />
+                </div>
+              </div>
+              <div>
+                <Label className="text-xs">Sinais de sucesso (success_signals)</Label>
+                <Textarea
+                  rows={2}
+                  value={form.successSignalsText}
+                  onChange={e => setForm({ ...form, successSignalsText: e.target.value })}
+                  placeholder={"renda\nocupa\u00e7\u00e3o"}
+                  className="font-mono text-xs"
+                />
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  Palavras/regex que indicam que a etapa foi cumprida mesmo sem pergunta.
+                </p>
+              </div>
             </div>
           </div>
           <DialogFooter>

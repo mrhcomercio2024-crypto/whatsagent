@@ -15,6 +15,7 @@ import Brain from "./pages/Brain";
 import Steps from "./pages/Steps";
 import Knowledge from "./pages/Knowledge";
 import Media from "./pages/Media";
+import Objections from "./pages/Objections";
 import Followups from "./pages/Followups";
 import Whatsapp from "./pages/Whatsapp";
 import Templates from "./pages/Templates";
@@ -43,6 +44,7 @@ function Router() {
       <Route path="/steps" component={Steps} />
       <Route path="/knowledge" component={Knowledge} />
       <Route path="/media" component={Media} />
+      <Route path="/objections" component={Objections} />
       <Route path="/followups" component={Followups} />
       <Route path="/whatsapp" component={Whatsapp} />
       <Route path="/templates" component={Templates} />

@@ -51,6 +51,7 @@ import {
   RefreshCcw,
   Activity,
   ShieldCheck,
+  ShieldAlert,
 } from "lucide-react";
 import { useEffect } from "react";
 import { Link, useLocation } from "wouter";
@@ -80,6 +81,7 @@ function buildGroups(isAdmin: boolean): Array<{
       { icon: ListOrdered, label: "Etapas do script", path: "/steps" },
       { icon: BookOpen, label: "Base de conhecimento", path: "/knowledge" },
       { icon: ImagePlay, label: "Mídias e gatilhos", path: "/media" },
+      { icon: ShieldAlert, label: "Objeções", path: "/objections" },
       { icon: AlarmClockCheck, label: "Follow-ups", path: "/followups" },
     ],
   },
