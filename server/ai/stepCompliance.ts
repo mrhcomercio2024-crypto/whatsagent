@@ -17,6 +17,7 @@
  */
 
 import { invokeWithModel } from "./invoke";
+import { looksRobotic, type ToneProfile } from "./tonePresets";
 
 export type StepInfo = {
   id: number;
@@ -53,21 +54,38 @@ const GENERIC_PHRASES = new Set([
   "tranquilo",
 ]);
 
-export function checkHeuristic(aiResponse: string, step: StepInfo): ComplianceCheck {
+export function checkHeuristic(
+  aiResponse: string,
+  step: StepInfo,
+  opts: { lastLeadText?: string; toneProfile?: ToneProfile } = {}
+): ComplianceCheck {
   const text = (aiResponse || "").trim();
-
   if (!text) {
     return { passed: false, reason: "resposta vazia", layer: "heuristic" };
   }
-
   if (text.length < 5) {
     return { passed: false, reason: "resposta curta demais", layer: "heuristic" };
   }
-
   const norm = text.toLowerCase().replace(/[^a-zà-ú\s]/gi, "").trim();
   const words = norm.split(/\s+/).filter(Boolean);
+  // Resposta genérica isolada ("ok", "perfeito") só é problema se a fala anterior do lead
+  // não foi também uma confirmação curta. Quando lead disse "sim"/"ok", o agente pode ecoar.
   if (words.length <= 2 && GENERIC_PHRASES.has(words[0])) {
-    return { passed: false, reason: `resposta genérica: "${text}"`, layer: "heuristic" };
+    const leadShortAck = /^(sim|s|ok|blz|beleza|claro|certo|combinado)\.??$/i.test((opts.lastLeadText || "").trim());
+    if (!leadShortAck) {
+      return { passed: false, reason: `resposta genérica: "${text}"`, layer: "heuristic" };
+    }
+  }
+  // No preset 'natural', o agente NUNCA pode soar robótico.
+  if (opts.toneProfile === "natural") {
+    const r = looksRobotic(text);
+    if (r.robotic) {
+      return {
+        passed: false,
+        reason: `tom robótico/formal detectado (${r.reasons.join(", ")}). Reescreva mais natural, como WhatsApp entre amigos.`,
+        layer: "heuristic",
+      };
+    }
   }
 
   const mustNotSay = parseArray(step.mustNotSay);

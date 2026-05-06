@@ -306,6 +306,10 @@ export const appRouter = router({
             interMessageDelayMs: z.number().int().min(0).max(60_000).optional(),
             splitLongMessages: z.boolean().optional(),
             splitMaxChars: z.number().int().min(80).max(600).optional(),
+            // — perfil de tom —
+            toneProfile: z.enum(["rigid", "balanced", "natural", "custom"]).optional(),
+            emojiPolicy: z.enum(["none", "sparse", "rich"]).optional(),
+            useLeadNamePct: z.number().int().min(0).max(100).optional(),
           }),
         })
       )

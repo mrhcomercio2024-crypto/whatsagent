@@ -87,3 +87,51 @@ describe("stepCompliance.buildRegenHint", () => {
     expect(hint).not.toMatch(/Quanto você ganha/);
   });
 });
+
+describe("checkHeuristic — afrouxamento natural (Fase 88)", () => {
+  it("aceita 'Beleza' isolado quando lead respondeu 'sim'", () => {
+    const r = checkHeuristic(
+      "Beleza",
+      { id: 1, name: "ack", mustAsk: null } as any,
+      { lastLeadText: "sim" }
+    );
+    expect(r.passed).toBe(true);
+  });
+
+  it("rejeita 'Beleza' isolado quando lead fez pergunta substantiva", () => {
+    const r = checkHeuristic(
+      "Beleza",
+      { id: 1, name: "x", mustAsk: null } as any,
+      { lastLeadText: "Quanto custa o produto?" }
+    );
+    expect(r.passed).toBe(false);
+  });
+
+  it("rejeita resposta com formalismo quando preset é natural", () => {
+    const r = checkHeuristic(
+      "Prezado cliente, conforme mencionado anteriormente, segue a proposta detalhada.",
+      { id: 1, name: "x", mustAsk: null } as any,
+      { toneProfile: "natural" }
+    );
+    expect(r.passed).toBe(false);
+    expect(r.reason || "").toMatch(/rob|formal/);
+  });
+
+  it("aceita resposta natural com gírias quando preset é natural", () => {
+    const r = checkHeuristic(
+      "Saquei. E me conta, quanto cê tá pensando em investir por mês?",
+      { id: 1, name: "x", mustAsk: null } as any,
+      { toneProfile: "natural" }
+    );
+    expect(r.passed).toBe(true);
+  });
+
+  it("aceita resposta formal quando preset é rigid", () => {
+    const r = checkHeuristic(
+      "Prezado, segue resposta detalhada com todos os pontos solicitados pelo senhor.",
+      { id: 1, name: "x", mustAsk: null } as any,
+      { toneProfile: "rigid" }
+    );
+    expect(r.passed).toBe(true);
+  });
+});

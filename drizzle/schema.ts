@@ -73,6 +73,17 @@ export const agents = mysqlTable("agents", {
   // Tamanho máximo (chars) de cada balão antes de forçar quebra
   splitMaxChars: int("splitMaxChars").default(220).notNull(),
 
+  // — Perfil de tom (estilo de escrita) —
+  // 'rigid' — corporativo, não usa gírias nem contrações
+  // 'balanced' — padrão, profissional mas amigável
+  // 'natural' — conversacional brasileiro (estilo Jac/WeDrop): "cê", "rapidinho", "tipo", "se liga"
+  // 'custom' — usa íntegra do `agent_brain.tone`
+  toneProfile: mysqlEnum("toneProfile", ["rigid", "balanced", "natural", "custom"]).default("balanced").notNull(),
+  // Política de emojis: 'none' nunca, 'sparse' max 1 a cada 2-3 mensagens, 'rich' livre (max 3 por msg)
+  emojiPolicy: mysqlEnum("emojiPolicy", ["none", "sparse", "rich"]).default("sparse").notNull(),
+  // Frequência (0-100%) de uso do nome do lead nas mensagens. 30 = leve.
+  useLeadNamePct: int("useLeadNamePct").default(30).notNull(),
+
   // — Memória evolutiva da conversa (resumo) —
   // A cada quantas mensagens o resumidor é acionado.
   summaryEveryN: int("summaryEveryN").default(6).notNull(),

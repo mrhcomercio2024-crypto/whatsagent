@@ -901,7 +901,13 @@ export async function processInboundForReply(opts: {
         (currentStep as unknown as { successSignals?: string | null }).successSignals ?? null,
     };
     const cleanForCheck = parseAgentOutput(aiOutput).cleanText;
-    const compl = checkStepCompliance(cleanForCheck, stepInfo);
+    const lastInboundForCheck = [...history]
+      .reverse()
+      .find(h => h.direction === "inbound" && h.sender === "lead" && (h.body || "").trim());
+    const compl = checkStepCompliance(cleanForCheck, stepInfo, {
+      lastLeadText: lastInboundForCheck?.body || inboundText || "",
+      toneProfile: ((agent as unknown as { toneProfile?: string }).toneProfile as any) || undefined,
+    });
     if (!compl.passed) {
       console.log(
         `[orchestrator] step-compliance reprovou ("${currentStep.name}"): ${compl.reason}; regenerando 1x`

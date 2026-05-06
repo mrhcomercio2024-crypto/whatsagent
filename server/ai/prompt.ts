@@ -19,6 +19,7 @@ import type {
   ScriptStep,
   Message as DbMessage,
 } from "../../drizzle/schema";
+import { renderToneBlock, type ToneProfile, type EmojiPolicy } from "./tonePresets";
 
 export type PromptContext = {
   agent: Agent;
@@ -275,10 +276,29 @@ ${knowledge
     ? `\n# ÚLTIMA MENSAGEM DO LEAD (responda DIRETAMENTE a este texto)\n<<<\n${lastInboundText}\n>>>\n${buildShortReplyHint(lastInboundText)}\n`
     : "";
 
+  // Bloco de tom (preset escolhido em agents.toneProfile)
+  const toneProfile = ((agent as any).toneProfile as ToneProfile) || "balanced";
+  const emojiPolicy = ((agent as any).emojiPolicy as EmojiPolicy) || "sparse";
+  const useLeadNamePct = (agent as any).useLeadNamePct ?? 30;
+  const toneBlock = renderToneBlock({
+    toneProfile,
+    emojiPolicy,
+    useLeadNamePct,
+    customTone: brain?.tone || null,
+    agentName: agent.name,
+  });
+
+  // Quando o preset é 'natural' OU 'custom' com tom escrito, evitamos duplicar o bloco "Tom de voz" do cérebro
+  // (já está representado no toneBlock). Para 'rigid' e 'balanced', mantemos o tom do cérebro como complemento.
+  const showCerebroTone = !(toneProfile === "natural" || toneProfile === "custom");
+
   return `Você é "${agent.name}", agente de vendas via WhatsApp.
 
 # CÉREBRO DO AGENTE
-${fmtIfPresent("Persona", agent.persona)}${fmtIfPresent("Prompt mestre", brain?.masterPrompt)}${fmtIfPresent("Tom de voz", brain?.tone)}${fmtIfPresent("Regras estritas", brain?.rules)}${fmtIfPresent("Produtos / Serviços", brain?.products)}${fmtIfPresent("Objeções comuns e respostas", brain?.objections)}${fmtIfPresent("Informações da empresa", brain?.companyInfo)}
+${fmtIfPresent("Persona", agent.persona)}${fmtIfPresent("Prompt mestre", brain?.masterPrompt)}${showCerebroTone ? fmtIfPresent("Tom de voz", brain?.tone) : ""}${fmtIfPresent("Regras estritas", brain?.rules)}${fmtIfPresent("Produtos / Serviços", brain?.products)}${fmtIfPresent("Objeções comuns e respostas", brain?.objections)}${fmtIfPresent("Informações da empresa", brain?.companyInfo)}
+
+# COMO VOCÊ ESCREVE
+${toneBlock}
 
 # FUNIL DE ATENDIMENTO (apenas para você se localizar; não cite ao lead)
 ${stepsList || "(sem etapas configuradas)"}

@@ -85,6 +85,9 @@ function Inner({ agentId }: { agentId: number }) {
     interMessageDelayMs: 1200,
     splitLongMessages: true,
     splitMaxChars: 220,
+    toneProfile: "balanced" as "rigid" | "balanced" | "natural" | "custom",
+    emojiPolicy: "sparse" as "none" | "sparse" | "rich",
+    useLeadNamePct: 30,
   });
   useEffect(() => {
     if (agent) {
@@ -97,6 +100,9 @@ function Inner({ agentId }: { agentId: number }) {
         interMessageDelayMs: agent.interMessageDelayMs,
         splitLongMessages: agent.splitLongMessages,
         splitMaxChars: agent.splitMaxChars,
+        toneProfile: ((agent as any).toneProfile as any) ?? "balanced",
+        emojiPolicy: ((agent as any).emojiPolicy as any) ?? "sparse",
+        useLeadNamePct: (agent as any).useLeadNamePct ?? 30,
       });
     }
   }, [agent]);
@@ -361,6 +367,84 @@ function Inner({ agentId }: { agentId: number }) {
             />
             <p className="text-xs text-muted-foreground">
               Mensagens menores parecem mais humanas. Recomendado entre 180 e 280.
+            </p>
+          </div>
+        </div>
+
+        {/* ─── Estilo de escrita ─── */}
+        <div className="rounded-xl border border-border/40 bg-muted/20 p-5 space-y-5">
+          <div>
+            <h4 className="font-medium">Estilo de escrita</h4>
+            <p className="text-xs text-muted-foreground mt-1 max-w-xl">
+              Define como o agente escreve. O preset <strong>natural</strong> usa
+              gírias brasileiras leves ("cê", "rapidinho", "top"), mensagens curtas
+              e elimina formalismo corporativo. O preset <strong>balanced</strong> é
+              o padrão profissional. O preset <strong>rigid</strong> mantém formalidade.
+              Use <strong>custom</strong> para deixar que o campo "Tom de voz" do
+              cérebro seja o único guia.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            <div className="space-y-2">
+              <Label>Perfil de tom</Label>
+              <Select
+                value={behavior.toneProfile}
+                onValueChange={(v: any) =>
+                  setBehavior(b => ({ ...b, toneProfile: v }))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="natural">Natural — conversacional brasileiro (estilo WhatsApp)</SelectItem>
+                  <SelectItem value="balanced">Balanceado — profissional e amigável (padrão)</SelectItem>
+                  <SelectItem value="rigid">Rígido — corporativo e formal</SelectItem>
+                  <SelectItem value="custom">Customizado — usa o campo “Tom de voz” do cérebro</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Política de emojis</Label>
+              <Select
+                value={behavior.emojiPolicy}
+                onValueChange={(v: any) =>
+                  setBehavior(b => ({ ...b, emojiPolicy: v }))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Nenhum — jamais usar emojis</SelectItem>
+                  <SelectItem value="sparse">Parcimonioso — 1 a cada 2-3 mensagens, semântico</SelectItem>
+                  <SelectItem value="rich">Rico — livre, até 2-3 por mensagem</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <Label>Frequência do nome do lead nas mensagens</Label>
+              <span className="text-sm font-mono text-primary">
+                {behavior.useLeadNamePct}%
+              </span>
+            </div>
+            <Slider
+              min={0}
+              max={100}
+              step={5}
+              value={[behavior.useLeadNamePct]}
+              onValueChange={v =>
+                setBehavior(b => ({ ...b, useLeadNamePct: v[0] ?? 30 }))
+              }
+            />
+            <p className="text-xs text-muted-foreground">
+              0% = nunca cita o nome. 30% = uso natural (recomendado).
+              80%+ = soa forçado. O agente nunca inventa nome se o lead não se apresentou.
             </p>
           </div>
         </div>

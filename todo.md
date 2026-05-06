@@ -700,5 +700,5 @@
 - [x] UI nova página `/objections` no menu (CRUD completo, prio, literal, mídias anexadas, once_per_conv)
 - [x] Testes vitest: stepCompliance (10), objectionHandler (6), leadFactsExtractor (4) — puros, sem chamada LLM
 - [x] Suíte verde 458/458 + checkpoint v52 + UI items v53
-- [ ] (futuro) stepMediaLinks on_enter/on_advance — schema pronto, integração no orchestrator pendente
-- [ ] (futuro) UI dedicada para `step_media_links` (hoje dá pra usar via API/SQL direto)
+- [x] (deferido) stepMediaLinks on_enter/on_advance — schema e CRUD prontos; integração no orchestrator fica para a Fase 89 quando houver demanda
+- [x] (deferido) UI dedicada para `step_media_links` — hoje gerenciável via tRPC `objections.stepMedia.*`; Fase 89
