@@ -139,6 +139,14 @@ export const scriptSteps = mysqlTable(
     // Limite de mensagens da IA nesta etapa antes de avançar automaticamente.
     // null/0 = sem limite. Quando atingido, o orchestrator avança para a próxima etapa.
     maxMessages: int("maxMessages"),
+    // Anti-aluc.: objetivo único da etapa em 1 frase. Injeção no prompt e no validador stepCompliance.
+    objective: varchar("objective", { length: 300 }),
+    // Anti-aluc.: JSON array de perguntas obrigatórias antes de avançar.
+    mustAsk: text("mustAsk"),
+    // Anti-aluc.: JSON array de frases proibidas neste step.
+    mustNotSay: text("mustNotSay"),
+    // Anti-aluc.: JSON array de regex/keywords que indicam que o objetivo foi atingido.
+    successSignals: text("successSignals"),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
   },
   table => ({
@@ -308,6 +316,9 @@ export const leads = mysqlTable(
     // Indica se phoneNumber é um LID (@lid) do WhatsApp em vez de um número real.
     // Quando true, o dispatcher envia para `<id>@lid` em vez de `<id>@s.whatsapp.net`.
     isLid: boolean("isLid").default(false).notNull(),
+    // Anti-aluc.: fatos estruturados extraídos pelo agente. Ex.: { ja_vende: true, marketplace: "shopee" }.
+    facts: json("facts"),
+    factsUpdatedAt: timestamp("factsUpdatedAt"),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
     updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   },
@@ -938,3 +949,104 @@ export const messageRetries = mysqlTable(
 );
 export type MessageRetry = typeof messageRetries.$inferSelect;
 export type InsertMessageRetry = typeof messageRetries.$inferInsert;
+
+
+/**
+ * ────────────────────────────────────────────────────────────
+ * OBJECTIONS — objeções estruturadas com gatilhos por keyword/regex,
+ * resposta literal ou template, mídias associadas e ação de funil.
+ * ────────────────────────────────────────────────────────────
+ */
+export const objections = mysqlTable(
+  "objections",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    agentId: int("agentId").notNull(),
+    name: varchar("name", { length: 120 }).notNull(),
+    description: text("description"),
+    triggerKeywords: text("trigger_keywords").notNull(),
+    triggerRegex: text("trigger_regex"),
+    responseTemplate: text("response_template").notNull(),
+    literalResponse: boolean("literal_response").default(false).notNull(),
+    mediaIds: text("media_ids"),
+    nextStepAction: mysqlEnum("next_step_action", ["stay", "advance", "restart"])
+      .default("stay")
+      .notNull(),
+    priority: int("priority").default(100).notNull(),
+    isActive: boolean("is_active").default(true).notNull(),
+    sendOncePerConversation: boolean("send_once_per_conversation").default(true).notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    agentIdx: index("objections_agent_idx").on(table.agentId, table.isActive, table.priority),
+  })
+);
+export type Objection = typeof objections.$inferSelect;
+export type InsertObjection = typeof objections.$inferInsert;
+
+export const objectionDispatches = mysqlTable(
+  "objection_dispatches",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    conversationId: int("conversationId").notNull(),
+    objectionId: int("objectionId").notNull(),
+    dispatchedAt: timestamp("dispatchedAt").defaultNow().notNull(),
+  },
+  table => ({
+    convIdx: index("obj_disp_conv_idx").on(table.conversationId, table.objectionId),
+  })
+);
+export type ObjectionDispatch = typeof objectionDispatches.$inferSelect;
+
+/**
+ * ────────────────────────────────────────────────────────────
+ * STEP MEDIA LINKS — vincula mídias a etapas com regra de disparo
+ * (on_enter, on_advance, on_demand) e posição (before/after/standalone).
+ * ────────────────────────────────────────────────────────────
+ */
+export const stepMediaLinks = mysqlTable(
+  "step_media_links",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    stepId: int("stepId").notNull(),
+    mediaId: int("mediaId").notNull(),
+    fireWhen: mysqlEnum("fire_when", ["on_enter", "on_advance", "on_demand"])
+      .default("on_enter")
+      .notNull(),
+    delaySeconds: int("delay_seconds").default(0).notNull(),
+    position: mysqlEnum("position", ["before_message", "after_message", "standalone"])
+      .default("standalone")
+      .notNull(),
+    isActive: boolean("is_active").default(true).notNull(),
+  },
+  table => ({
+    stepIdx: index("sml_step_idx").on(table.stepId, table.fireWhen, table.isActive),
+  })
+);
+export type StepMediaLink = typeof stepMediaLinks.$inferSelect;
+export type InsertStepMediaLink = typeof stepMediaLinks.$inferInsert;
+
+/**
+ * ────────────────────────────────────────────────────────────
+ * STEP COMPLIANCE LOGS — auditoria de não cumprimento de step pelo agente.
+ * ────────────────────────────────────────────────────────────
+ */
+export const stepComplianceLogs = mysqlTable(
+  "step_compliance_logs",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    conversationId: int("conversationId").notNull(),
+    stepId: int("stepId").notNull(),
+    aiResponse: text("ai_response").notNull(),
+    passed: boolean("passed").notNull(),
+    reason: varchar("reason", { length: 500 }),
+    regenerated: boolean("regenerated").default(false).notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => ({
+    convIdx: index("scl_conv_idx").on(table.conversationId, table.createdAt),
+  })
+);
+export type StepComplianceLog = typeof stepComplianceLogs.$inferSelect;
+export type InsertStepComplianceLog = typeof stepComplianceLogs.$inferInsert;

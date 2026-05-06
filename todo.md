@@ -678,3 +678,25 @@
 - [x] Bloquear envio de mídia em cooldown 60s + máximo 1 mídia por turno
 - [x] STEP_ADVANCE estrito quando lead acabou de perguntar (canAdvanceStep reforçado)
 - [x] Testes vitest: 5 novos arquivos (antiRepetition, leadNameGuard, mediaCooldown, questionGuard, stepSkip estendido) — suite 438/438 verde
+
+
+## Fase 88: Pacote travas anti-alucinação (objections + lead facts + step compliance)
+- [x] Schema: estender `script_steps` (objective, mustAsk, mustNotSay, successSignals)
+- [x] Schema: estender `leads` (facts JSON, factsUpdatedAt)
+- [x] Schema: criar `objections`, `objection_dispatches`, `step_media_links`, `step_compliance_logs`
+- [x] Migration `0024_high_virginia_dare.sql` gerada e aplicada
+- [x] `server/ai/objectionHandler.ts` (detect + record + cache)
+- [x] `server/ai/stepCompliance.ts` (heurística + regen hint)
+- [x] `server/ai/leadFactsExtractor.ts` (LLM mini, fire-and-forget, persistência)
+- [x] `server/ai/invoke.ts`: ampliar `tracking.purpose` com `step_compliance`, `step_compliance_regen`, `lead_facts_extraction`
+- [x] `server/ai/prompt.ts`: estender PromptContext com leadFactsBlock, objectionHint, forceRegenHint, mustAsk, mustNotSay, objective
+- [x] Orchestrator: detect objection no inbound + shortcut literal + injetar facts/objection no prompt
+- [x] Orchestrator: validador stepCompliance antes de despachar (regenera 1x via purpose=step_compliance_regen)
+- [x] Orchestrator: mídias da objeção entram no filterMediaForTurn (idempotência preservada)
+- [x] Orchestrator: dispara extractAndSaveAsync no fim do turno (fire-and-forget)
+- [x] Orchestrator: registra objectionDispatch ao usar hint não-literal
+- [ ] (futuro) stepMediaLinks on_enter/on_advance — schema pronto, integração pendente
+- [ ] Routers tRPC: CRUD para objections, stepMediaLinks; estender steps.create/update; estender leadFacts read/clear
+- [ ] UI: páginas para objeções, mídias por etapa, e exposição dos campos novos no editor de etapas
+- [ ] Testes vitest: objectionHandler, stepCompliance, leadFactsExtractor (mock LLM)
+- [ ] Suíte verde + checkpoint v52

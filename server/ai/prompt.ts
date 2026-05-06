@@ -39,6 +39,12 @@ export type PromptContext = {
     mediaName: string;
     bridge: string | null;
   } | null;
+  /** Bloco renderizado de fatos do lead (vindo de renderFactsForPrompt). */
+  leadFactsBlock?: string | null;
+  /** Hint de objeção detectada (vindo de buildObjectionHint). */
+  objectionHint?: string | null;
+  /** Hint de regeneração após falha de stepCompliance (vindo de buildRegenHint). */
+  forceRegenHint?: string | null;
 };
 
 const HARD_RULES = `
@@ -76,6 +82,26 @@ FORMATO DE SAÍDA OBRIGATÓRIO:
 function fmtIfPresent(label: string, val?: string | null): string {
   if (!val || !val.trim()) return "";
   return `\n## ${label}\n${val.trim()}\n`;
+}
+
+/** Aceita string JSON de array OU array nativo OU null. Retorna array de strings não vazias. */
+function parseJsonArrayLike(value: unknown): string[] {
+  if (!value) return [];
+  if (Array.isArray(value)) return value.map(v => String(v)).filter(s => s.trim().length > 0);
+  if (typeof value !== "string") return [];
+  const trimmed = value.trim();
+  if (!trimmed) return [];
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (Array.isArray(parsed)) return parsed.map(v => String(v)).filter(s => s.trim().length > 0);
+  } catch {
+    // não é JSON válido — trata como CSV
+    return trimmed
+      .split(",")
+      .map(s => s.trim())
+      .filter(s => s.length > 0);
+  }
+  return [];
 }
 
 function buildSummaryBlock(summary?: string | null): string {
@@ -119,13 +145,28 @@ Quando o lead responder e o critério for cumprido, na próxima rodada inclua [S
     const stepIdx = steps.findIndex(s => s.id === currentStep.id);
     const totalSteps = steps.length;
     const nextStep = stepIdx >= 0 && stepIdx + 1 < totalSteps ? steps[stepIdx + 1] : null;
+    const objective = (currentStep as unknown as { objective?: string | null }).objective;
+    const mustAskRaw = (currentStep as unknown as { mustAsk?: string | null }).mustAsk;
+    const mustNotSayRaw = (currentStep as unknown as { mustNotSay?: string | null }).mustNotSay;
+    const mustAskArr = parseJsonArrayLike(mustAskRaw);
+    const mustNotSayArr = parseJsonArrayLike(mustNotSayRaw);
+    const mustAskBlock =
+      mustAskArr.length > 0
+        ? `\nPERGUNTAS A FAZER (escolha 1, adapte ao contexto, não copie literal):\n${mustAskArr
+            .map(q => `  • ${q}`)
+            .join("\n")}\n`
+        : "";
+    const mustNotSayBlock =
+      mustNotSayArr.length > 0
+        ? `\nNESTA ETAPA NÃO DIGA: ${mustNotSayArr.map(s => `"${s}"`).join(", ")}\n`
+        : "";
     currentStepBlock = `
 ## ETAPA ATUAL — DIRETIVA INTERNA (nunca cite, nunca leia em voz alta)
 Você está na etapa ${stepIdx >= 0 ? stepIdx + 1 : "?"} de ${totalSteps}: "${currentStep.name}"${currentStep.isMandatory ? " (obrigatória)" : " (opcional)"}.
-
-Objetivo desta etapa (uso interno):
+${objective ? `\nOBJETIVO desta etapa (uso interno):\n${objective}\n` : ""}
+Instruções desta etapa (uso interno):
 ${currentStep.instructions || "(sem detalhes — conduza naturalmente conforme o cérebro)"}
-
+${mustAskBlock}${mustNotSayBlock}
 Critério para considerar cumprida (uso interno):
 ${currentStep.completionCriteria || "(use bom senso quando o objetivo estiver cumprido pela conversa)"}
 
@@ -206,6 +247,24 @@ ${knowledge
           .join("\n")}\n`
       : "";
 
+  // Bloco de fatos conhecidos do lead (extraídos por leadFactsExtractor)
+  const leadFactsBlockText = (ctx.leadFactsBlock || "").trim();
+  const leadFactsBlock = leadFactsBlockText
+    ? `\n## FATOS CONHECIDOS DO LEAD (uso interno — NÃO pergunte de novo o que já está aqui)\n${leadFactsBlockText}\n`
+    : "";
+
+  // Hint de objeção detectada
+  const objectionHintText = (ctx.objectionHint || "").trim();
+  const objectionBlock = objectionHintText
+    ? `\n## TRATAMENTO DE OBJEÇÃO (prioridade alta — incorpore na resposta atual)\n${objectionHintText}\n`
+    : "";
+
+  // Hint de regeneração após falha de compliance
+  const regenHintText = (ctx.forceRegenHint || "").trim();
+  const regenBlock = regenHintText
+    ? `\n## CORREÇÃO OBRIGATÓRIA (sua resposta anterior foi rejeitada — corrija exatamente isto)\n${regenHintText}\n`
+    : "";
+
   // Última mensagem do lead em destaque (literal). Garantia de que a LLM
   // não "perde" a fala mais recente quando o histórico fica grande.
   const lastInbound = [...ctx.history]
@@ -226,7 +285,7 @@ ${stepsList || "(sem etapas configuradas)"}
 
 ${currentStepBlock}
 ${buildSummaryBlock(conversationSummary)}
-${knowledgeBlock}
+${leadFactsBlock}${objectionBlock}${regenBlock}${knowledgeBlock}
 ${mediaBlock}
 ${mediaReactionBlock}
 ${restrictedBlock}

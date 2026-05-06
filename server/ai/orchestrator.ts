@@ -59,6 +59,22 @@ import { isTrivialOutputInContext } from "./trivialOutputGuard";
 import { detectRepetition } from "./antiRepetition";
 import { resolveLeadNameForPrompt } from "./leadNameGuard";
 import { filterMediaForTurn } from "./mediaCooldown";
+import {
+  detectObjection,
+  recordObjectionDispatch,
+  buildObjectionHint,
+  type ObjectionMatch,
+} from "./objectionHandler";
+import {
+  checkHeuristic as checkStepCompliance,
+  buildRegenHint as buildStepRegenHint,
+  type StepInfo as ComplianceStepInfo,
+} from "./stepCompliance";
+import {
+  getLeadFacts,
+  renderFactsForPrompt,
+  extractAndSaveAsync,
+} from "./leadFactsExtractor";
 import { leadQuestionUnaddressed, classifyQuestion } from "./questionGuard";
 import { classifyReaction, isReactionLikelyIgnored } from "./reactionClassifier";
 import { notifyOwner } from "../_core/notification";
@@ -419,6 +435,62 @@ export async function processInboundForReply(opts: {
     history,
     dbName: lead?.name ?? null,
   });
+
+  // ANTI-ALUC: detectar objeção no inbound atual (cache 60s no objectionHandler)
+  let detectedObjection: ObjectionMatch | null = null;
+  try {
+    const det = await detectObjection(agent.id, conversationId, inboundText);
+    detectedObjection = det.match;
+    if (detectedObjection) {
+      console.log(
+        `[orchestrator] objeção detectada: "${detectedObjection.match.name}" (literal=${detectedObjection.match.literalResponse}, mediaIds=${detectedObjection.match.mediaIds.join(",")})`
+      );
+    }
+  } catch (e) {
+    console.warn("[orchestrator] detectObjection falhou:", (e as Error).message);
+  }
+
+  // SHORTCUT objeção literal: pula LLM, despacha texto + mídias direto
+  if (detectedObjection && detectedObjection.match.literalResponse) {
+    const obj = detectedObjection.match;
+    const actions: OutboundAction[] = [];
+    actions.push({ type: "text", text: obj.responseTemplate });
+    for (const mid of obj.mediaIds) actions.push({ type: "media", mediaId: mid });
+    try {
+      await recordObjectionDispatch(conversationId, obj.id);
+    } catch (e) {
+      console.warn("[orchestrator] recordObjectionDispatch falhou:", (e as Error).message);
+    }
+    const updates: any = {};
+    if (obj.nextStepAction === "advance" && currentStep) {
+      const idx = steps.findIndex(s => s.id === currentStep!.id);
+      const next = idx >= 0 && idx + 1 < steps.length ? steps[idx + 1] : null;
+      if (next) updates.currentStepId = next.id;
+    }
+    if (Object.keys(updates).length > 0) await updateConversation(conversationId, updates);
+    return {
+      actions,
+      handoff: false,
+      stepAdvanced: !!updates.currentStepId,
+      outOfHours: false,
+    };
+  }
+
+  // ANTI-ALUC: carregar fatos já conhecidos do lead
+  let leadFactsBlock: string | null = null;
+  try {
+    if (lead?.id) {
+      const facts = await getLeadFacts(lead.id);
+      const rendered = renderFactsForPrompt(facts);
+      if (rendered) leadFactsBlock = rendered;
+    }
+  } catch (e) {
+    console.warn("[orchestrator] getLeadFacts falhou:", (e as Error).message);
+  }
+
+  // ANTI-ALUC: hint de objeção (não-literal) injetado no prompt
+  const objectionHint = detectedObjection ? buildObjectionHint(detectedObjection) : null;
+
   const ctx: PromptContext = {
     agent,
     brain,
@@ -432,6 +504,8 @@ export async function processInboundForReply(opts: {
     restrictedTerms: restricted,
     conversationSummary: conv.summary ?? null,
     mediaReaction: mediaReactionCtx,
+    leadFactsBlock,
+    objectionHint,
   };
 
   const messages = buildMessages(ctx);
@@ -814,6 +888,54 @@ export async function processInboundForReply(opts: {
     }
   }
 
+  // ANTI-ALUC: validador de step compliance (heurística). Se a saída viola
+  // mustNotSay, está vazia/curta demais ou ignorou must_ask, regenera 1x.
+  if (currentStep) {
+    const stepInfo: ComplianceStepInfo = {
+      id: currentStep.id,
+      name: currentStep.name,
+      objective: (currentStep as unknown as { objective?: string | null }).objective ?? null,
+      mustAsk: (currentStep as unknown as { mustAsk?: string | null }).mustAsk ?? null,
+      mustNotSay: (currentStep as unknown as { mustNotSay?: string | null }).mustNotSay ?? null,
+      successSignals:
+        (currentStep as unknown as { successSignals?: string | null }).successSignals ?? null,
+    };
+    const cleanForCheck = parseAgentOutput(aiOutput).cleanText;
+    const compl = checkStepCompliance(cleanForCheck, stepInfo);
+    if (!compl.passed) {
+      console.log(
+        `[orchestrator] step-compliance reprovou ("${currentStep.name}"): ${compl.reason}; regenerando 1x`
+      );
+      try {
+        const lastInboundForRegen = [...history]
+          .reverse()
+          .find(h => h.direction === "inbound" && h.sender === "lead" && (h.body || "").trim());
+        const lastInboundTxt = lastInboundForRegen?.body || inboundText || "";
+        const regenHint = buildStepRegenHint(compl, stepInfo, lastInboundTxt);
+        const r6 = await invokeWithModel({
+          model,
+          messages: [
+            ...messages,
+            { role: "assistant", content: aiOutput },
+            { role: "user", content: regenHint },
+          ],
+          maxTokens: 600,
+          temperature: 0.4,
+          tracking: {
+            purpose: "step_compliance_regen",
+            agentId: agent.id,
+            conversationId,
+            leadId: lead?.id,
+          },
+        });
+        const text6 = (r6.text || "").trim();
+        if (text6) aiOutput = text6;
+      } catch (e) {
+        console.warn("[orchestrator] step-compliance regen falhou:", (e as Error).message);
+      }
+    }
+  }
+
   // Parser FINAL (depois do guard anti greeting-loop e question-first)
   const parsed = parseAgentOutput(aiOutput);
 
@@ -839,8 +961,10 @@ export async function processInboundForReply(opts: {
 
   // FILTRO DE MÍDIAS: aplica idempotência (já enviadas), cooldown 60s e
   // limite de 1 mídia por turno para evitar duplicatas/spam.
+  // Inclui também mídias da objeção detectada (caso não-literal).
+  const objectionMediaIds = detectedObjection ? detectedObjection.match.mediaIds : [];
   const proposedMediaIds = Array.from(
-    new Set([...triggeredMediaIds, ...parsed.mediaIds])
+    new Set([...triggeredMediaIds, ...parsed.mediaIds, ...objectionMediaIds])
   );
   const mediaFilter = filterMediaForTurn({
     proposedIds: proposedMediaIds,
@@ -904,6 +1028,39 @@ export async function processInboundForReply(opts: {
 
   if (Object.keys(updates).length > 0) {
     await updateConversation(conversationId, updates);
+  }
+
+  // ANTI-ALUC: marca objeção como despachada (assim não repete na mesma conversa)
+  if (detectedObjection) {
+    try {
+      await recordObjectionDispatch(conversationId, detectedObjection.match.id);
+    } catch (e) {
+      console.warn(
+        "[orchestrator] recordObjectionDispatch (não-literal) falhou:",
+        (e as Error).message
+      );
+    }
+  }
+
+  // ANTI-ALUC: extrair fatos do lead em background (fire-and-forget) com modelo barato.
+  // Usa o histórico atualizado (incluindo o turno corrente) para não perder informação.
+  if (lead?.id && history.length >= 2) {
+    try {
+      const historyForFacts = [
+        ...history.map(m => ({
+          role: (m.direction === "inbound" ? "user" : "assistant") as "user" | "assistant",
+          content: m.body || "",
+        })),
+        { role: "user" as const, content: inboundText },
+      ];
+      const existing = await getLeadFacts(lead.id).catch(() => ({}));
+      extractAndSaveAsync(lead.id, historyForFacts, existing, agent.defaultLlmModel, {
+        agentId: agent.id,
+        conversationId,
+      });
+    } catch (e) {
+      console.warn("[orchestrator] extractAndSaveAsync setup falhou:", (e as Error).message);
+    }
   }
 
   // 8. Qualificação a cada N mensagens (não bloqueia)

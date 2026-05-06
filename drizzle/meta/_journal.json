@@ -169,6 +169,13 @@
       "when": 1778006722031,
       "tag": "0023_wide_forgotten_one",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "5",
+      "when": 1778084004956,
+      "tag": "0024_high_virginia_dare",
+      "breakpoints": true
     }
   ]
 }

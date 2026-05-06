@@ -369,9 +369,22 @@ export const appRouter = router({
           llmModel: z.string().nullable().optional(),
           isMandatory: z.boolean().default(true),
           maxMessages: z.number().int().min(1).max(50).nullable().optional(),
+          // Anti-aluc.: reforços do script
+          objective: z.string().max(300).nullable().optional(),
+          mustAsk: z.array(z.string()).max(20).nullable().optional(),
+          mustNotSay: z.array(z.string()).max(40).nullable().optional(),
+          successSignals: z.array(z.string()).max(20).nullable().optional(),
         })
       )
-      .mutation(({ input }) => createStep(input)),
+      .mutation(({ input }) => {
+        const { mustAsk, mustNotSay, successSignals, ...rest } = input;
+        return createStep({
+          ...rest,
+          mustAsk: mustAsk ? JSON.stringify(mustAsk) : null,
+          mustNotSay: mustNotSay ? JSON.stringify(mustNotSay) : null,
+          successSignals: successSignals ? JSON.stringify(successSignals) : null,
+        } as any);
+      }),
     update: protectedProcedure
       .input(
         z.object({
@@ -387,10 +400,29 @@ export const appRouter = router({
             literalText: z.string().nullable().optional(),
             // null/0 = sem limite; 1..50 = avança automaticamente após N mensagens da IA na etapa
             maxMessages: z.number().int().min(1).max(50).nullable().optional(),
+            // Anti-aluc.: reforços do script
+            objective: z.string().max(300).nullable().optional(),
+            mustAsk: z.array(z.string()).max(20).nullable().optional(),
+            mustNotSay: z.array(z.string()).max(40).nullable().optional(),
+            successSignals: z.array(z.string()).max(20).nullable().optional(),
           }),
         })
       )
-      .mutation(({ input }) => updateStep(input.id, input.patch as any)),
+      .mutation(({ input }) => {
+        const patch: Record<string, unknown> = { ...input.patch };
+        if (patch.mustAsk !== undefined) {
+          patch.mustAsk = patch.mustAsk === null ? null : JSON.stringify(patch.mustAsk);
+        }
+        if (patch.mustNotSay !== undefined) {
+          patch.mustNotSay =
+            patch.mustNotSay === null ? null : JSON.stringify(patch.mustNotSay);
+        }
+        if (patch.successSignals !== undefined) {
+          patch.successSignals =
+            patch.successSignals === null ? null : JSON.stringify(patch.successSignals);
+        }
+        return updateStep(input.id, patch as any);
+      }),
     setLiteralMode: protectedProcedure
       .input(
         z.object({
@@ -928,6 +960,160 @@ export const appRouter = router({
         );
         return [header, ...rows].join("\n");
       }),
+    facts: protectedProcedure
+      .input(z.object({ leadId: z.number().int().positive() }))
+      .query(async ({ input }) => {
+        const { getLeadFacts } = await import("./ai/leadFactsExtractor");
+        return getLeadFacts(input.leadId);
+      }),
+    clearFacts: protectedProcedure
+      .input(z.object({ leadId: z.number().int().positive() }))
+      .mutation(async ({ input }) => {
+        const { saveLeadFacts } = await import("./ai/leadFactsExtractor");
+        await saveLeadFacts(input.leadId, {});
+        return { ok: true };
+      }),
+  }),
+
+  // ─── OBJECTIONS (bibliotecas de objeções por agente) ───
+  objections: router({
+    list: protectedProcedure
+      .input(agentScopedSchema)
+      .query(async ({ input }) => {
+        const { listObjections } = await import("./dbObjections");
+        return listObjections(input.agentId);
+      }),
+    create: protectedProcedure
+      .input(
+        z.object({
+          agentId: z.number().int().positive(),
+          name: z.string().min(1).max(120),
+          description: z.string().nullable().optional(),
+          triggerKeywords: z.array(z.string()).max(50),
+          triggerRegex: z.array(z.string()).max(20).nullable().optional(),
+          responseTemplate: z.string().min(1),
+          literalResponse: z.boolean().default(false),
+          mediaIds: z.array(z.number().int().positive()).max(10).nullable().optional(),
+          nextStepAction: z.enum(["stay", "advance", "restart"]).default("stay"),
+          priority: z.number().int().min(0).max(10000).default(100),
+          isActive: z.boolean().default(true),
+          sendOncePerConversation: z.boolean().default(true),
+        })
+      )
+      .mutation(async ({ input }) => {
+        const { createObjection } = await import("./dbObjections");
+        return createObjection({
+          agentId: input.agentId,
+          name: input.name,
+          description: input.description ?? null,
+          triggerKeywords: JSON.stringify(input.triggerKeywords),
+          triggerRegex: input.triggerRegex ? JSON.stringify(input.triggerRegex) : null,
+          responseTemplate: input.responseTemplate,
+          literalResponse: input.literalResponse,
+          mediaIds: input.mediaIds ? JSON.stringify(input.mediaIds) : null,
+          nextStepAction: input.nextStepAction,
+          priority: input.priority,
+          isActive: input.isActive,
+          sendOncePerConversation: input.sendOncePerConversation,
+        });
+      }),
+    update: protectedProcedure
+      .input(
+        z.object({
+          id: z.number().int().positive(),
+          patch: z.object({
+            name: z.string().min(1).max(120).optional(),
+            description: z.string().nullable().optional(),
+            triggerKeywords: z.array(z.string()).max(50).optional(),
+            triggerRegex: z.array(z.string()).max(20).nullable().optional(),
+            responseTemplate: z.string().min(1).optional(),
+            literalResponse: z.boolean().optional(),
+            mediaIds: z.array(z.number().int().positive()).max(10).nullable().optional(),
+            nextStepAction: z.enum(["stay", "advance", "restart"]).optional(),
+            priority: z.number().int().min(0).max(10000).optional(),
+            isActive: z.boolean().optional(),
+            sendOncePerConversation: z.boolean().optional(),
+          }),
+        })
+      )
+      .mutation(async ({ input }) => {
+        const { updateObjection } = await import("./dbObjections");
+        const patch: Record<string, unknown> = { ...input.patch };
+        if (patch.triggerKeywords !== undefined)
+          patch.triggerKeywords = JSON.stringify(patch.triggerKeywords);
+        if (patch.triggerRegex !== undefined)
+          patch.triggerRegex =
+            patch.triggerRegex === null ? null : JSON.stringify(patch.triggerRegex);
+        if (patch.mediaIds !== undefined)
+          patch.mediaIds = patch.mediaIds === null ? null : JSON.stringify(patch.mediaIds);
+        await updateObjection(input.id, patch as any);
+        return { ok: true };
+      }),
+    delete: protectedProcedure.input(idSchema).mutation(async ({ input }) => {
+      const { deleteObjection } = await import("./dbObjections");
+      await deleteObjection(input.id);
+      return { ok: true };
+    }),
+    listDispatches: protectedProcedure
+      .input(z.object({ conversationId: z.number().int().positive() }))
+      .query(async ({ input }) => {
+        const { listObjectionDispatches } = await import("./dbObjections");
+        return listObjectionDispatches(input.conversationId);
+      }),
+    clearDispatches: protectedProcedure
+      .input(z.object({ conversationId: z.number().int().positive() }))
+      .mutation(async ({ input }) => {
+        const { clearObjectionDispatches } = await import("./dbObjections");
+        await clearObjectionDispatches(input.conversationId);
+        return { ok: true };
+      }),
+  }),
+
+  // ─── STEP MEDIA LINKS (mídias amarradas a uma etapa) ───
+  stepMediaLinks: router({
+    list: protectedProcedure
+      .input(z.object({ stepId: z.number().int().positive() }))
+      .query(async ({ input }) => {
+        const { listStepMediaLinks } = await import("./dbObjections");
+        return listStepMediaLinks(input.stepId);
+      }),
+    create: protectedProcedure
+      .input(
+        z.object({
+          stepId: z.number().int().positive(),
+          mediaId: z.number().int().positive(),
+          fireWhen: z.enum(["on_enter", "on_advance", "on_demand"]).default("on_enter"),
+          delaySeconds: z.number().int().min(0).max(600).default(0),
+          position: z.enum(["before_message", "after_message", "standalone"]).default("standalone"),
+          isActive: z.boolean().default(true),
+        })
+      )
+      .mutation(async ({ input }) => {
+        const { createStepMediaLink } = await import("./dbObjections");
+        return createStepMediaLink(input);
+      }),
+    update: protectedProcedure
+      .input(
+        z.object({
+          id: z.number().int().positive(),
+          patch: z.object({
+            fireWhen: z.enum(["on_enter", "on_advance", "on_demand"]).optional(),
+            delaySeconds: z.number().int().min(0).max(600).optional(),
+            position: z.enum(["before_message", "after_message", "standalone"]).optional(),
+            isActive: z.boolean().optional(),
+          }),
+        })
+      )
+      .mutation(async ({ input }) => {
+        const { updateStepMediaLink } = await import("./dbObjections");
+        await updateStepMediaLink(input.id, input.patch as any);
+        return { ok: true };
+      }),
+    delete: protectedProcedure.input(idSchema).mutation(async ({ input }) => {
+      const { deleteStepMediaLink } = await import("./dbObjections");
+      await deleteStepMediaLink(input.id);
+      return { ok: true };
+    }),
   }),
 
   // ─── METRICS ───
