@@ -153,7 +153,7 @@ function RetriesContent({ agentId }: { agentId: number }) {
   const utils = trpc.useUtils();
   const retryNow = trpc.messageRetries.retryNow.useMutation({
     onSuccess: () => {
-      toast.success("Reagendado para agora");
+      toast.success("Reenviando agora…");
       utils.messageRetries.list.invalidate();
       utils.messageRetries.countPending.invalidate();
     },
@@ -174,7 +174,7 @@ function RetriesContent({ agentId }: { agentId: number }) {
     <div className="container py-8 space-y-6">
       <PageHeader
         title="Reenvios"
-        description="Mensagens que falharam no envio são reagendadas automaticamente com backoff exponencial (30s → 2min → 5min → 15min → 30min). Quando o lead responder, os reenvios pendentes são cancelados."
+        description="Mensagens que falharam no envio (timeout, socket caído ou erro do WhatsApp) ficam aqui pausadas. Você decide quando reenviar clicando em “Reenviar agora”. Se o lead responder antes, o item é cancelado automaticamente para não atrapalhar a conversa."
       />
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -194,12 +194,18 @@ function RetriesContent({ agentId }: { agentId: number }) {
               Como funciona
             </CardTitle>
           </CardHeader>
-          <CardContent className="text-sm text-muted-foreground">
-            Toda vez que um envio para o WhatsApp falha (timeout de 20s, socket
-            caído ou erro do Meta), a mensagem entra na fila de reenvios. Um
-            worker tenta de novo em intervalos crescentes, até 5 tentativas. Se
-            o lead responder no meio, o reenvio é cancelado para não atrapalhar
-            a conversa.
+          <CardContent className="text-sm text-muted-foreground space-y-2">
+            <p>
+              Quando um envio falha, a mensagem entra nesta fila com status
+              <span className="mx-1 inline-flex items-center gap-1 rounded border border-amber-500/30 bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-300">Pendente</span>
+              e <strong>não é reenviada sozinha</strong> — nem mesmo quando o
+              WhatsApp volta a ficar online.
+            </p>
+            <p>
+              Para reenviar, clique em <strong>“Reenviar agora”</strong> na linha
+              correspondente. Se o lead responder antes, o item é cancelado
+              automaticamente para não atrapalhar a conversa.
+            </p>
           </CardContent>
         </Card>
       </div>
@@ -274,7 +280,7 @@ function RetriesContent({ agentId }: { agentId: number }) {
                         <th className="px-4 py-3 font-medium">Conteúdo</th>
                         <th className="px-4 py-3 font-medium">Status</th>
                         <th className="px-4 py-3 font-medium">Tentativas</th>
-                        <th className="px-4 py-3 font-medium">Próx. envio</th>
+                        <th className="px-4 py-3 font-medium">Falhou em</th>
                         <th className="px-4 py-3 font-medium">Erro</th>
                         <th className="px-4 py-3 font-medium text-right">
                           Ações
@@ -314,9 +320,7 @@ function RetriesContent({ agentId }: { agentId: number }) {
                             {r.attempt}/{r.maxAttempts}
                           </td>
                           <td className="px-4 py-3 align-top whitespace-nowrap text-muted-foreground">
-                            {r.status === "pending"
-                              ? fmtDate(r.nextRetryAt)
-                              : "—"}
+                            {fmtDate(r.createdAt)}
                           </td>
                           <td className="px-4 py-3 align-top max-w-[280px]">
                             {r.lastError ? (

@@ -1846,11 +1846,23 @@ export const appRouter = router({
             message: `cannot retry from status=${r.status}`,
           });
         }
+        // [Fase 90] Reabrir o item e processar manualmente. O worker automático
+        // está desativado, então disparamos um tick único via runRetryWorkerNow().
         await updateMessageRetry(input.id, {
           status: "pending",
+          attempt: 0,
+          maxAttempts: 1,
           nextRetryAt: new Date(),
           completedAt: null as any,
         });
+        try {
+          const { runRetryWorkerNow } = await import("./whatsapp/retryWorker");
+          runRetryWorkerNow(`manual retry id=${input.id}`);
+        } catch (e) {
+          console.warn(
+            `[retryNow] failed to trigger one-shot tick: ${(e as Error).message}`
+          );
+        }
         return { ok: true } as const;
       }),
     cancel: protectedProcedure

@@ -715,3 +715,11 @@
 - [x] Fluxo end-to-end Z-API: webhook agenda `scheduled` + dispatcher Z-API publica `composed`/`sending`/`sent`; mesma instrumentação no Cloud API oficial
 - [x] Testes vitest do bus pipeline (8 novos testes em `pipeline.test.ts`) — 480/480 verde
 - [x] Checkpoint v55 salvo (`6ef39092`)
+
+
+## Fase 90: Remover reenvio automático após reconexão WhatsApp
+- [ ] Mapear listener/worker que dispara auto-flush DLQ ao reconectar
+- [ ] Desligar o disparo automático mantendo a fila DLQ intacta
+- [ ] Atualizar UI da página de Reenvios deixando claro que agora é só manual
+- [ ] Testes vitest cobrindo a nova lógica
+- [ ] Checkpoint

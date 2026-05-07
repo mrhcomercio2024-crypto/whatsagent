@@ -242,13 +242,13 @@ export async function dispatchActionsOfficial(opts: {
     }
     await persistAction(conversationId, a, sender, waId, errorMsg);
 
-    // DLQ: se houve erro de envio e não estamos já dentro do retry-worker,
-    // enfileira para reenvio automático. Isso garante que falhas temporárias
-    // (token expirando, rate-limit, network) não resultem em mensagens perdidas.
+    // [Fase 90] DLQ: registramos a falha para que o usuário possa REENVIAR
+    // MANUALMENTE em /retries. NUNCA reagendamos automaticamente — por isso
+    // gravamos `nextRetryAt = null` e `maxAttempts = 1` (uma execução única
+    // quando o usuário clicar "Reenviar agora").
     if (errorMsg && !__isRetry) {
       try {
         const { enqueueMessageRetry } = await import("../db");
-        const { nextRetryAt } = await import("./retryBackoff");
         const payload =
           a.type === "text"
             ? { type: "text", text: a.text }
@@ -260,13 +260,13 @@ export async function dispatchActionsOfficial(opts: {
           payload: payload as any,
           sender: sender === "ai" ? "ai" : "operator",
           attempt: 0,
-          maxAttempts: 5,
-          nextRetryAt: nextRetryAt(1),
+          maxAttempts: 1,
+          nextRetryAt: null as any, // pausado: reenvio só manual
           status: "pending",
           lastError: errorMsg,
         });
         console.log(
-          `[dispatch-cloud] enqueued DLQ for failed send (conv=${conversationId}, type=${a.type}, err=${errorMsg})`
+          `[dispatch-cloud] enqueued DLQ (paused, manual-only) conv=${conversationId} type=${a.type} err=${errorMsg}`
         );
       } catch (eq) {
         console.error(
@@ -531,10 +531,10 @@ export async function dispatchActionsZapi(opts: {
     }
     await persistAction(conversationId, a, sender, waId, errorMsg);
 
+    // [Fase 90] DLQ pausada: reenvio só manual via /retries.
     if (errorMsg && !__isRetry) {
       try {
         const { enqueueMessageRetry } = await import("../db");
-        const { nextRetryAt } = await import("./retryBackoff");
         const payload =
           a.type === "text"
             ? { type: "text", text: a.text }
@@ -546,13 +546,13 @@ export async function dispatchActionsZapi(opts: {
           payload: payload as any,
           sender: sender === "ai" ? "ai" : "operator",
           attempt: 0,
-          maxAttempts: 5,
-          nextRetryAt: nextRetryAt(1),
+          maxAttempts: 1,
+          nextRetryAt: null as any, // pausado: reenvio só manual
           status: "pending",
           lastError: errorMsg,
         });
         console.log(
-          `[dispatch-zapi] enqueued DLQ for failed send (conv=${conversationId}, type=${a.type}, err=${errorMsg})`
+          `[dispatch-zapi] enqueued DLQ (paused, manual-only) conv=${conversationId} type=${a.type} err=${errorMsg}`
         );
       } catch (eq) {
         console.error(

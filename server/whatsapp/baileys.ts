@@ -220,16 +220,10 @@ async function bootSocket(agentId: number): Promise<void> {
       markConnected(agentId);
       cancelReconnect(agentId); // garantia: qualquer reconnect pendente é cancelado
       console.log(`[baileys] agent ${agentId} connected as ${jid}`);
-      // DLQ: dispara um tick imediato do retry-worker para reentregar
-      // mensagens que ficaram pendentes enquanto este socket estava offline.
-      try {
-        const { runRetryWorkerNow } = await import("./retryWorker");
-        runRetryWorkerNow(`agent ${agentId} reconnected`);
-      } catch (e) {
-        console.warn(
-          `[baileys] failed to trigger retry-worker on reconnect: ${(e as Error).message}`
-        );
-      }
+      // [Fase 90] Reenvio automático após reconexão foi DESATIVADO por solicitação
+      // do usuário. Mensagens que falharam enquanto o socket esteve offline
+      // permanecem na DLQ (fila de retries) com `nextRetryAt = null` e só são
+      // reenviadas quando o usuário clicar em "Reenviar agora" na página /retries.
     }
     if (connection === "close") {
       sockets.delete(agentId);
@@ -787,14 +781,13 @@ export async function dispatchViaBaileys(opts: {
       );
     }
     // DLQ: socket morto = entrega falhou. Enfileira para reenvio assim que a
-    // conexão voltar (markConnected dispara um tick imediato do retry-worker).
+    // [Fase 90] Reenvio só manual via /retries.
     const __isRetry = (opts as any).__isRetry as { retryId: number } | undefined;
     if (!__isRetry) {
       try {
         const conv = await getConversationById(conversationId);
         if (conv) {
           const { enqueueMessageRetry } = await import("../db");
-          const { nextRetryAt } = await import("./retryBackoff");
           for (const a of actions) {
             const payload =
               a.type === "text"
@@ -807,14 +800,14 @@ export async function dispatchViaBaileys(opts: {
               payload: payload as any,
               sender: sender === "ai" ? "ai" : "operator",
               attempt: 0,
-              maxAttempts: 5,
-              nextRetryAt: nextRetryAt(1),
+              maxAttempts: 1,
+              nextRetryAt: null as any, // pausado: reenvio só manual
               status: "pending",
               lastError: "no live socket (offline)",
             });
           }
           console.log(
-            `[baileys] enqueued ${actions.length} action(s) to DLQ (agent ${agent.id} offline, conv=${conversationId})`
+            `[baileys] enqueued ${actions.length} action(s) to DLQ (paused, manual-only) agent=${agent.id} conv=${conversationId}`
           );
         }
       } catch (eq) {
@@ -994,14 +987,11 @@ export async function dispatchViaBaileys(opts: {
     waMessageIds.push(id);
     markOutbound(agent.id, sendOk);
 
-    // Enfileira retry se o envio não foi confirmado e não estamos já dentro
-    // de uma execução do retry-worker (evita loop). O "já dentro do worker"
-    // é sinalizado por opts.__isRetry (passado pelo retry-worker).
+    // [Fase 90] Reenvio só manual via /retries.
     const __isRetry = (opts as any).__isRetry as { retryId: number } | undefined;
     if (!sendOk && !__isRetry) {
       try {
         const { enqueueMessageRetry } = await import("../db");
-        const { nextRetryAt } = await import("./retryBackoff");
         const payload =
           a.type === "text"
             ? { type: "text", text: a.text }
@@ -1013,17 +1003,17 @@ export async function dispatchViaBaileys(opts: {
           payload: payload as any,
           sender: sender === "ai" ? "ai" : "operator",
           attempt: 0,
-          maxAttempts: 5,
-          nextRetryAt: nextRetryAt(1),
+          maxAttempts: 1,
+          nextRetryAt: null as any, // pausado: reenvio só manual
           status: "pending",
           lastError: lastErrorMsg ?? "send did not confirm",
         });
         console.log(
-          `[baileys] enqueued retry for failed send (conv=${conversationId}, type=${a.type})`
+          `[baileys] enqueued DLQ (paused, manual-only) conv=${conversationId} type=${a.type}`
         );
       } catch (eq) {
         console.error(
-          `[baileys] failed to enqueue retry: ${(eq as Error).message}`
+          `[baileys] failed to enqueue DLQ: ${(eq as Error).message}`
         );
       }
     }
@@ -1215,8 +1205,7 @@ export function startBaileysLifecycle(): void {
     },
     { intervalMs: 30_000 }
   );
-  // Worker de reenvio automático de mensagens que falharam.
-  void import("./retryWorker").then(({ startRetryWorker }) => startRetryWorker());
+  // [Fase 90] Worker automático de reenvio foi DESATIVADO; reenvio só manual via /retries.
 }
 
 /**

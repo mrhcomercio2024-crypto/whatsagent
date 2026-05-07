@@ -14,7 +14,7 @@ import { registerExternalEventsWebhook } from "../external/webhook";
 import { registerRealtimeRoutes } from "../realtime/sse";
 import { startFollowupEngine } from "../followup/engine";
 import { startDebounceWorker } from "../ai/debounceWorker";
-import { startRetryWorker, stopRetryWorker } from "../whatsapp/retryWorker";
+import { stopRetryWorker } from "../whatsapp/retryWorker";
 import {
   reconnectAllQrSessions,
   startBaileysLifecycle,
@@ -79,10 +79,11 @@ async function startServer() {
     console.log(`Server running on http://localhost:${port}/`);
     startFollowupEngine();
     startDebounceWorker();
-    // Retry-worker (DLQ): reenvia mensagens que falharam.
-    // Roda independentemente de Baileys/Z-API/Cloud API porque processa
-    // a fila de TODOS os modos.
-    startRetryWorker();
+    // [Fase 90] Retry-worker (DLQ) NUNCA é iniciado automaticamente.
+    // Mensagens que falham ficam na fila com `nextRetryAt = null` (paused);
+    // o usuário decide quando reenviar via botão "Reenviar agora" em /retries.
+    // Esse processamento acontece pontualmente em `routers.ts → retryNow`.
+    // startRetryWorker(); // «desabilitado»
     // ⚠️ Baileys (QR Code) NUNCA é iniciado automaticamente.
     // O QR só é gerado quando o usuário clica "Iniciar conexão" na UI.
     // Watchdog/heartbeat também permanecem desligados — isso evita que
