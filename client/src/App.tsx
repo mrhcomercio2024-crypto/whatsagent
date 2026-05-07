@@ -7,8 +7,6 @@ import { ThemeProvider } from "./contexts/ThemeContext";
 import { AgentProvider } from "./contexts/AgentContext";
 import Home from "./pages/Home";
 import Dashboard from "./pages/Dashboard";
-import Inbox from "./pages/Inbox";
-import Chat from "./pages/Chat";
 import Leads from "./pages/Leads";
 import Simulator from "./pages/Simulator";
 import Brain from "./pages/Brain";
@@ -36,8 +34,9 @@ function Router() {
       <Route path="/login" component={Login} />
       <Route path="/admin/users" component={AdminUsers} />
       <Route path="/dashboard" component={Dashboard} />
-      <Route path="/chat" component={Chat} />
-      <Route path="/inbox" component={Inbox} />
+      {/* /chat, /inbox e /live convergem para a tela unificada (Live) */}
+      <Route path="/chat" component={Live} />
+      <Route path="/inbox" component={Live} />
       <Route path="/leads" component={Leads} />
       <Route path="/simulator" component={Simulator} />
       <Route path="/brain" component={Brain} />

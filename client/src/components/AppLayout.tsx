@@ -31,7 +31,6 @@ import { useIsMobile } from "@/hooks/useMobile";
 import { useAgent } from "@/contexts/AgentContext";
 import { trpc } from "@/lib/trpc";
 import {
-  Inbox,
   LayoutDashboard,
   LogOut,
   MessageSquare,
@@ -49,7 +48,6 @@ import {
   DollarSign,
   Webhook,
   RefreshCcw,
-  Activity,
   ShieldCheck,
   ShieldAlert,
 } from "lucide-react";
@@ -68,7 +66,6 @@ function buildGroups(isAdmin: boolean): Array<{
     items: [
       { icon: LayoutDashboard, label: "Dashboard", path: "/dashboard" },
       { icon: MessageSquare, label: "Chat", path: "/chat" },
-      { icon: Activity, label: "Chats ao vivo", path: "/live" },
       { icon: Users, label: "Leads", path: "/leads" },
       { icon: TestTube2, label: "Simulador", path: "/simulator" },
       { icon: DollarSign, label: "Custos", path: "/costs" },

@@ -705,12 +705,13 @@
 
 
 ## Fase 89: Chat ao vivo enriquecido + validação Z-API
-- [ ] Backend: emitir eventos `scheduled` (+ `eta`), `processing`, `typing_start`, `typing_end`, `sending`, `sent` no bus realtime
-- [ ] Backend: incluir `agentName` e `leadName` em cada evento de status
-- [ ] Frontend chat ao vivo: badge ao lado do nome do agente ("digitando…", "respondendo agora", "agendado em Xs")
-- [ ] Frontend chat ao vivo: countdown regressivo até começar a digitar (atualizado a cada 250ms)
-- [ ] Frontend chat ao vivo: badge ao lado do nome do lead ("processando resposta…")
-- [ ] Frontend chat ao vivo: linha do tempo de eventos abaixo da última mensagem
-- [ ] Fluxo end-to-end Z-API: validar pipeline completo recebendo via webhook real
-- [ ] Testes vitest do reducer de status
-- [ ] Checkpoint
+- [x] Backend: emitir eventos `scheduled` (+ `etaAt`), `processing`, `composing`, `composed`, `sending`, `sent` no bus realtime via novo evento `pipeline`
+- [x] Backend: enviar `agentName` (resolvido no front via `trpc.agents.get`) e `leadName` (já retornado em `live.listActive`) em cada evento
+- [x] Frontend chat ao vivo: badge ao lado do nome do agente ("digita em Xs", "respondendo agora", "pensando…", "digitando", "enviando i/N", "entregue")
+- [x] Frontend chat ao vivo: countdown regressivo até começar a digitar (atualizado a cada 250ms via `useCountdown`)
+- [x] Frontend chat ao vivo: badge ao lado do nome do lead ("digitando" / "aguardando IA")
+- [x] Frontend chat ao vivo: linha do tempo de eventos abaixo das mensagens (últimos 5)
+- [x] Frontend: barra de progresso da pipeline (6 etapas) entre header e mensagens
+- [x] Fluxo end-to-end Z-API: webhook agenda `scheduled` + dispatcher Z-API publica `composed`/`sending`/`sent`; mesma instrumentação no Cloud API oficial
+- [x] Testes vitest do bus pipeline (8 novos testes em `pipeline.test.ts`) — 480/480 verde
+- [x] Checkpoint v55 salvo (`6ef39092`)
