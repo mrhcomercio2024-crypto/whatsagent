@@ -718,8 +718,18 @@
 
 
 ## Fase 90: Remover reenvio automático após reconexão WhatsApp
-- [ ] Mapear listener/worker que dispara auto-flush DLQ ao reconectar
-- [ ] Desligar o disparo automático mantendo a fila DLQ intacta
-- [ ] Atualizar UI da página de Reenvios deixando claro que agora é só manual
-- [ ] Testes vitest cobrindo a nova lógica
-- [ ] Checkpoint
+- [x] Mapear listener/worker que dispara auto-flush DLQ ao reconectar (3 pontos: `_core/index.ts:85`, `baileys.ts:220-231`, `baileys.ts:1213`)
+- [x] Desligar o disparo automático mantendo a fila DLQ intacta: `startRetryWorker` não roda no boot, listener `connection: open` não dispara mais `runRetryWorkerNow`, e os 3 pontos onde havia `enqueueMessageRetry({ nextRetryAt: nextRetryAt(1), maxAttempts: 5 })` agora gravam `nextRetryAt: null` e `maxAttempts: 1` (item pausado, reenvio manual único)
+- [x] Atualizar UI da página `/retries`: novo texto deixa claro que mensagens ficam pausadas e não são reenviadas sozinhas; coluna "Próx. envio" virou "Falhou em"; toast "Reenviando agora…"
+- [x] Testes vitest cobrindo a nova lógica: 6 novos testes em `dlq.manualOnly.test.ts` validando boot/reconnect/dispatcher/baileys/UI/exports
+- [x] Checkpoint v57 (`404e9e20`) salvo — suite 486/486 verde
+
+
+## Fase 91: Não responder mensagens acumuladas durante offline
+- [x] Mapear caminhos de disparo automático pós-reconexão: o **debounce worker** (`server/ai/debounceWorker.ts`) tica a cada 1s e processa qualquer `pendingProcessAt < now` em qualquer conversa, independente do canal Baileys/Z-API
+- [x] Ao reconectar (Baileys `connection: open`), chamar `purgePendingProcessForAgent(agentId, now)` que zera `pendingProcessAt` de TODAS as conversas do agente cujo agendamento esteja vencido
+- [x] No Z-API webhook de status (`/api/zapi/:agentId/status`), purgar pendingProcessAt na transição `disconnected -> connected` (guarda `wasOffline` evita purgar em status updates de rotina)
+- [x] No boot do `debounceWorker`, executar `purgeStalePendingProcess(cutoff = now - 60s)` global — cobre o caso de servidor reiniciar com fila acumulada
+- [x] UI no Chat: dispensável — a UX preferida é ficá-lo silencioso (banner pode confundir o operador). Pode ser adicionado depois se necessário.
+- [x] Testes vitest: 7 novos em `reconnectPurge.test.ts` validando os 3 pontos de purga + Fase 90 preservada
+- [x] Suite 493/493 verde

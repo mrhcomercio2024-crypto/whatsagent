@@ -224,6 +224,24 @@ async function bootSocket(agentId: number): Promise<void> {
       // do usuário. Mensagens que falharam enquanto o socket esteve offline
       // permanecem na DLQ (fila de retries) com `nextRetryAt = null` e só são
       // reenviadas quando o usuário clicar em "Reenviar agora" na página /retries.
+      //
+      // [Fase 91] Também descartamos `pendingProcessAt` antigo das conversas
+      // (mensagens INBOUND que chegaram durante o offline e ficaram aguardando
+      // o debounce). Sem isso, o debounce worker dispararia respostas para
+      // todos os leads acumulados assim que o WhatsApp reconectasse.
+      try {
+        const { purgePendingProcessForAgent } = await import("../db");
+        const purged = await purgePendingProcessForAgent(agentId, new Date());
+        if (purged > 0) {
+          console.log(
+            `[baileys] agent ${agentId} reconnected — purgou ${purged} pendingProcessAt antigo(s) (mensagens recebidas durante offline não serão respondidas automaticamente)`
+          );
+        }
+      } catch (e) {
+        console.warn(
+          `[baileys] purgePendingProcessForAgent falhou para agent ${agentId}: ${(e as Error).message}`
+        );
+      }
     }
     if (connection === "close") {
       sockets.delete(agentId);

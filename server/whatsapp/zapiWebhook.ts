@@ -167,4 +167,25 @@ async function handleZapiStatus(req: Request) {
     connectedPhone: body.phoneConnected ?? inst.connectedPhone,
     lastStatusCheckAt: new Date(),
   });
+
+  // [Fase 91] Quando a instância Z-API VOLTA do offline (transição
+  // disconnected -> connected), descartamos qualquer `pendingProcessAt`
+  // antigo das conversas. Sem isso, o debounce worker dispara respostas
+  // automaticamente para todos os leads que escreveram durante a queda.
+  const wasOffline = !inst.isConnected;
+  if (isConnected && wasOffline) {
+    try {
+      const { purgePendingProcessForAgent } = await import("../db");
+      const purged = await purgePendingProcessForAgent(agentIdNum, new Date());
+      if (purged > 0) {
+        console.log(
+          `[zapi-webhook] agent ${agentIdNum} reconectou — purgou ${purged} pendingProcessAt antigo(s) (mensagens recebidas durante offline não serão respondidas automaticamente)`
+        );
+      }
+    } catch (e) {
+      console.warn(
+        `[zapi-webhook] purgePendingProcessForAgent falhou para agent ${agentIdNum}: ${(e as Error).message}`
+      );
+    }
+  }
 }

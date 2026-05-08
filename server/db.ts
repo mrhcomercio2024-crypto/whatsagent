@@ -1244,6 +1244,68 @@ export async function setConversationPendingProcessAt(
 }
 
 /**
+ * [Fase 91] Purga `pendingProcessAt` de TODAS as conversas do agente cujo
+ * agendamento esteja vencido (anterior ao `cutoff`). Usado quando o WhatsApp
+ * reconecta para garantir que o debounce worker NÃO dispare respostas às
+ * mensagens acumuladas durante o offline.
+ *
+ * Mensagens recebidas DEPOIS de `cutoff` continuam com seu pendingProcessAt
+ * intacto e serão processadas normalmente.
+ *
+ * Retorna o número de conversas afetadas (útil para log e UI).
+ */
+export async function purgePendingProcessForAgent(
+  agentId: number,
+  cutoff: Date
+): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const r: any = await db
+    .update(conversations)
+    .set({ pendingProcessAt: null })
+    .where(
+      and(
+        eq(conversations.agentId, agentId),
+        isNotNull(conversations.pendingProcessAt),
+        lt(conversations.pendingProcessAt, cutoff)
+      )
+    );
+  const affected =
+    (r?.[0]?.affectedRows as number | undefined) ??
+    (r?.affectedRows as number | undefined) ??
+    0;
+  return affected;
+}
+
+/**
+ * [Fase 91] Purga `pendingProcessAt` GLOBAL (todas as conversas)
+ * cujo agendamento esteja vencido antes de `cutoff`. Usado pelo
+ * boot do `debounceWorker` para evitar que um restart do servidor
+ * gere uma rajada de respostas automáticas para mensagens recebidas
+ * enquanto o processo estava fora do ar.
+ *
+ * Retorna o número de conversas afetadas.
+ */
+export async function purgeStalePendingProcess(cutoff: Date): Promise<number> {
+  const db = await getDb();
+  if (!db) return 0;
+  const r: any = await db
+    .update(conversations)
+    .set({ pendingProcessAt: null })
+    .where(
+      and(
+        isNotNull(conversations.pendingProcessAt),
+        lt(conversations.pendingProcessAt, cutoff)
+      )
+    );
+  const affected =
+    (r?.[0]?.affectedRows as number | undefined) ??
+    (r?.affectedRows as number | undefined) ??
+    0;
+  return affected;
+}
+
+/**
  * Tenta reivindicar atomicamente uma conversa para processamento.
  * Retorna true SE conseguiu (UPDATE afetou 1 linha), false caso contrário.
  *

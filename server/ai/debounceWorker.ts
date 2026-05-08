@@ -9,12 +9,22 @@ import {
   getAgentById,
   getConversationById,
   listConversationsDueForProcessing,
+  purgeStalePendingProcess,
 } from "../db";
 import { processInboundForReply } from "./orchestrator";
 import { dispatchActions } from "../whatsapp/dispatcher";
 
 let started = false;
 let handle: NodeJS.Timeout | null = null;
+
+/**
+ * [Fase 91] Janela de tolerância: agendamentos vencidos há menos
+ * de `BOOT_PURGE_GRACE_MS` continuam válidos (debounce normal,
+ * de 5–30s, conta como "recente"). Vencidos há mais que isso são
+ * descartados no boot — considerados legítimos só se o servidor
+ * estivesse de pé, mas como não estava, a IA NÃO deve responder.
+ */
+const BOOT_PURGE_GRACE_MS = 60_000; // 60s
 
 export function startDebounceWorker() {
   if (started) return;
@@ -26,6 +36,23 @@ export function startDebounceWorker() {
       console.error("[debounce] tick error:", e);
     }
   };
+  // [Fase 91] Antes de começar a ticar, purga agendamentos antigos.
+  // Cobre o caso de o servidor ter reiniciado enquanto havia conversas
+  // com pendingProcessAt agendado — sem essa purga, o primeiro tick
+  // dispararia respostas "em rajada" para todos os leads acumulados.
+  void (async () => {
+    try {
+      const cutoff = new Date(Date.now() - BOOT_PURGE_GRACE_MS);
+      const purged = await purgeStalePendingProcess(cutoff);
+      if (purged > 0) {
+        console.log(
+          `[debounce] boot purge: descartou ${purged} pendingProcessAt antigo(s) (mensagens recebidas antes do restart não serão respondidas)`
+        );
+      }
+    } catch (e) {
+      console.warn("[debounce] boot purge falhou:", (e as Error).message);
+    }
+  })();
   handle = setInterval(tick, 1000);
   setTimeout(tick, 2000);
   console.log("[debounce] worker started");
