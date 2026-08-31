@@ -1,0 +1,1 @@
+ALTER TABLE `public_simulator_configs` ADD `webMode` enum('lite','advanced') DEFAULT 'lite' NOT NULL;

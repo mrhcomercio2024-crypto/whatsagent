@@ -37,6 +37,39 @@ export async function registerRaviServiceWorker() {
   return navigator.serviceWorker.register("/sw.js", { scope: "/" });
 }
 
+export async function disableRaviPwaForLite() {
+  document.querySelectorAll<HTMLLinkElement>('link[rel="manifest"]').forEach(link => link.remove());
+  const hadController = Boolean(navigator.serviceWorker?.controller);
+  let unregistered = 0;
+  if ("serviceWorker" in navigator) {
+    const registrations = await navigator.serviceWorker.getRegistrations();
+    for (const registration of registrations) {
+      const scriptUrl =
+        registration.active?.scriptURL ||
+        registration.waiting?.scriptURL ||
+        registration.installing?.scriptURL ||
+        "";
+      if (scriptUrl.endsWith("/sw.js") || registration.scope === `${window.location.origin}/`) {
+        if (await registration.unregister()) unregistered += 1;
+      }
+    }
+  }
+
+  let deletedCaches = 0;
+  if ("caches" in window) {
+    const keys = await caches.keys();
+    for (const key of keys) {
+      if (/ravi|whatsagent|simulator|pwa/i.test(key) && (await caches.delete(key))) {
+        deletedCaches += 1;
+      }
+    }
+  }
+
+  const remainingRegistrations =
+    "serviceWorker" in navigator ? (await navigator.serviceWorker.getRegistrations()).length : 0;
+  return { unregistered, deletedCaches, remainingRegistrations, hadController };
+}
+
 export async function subscribeBrowserToPush(publicKey: string) {
   const capability = getPushCapability();
   if (!capability.supported) throw new Error("PUSH_UNSUPPORTED");

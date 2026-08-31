@@ -2,6 +2,7 @@ import { randomBytes } from "crypto";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { statusForAbsentPublicRequest } from "../../shared/publicRequestRecovery";
+import { isRaviWebLite, normalizeRaviWebMode } from "../../shared/raviWebMode";
 import { adminProcedure, publicProcedure, router } from "../_core/trpc";
 import { getAgentById } from "../db";
 import { storagePut } from "../storage";
@@ -54,8 +55,11 @@ const sessionAuthSchema = z.object({
 
 function publicConfig(config: Awaited<ReturnType<typeof getPublicSimulatorConfigBySlug>>) {
   if (!config) return null;
+  const mode = normalizeRaviWebMode(config.webMode);
+  const advanced = mode === "advanced";
   return {
     slug: config.slug,
+    mode,
     displayName: config.displayName,
     statusText: config.statusText,
     avatarUrl: config.avatarUrl,
@@ -66,8 +70,8 @@ function publicConfig(config: Awaited<ReturnType<typeof getPublicSimulatorConfig
     inputPlaceholder: config.inputPlaceholder,
     checkoutButtonText: config.checkoutButtonText,
     push: {
-      enabled: config.pushEnabled,
-      consentEnabled: config.pushConsentEnabled,
+      enabled: advanced && config.pushEnabled,
+      consentEnabled: advanced && config.pushConsentEnabled,
       minInteractions: config.pushConsentMinInteractions,
       interestScoreThreshold: config.pushInterestScoreThreshold,
       strongInterestScore: config.pushStrongInterestScore,
@@ -79,13 +83,13 @@ function publicConfig(config: Awaited<ReturnType<typeof getPublicSimulatorConfig
   };
 }
 
-function publicTiming(agent: Awaited<ReturnType<typeof getAgentById>>) {
+function publicTiming(agent: Awaited<ReturnType<typeof getAgentById>>, webMode: unknown) {
   if (!agent) return null;
   return {
     // O WhatsApp real pode usar uma cadência mais lenta. No Ravi Web, a
     // latência de rede/LLM já cria uma pausa natural, então limitamos atrasos
     // artificiais sem alterar a configuração global do agente/Z-API.
-    debounceSeconds: Math.min(agent.debounceSeconds, 2),
+    debounceSeconds: isRaviWebLite(webMode) ? 0 : Math.min(agent.debounceSeconds, 2),
     typingSimulationEnabled: agent.typingSimulationEnabled,
     typingCps: Math.max(agent.typingCps, 16),
     typingMinDelayMs: Math.min(agent.typingMinDelayMs, 650),
@@ -137,12 +141,13 @@ export const publicSimulatorRouter = router({
             const history = await listPublicSessionMessages(session.conversationId);
             return {
               resumed: true as const,
+              internalSessionId: session.id,
               publicId: session.publicId,
               token: input.existing.token,
               conversationId: session.conversationId,
               status: session.status,
               config: publicConfig(config),
-              timing: publicTiming(agent),
+              timing: publicTiming(agent, config.webMode),
               messages: history,
             };
           }
@@ -161,12 +166,13 @@ export const publicSimulatorRouter = router({
       const history = await listPublicSessionMessages(created.session.conversationId);
       return {
         resumed: false as const,
+        internalSessionId: created.session.id,
         publicId: created.session.publicId,
         token: created.token,
         conversationId: created.session.conversationId,
         status: created.session.status,
         config: publicConfig(config),
-        timing: publicTiming(agent),
+        timing: publicTiming(agent, config.webMode),
         messages: history,
       };
     }),
@@ -290,13 +296,14 @@ export const publicSimulatorRouter = router({
     .query(async ({ input }) => {
       const session = await requirePublicSimulatorSession(input.publicId, input.token);
       const config = await getPublicSimulatorConfigByAgent(session.agentId);
+      const liteMode = isRaviWebLite(config?.webMode);
       const subscription = await getActiveSubscriptionForSession(session.id);
       const history = await listPublicSessionMessages(session.conversationId);
       const interactions = history.filter(message => message.direction === "inbound").length;
       const signals = Array.isArray(session.interestSignals) ? session.interestSignals : [];
       return {
-        enabled: Boolean(config?.pushEnabled && config.pushConsentEnabled),
-        vapidPublicKey: config?.pushEnabled ? getPublicVapidKey() : null,
+        enabled: Boolean(!liteMode && config?.pushEnabled && config.pushConsentEnabled),
+        vapidPublicKey: !liteMode && config?.pushEnabled ? getPublicVapidKey() : null,
         subscriptionActive: Boolean(subscription?.active),
         permissionStatus: subscription?.permissionStatus || null,
         consentOfferedAt: session.pushConsentOfferedAt,
@@ -304,7 +311,8 @@ export const publicSimulatorRouter = router({
         consentDeclinedAt: session.pushConsentDeclinedAt,
         optedOutAt: session.pushOptedOutAt,
         consentEligible: Boolean(
-          config?.pushEnabled &&
+          !liteMode &&
+            config?.pushEnabled &&
             config.pushConsentEnabled &&
             interactions >= config.pushConsentMinInteractions &&
             session.leadScore >= config.pushInterestScoreThreshold &&
@@ -326,6 +334,10 @@ export const publicSimulatorRouter = router({
     .input(sessionAuthSchema)
     .mutation(async ({ input }) => {
       const session = await requirePublicSimulatorSession(input.publicId, input.token);
+      const config = await getPublicSimulatorConfigByAgent(session.agentId);
+      if (isRaviWebLite(config?.webMode)) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Notificações pausadas no modo Lite" });
+      }
       await markPushConsentOffered(session.id);
       return { ok: true };
     }),
@@ -334,6 +346,10 @@ export const publicSimulatorRouter = router({
     .input(sessionAuthSchema)
     .mutation(async ({ input }) => {
       const session = await requirePublicSimulatorSession(input.publicId, input.token);
+      const config = await getPublicSimulatorConfigByAgent(session.agentId);
+      if (isRaviWebLite(config?.webMode)) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Notificações pausadas no modo Lite" });
+      }
       await markPushConsentDeclined(session.id);
       return { ok: true };
     }),
@@ -354,7 +370,7 @@ export const publicSimulatorRouter = router({
     .mutation(async ({ ctx, input }) => {
       const session = await requirePublicSimulatorSession(input.publicId, input.token);
       const config = await getPublicSimulatorConfigByAgent(session.agentId);
-      if (!config?.pushEnabled || !getPublicVapidKey()) {
+      if (isRaviWebLite(config?.webMode) || !config?.pushEnabled || !getPublicVapidKey()) {
         throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Notificações indisponíveis" });
       }
       const saved = await savePushSubscription({
@@ -403,6 +419,7 @@ export const publicSimulatorAdminRouter = router({
         agentId: z.number().int().positive(),
         slug: z.string().regex(/^[a-z0-9-]+$/).min(2).max(100),
         enabled: z.boolean(),
+        webMode: z.enum(["lite", "advanced"]),
         displayName: z.string().min(1).max(120),
         statusText: z.string().min(1).max(120),
         avatarUrl: z.string().max(500).nullable(),

@@ -39,6 +39,7 @@ import { PublicSimulatorRecovery } from "./PublicSimulatorRecovery";
 type ConfigForm = {
   slug: string;
   enabled: boolean;
+  webMode: "lite" | "advanced";
   displayName: string;
   statusText: string;
   avatarUrl: string | null;
@@ -67,6 +68,7 @@ type ConfigForm = {
 const EMPTY_FORM: ConfigForm = {
   slug: "ravi",
   enabled: true,
+  webMode: "lite",
   displayName: "RAVI",
   statusText: "online",
   avatarUrl: null,
@@ -197,6 +199,7 @@ function ConfigPanel({ agentId }: { agentId: number }) {
     setForm({
       slug: config.slug,
       enabled: config.enabled,
+      webMode: config.webMode === "advanced" ? "advanced" : "lite",
       displayName: config.displayName,
       statusText: config.statusText,
       avatarUrl: config.avatarUrl,
@@ -233,6 +236,7 @@ function ConfigPanel({ agentId }: { agentId: number }) {
       agentId,
       slug: form.slug.trim().toLowerCase(),
       enabled: form.enabled,
+      webMode: form.webMode,
       displayName: form.displayName.trim(),
       statusText: form.statusText.trim(),
       avatarUrl: form.avatarUrl,
@@ -294,6 +298,24 @@ function ConfigPanel({ agentId }: { agentId: number }) {
             </div>
           </CardHeader>
           <CardContent className="space-y-5">
+            <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-3">
+              <Label htmlFor="ravi-web-mode" className="text-xs">Modo público do Ravi Web</Label>
+              <select
+                id="ravi-web-mode"
+                value={form.webMode}
+                onChange={event => setForm(previous => ({
+                  ...previous,
+                  webMode: event.target.value === "advanced" ? "advanced" : "lite",
+                }))}
+                className="mt-2 h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+              >
+                <option value="lite">Lite — conversa, oferta, checkout e compra</option>
+                <option value="advanced">Advanced — reativa PWA, Push e recovery</option>
+              </select>
+              <p className="mt-2 text-xs text-muted-foreground">
+                O modo Lite apenas pausa as camadas avançadas; nenhum código, dado, regra ou histórico é excluído.
+              </p>
+            </div>
             <div className="rounded-xl border border-primary/25 bg-primary/5 p-3">
               <Label className="text-xs">Link público para anúncios e testes</Label>
               <div className="mt-2 flex gap-2">

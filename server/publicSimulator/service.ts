@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "crypto";
 import type { Agent } from "../../drizzle/schema";
+import { isRaviWebLite } from "../../shared/raviWebMode";
 import {
   appendMessage,
   getAgentById,
@@ -250,6 +251,7 @@ export async function processPublicSimulatorTurn(input: {
     pushConsentMinInteractions?: number;
     pushInterestScoreThreshold?: number;
     pushStrongInterestScore?: number;
+    webMode?: unknown;
   };
 }) {
   const session = await requirePublicSimulatorSession(input.publicId, input.token);
@@ -264,6 +266,7 @@ export async function processPublicSimulatorTurn(input: {
     throw new Error("REQUEST_ALREADY_PROCESSING");
   }
 
+  const liteMode = isRaviWebLite(input.config.webMode);
   try {
     if (input.kind === "start" && session.status !== "waiting") {
       throw new Error("CONVERSATION_ALREADY_STARTED");
@@ -273,7 +276,7 @@ export async function processPublicSimulatorTurn(input: {
     if (!agent || agent.status !== "active") throw new Error("AGENT_UNAVAILABLE");
 
     // Uma nova mensagem do lead invalida qualquer abandono anterior.
-    await cancelPendingRecoveryJobs(session.id, "lead_replied");
+    if (!liteMode) await cancelPendingRecoveryJobs(session.id, "lead_replied");
 
     let inboundText = (input.text || "").trim();
     let inputMediaUrl: string | null = null;
@@ -339,7 +342,7 @@ export async function processPublicSimulatorTurn(input: {
     }
 
     const optedOut = isPushOptOutMessage(inboundText);
-    if (optedOut) {
+    if (!liteMode && optedOut) {
       await revokeAllPushSubscriptionsForSession(session.id, "denied");
       await cancelPendingRecoveryJobs(session.id, "lead_opted_out");
     }
@@ -434,13 +437,14 @@ export async function processPublicSimulatorTurn(input: {
       });
     }
 
-    const activeSubscription = await getActiveSubscriptionForSession(session.id);
-    if (activeSubscription && !optedOut && !wantsCheckout) {
+    const activeSubscription = liteMode ? undefined : await getActiveSubscriptionForSession(session.id);
+    if (!liteMode && activeSubscription && !optedOut && !wantsCheckout) {
       await scheduleRecoverySequence(session.id);
     }
 
     const consentEligible = Boolean(
-      input.config.pushEnabled &&
+      !liteMode &&
+        input.config.pushEnabled &&
         input.config.pushConsentEnabled &&
         !activeSubscription &&
         !session.pushConsentGrantedAt &&

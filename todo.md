@@ -935,51 +935,38 @@
 - [x] Testar request ausente recente (`processing/registered=false`), retry com mesmo requestId (`completed`) e duas chamadas concorrentes (HTTP 409 + 200, uma única row completed)
 - [x] Executar TypeScript, 567/567 testes e build de produção; busca final confirma que `Resposta não encontrada`/`missing` existem somente como asserções negativas
 - [x] Salvar checkpoint e solicitar publicação
-- [ ] Validar a máquina de estados e a recuperação no iPhone real após publicação
+- [x] Validação avançada encerrada sem nova evolução por decisão estratégica; substituída pela validação do Ravi Web Lite na Fase 107
 
-## Fase 105 — Requests presos em processing e falhas de transporte em produção
+## Fase 105 — Requests presos em processing e falhas de transporte em produção — SUBSTITUÍDA PELO LITE
 
-- [ ] Correlacionar o request do iPhone `04cc9554-eb45-4ce7-a781-66229b8013ec`/conversa `150014` com request, mensagens inbound/outbound, resposta serializada, sessão e logs de produção
-- [ ] Correlacionar o request do Chrome exibido na captura com `recovery_transport_error`, `Failed to fetch` e nove tentativas de recovery
-- [ ] Identificar por que requests já iniciados permanecem em `processing` ou não retornam a resposta ao navegador quando o transporte original é perdido
-- [ ] Implementar retomada segura de requests órfãos/pendentes sem duplicar mensagem inbound, conversa ou resposta do Ravi
-- [ ] Preservar integralmente CSS/viewport e as sessões reais capturadas durante a correção
-- [ ] Adicionar testes para queda de transporte antes/depois da persistência inbound, outbound persistida antes do `completed` e retomada concorrente idempotente
-- [ ] Executar `pnpm check`, suíte Vitest completa e build de produção; validar o fluxo em produção antes de novo checkpoint
-- [ ] Confirmar no iPhone real que a resposta aparece automaticamente após falha transitória de transporte, sem recarregar e sem resetar a conversa
+- [x] Investigação avançada encerrada sem novas mudanças; casos e evidências foram preservados para eventual retomada via modo Advanced
+- [x] Recovery/polling avançado retirado do caminho público Lite por feature flag, sem exclusão do código existente
+- [x] CSS/viewport e sessões reais permaneceram preservados durante a mudança estratégica
 
-## Fase 106 — Autópsia e processamento assíncrono independente do HTTP
+## Fase 106 — Autópsia e processamento assíncrono independente do HTTP — CANCELADA EM FAVOR DO LITE
 
-- [ ] Produzir a linha do tempo ponto a ponto do request `04cc9554-eb45-4ce7-a781-66229b8013ec`, incluindo criação/ausência no banco, inbound, início/fim do LLM, outbound, completed e retorno HTTP
-- [ ] Determinar por evidência se houve timeout, rate limit, connection reset, parsing, resposta vazia, exceção pós-retorno, proxy, restart/deploy, CORS, DNS, AbortController ou fechamento de socket
-- [ ] Corrigir o recovery para contabilizar e persistir a primeira consulta como tentativa 1, sempre preenchendo HTTP/result/error observáveis
-- [ ] Adicionar `?noSW=1` para desregistrar efetivamente todos os Service Workers, limpar caches Ravi e validar a flag antes do bootstrap
-- [ ] Refatorar o envio público para aceitar e persistir imediatamente o request, responder com `requestId/status=processing` e executar o Ravi fora do ciclo HTTP original
-- [ ] Persistir payload necessário ao job e lifecycle com atividade/tentativas/claim para retomada idempotente por `sessionId + requestId`
-- [ ] Implementar watchdog server-side: detectar requests sem atividade, retomar com segurança e finalizar como `failed` após limite explícito, nunca apagando sessão/conversa
-- [ ] Garantir idempotência de worker, watchdog, retry e recovery concorrentes sem duplicar inbound, outbound, mídia ou resposta
-- [ ] Testar perda forçada da conexão imediatamente após o aceite, conclusão backend autônoma e recuperação da resposta após reconexão
-- [ ] Comparar Chrome com e sem Service Worker e confirmar no iPhone o cenário modo avião/reconexão
-- [ ] Preservar absolutamente todo CSS/viewport durante esta fase
+- [x] Arquitetura assíncrona/watchdog não implementada por decisão explícita de reduzir complexidade e validar conversão com o Lite
+- [x] `?noSW=1` implementado e validado: registros, controlador, caches Ravi e manifest ficam ausentes após limpeza segura
+- [x] Código, tabelas e evidências avançadas preservados para eventual retomada futura
 
 ## Fase 107 — Ravi Web Lite para validação de conversão
 
-- [ ] Salvar checkpoint de segurança da versão avançada antes de qualquer alteração funcional do modo Lite
-- [ ] Mapear dependências, funcionalidades públicas a pausar, jobs afetados, arquivos a alterar e caminho exato `lite → advanced`
-- [ ] Criar feature flag central `RAVI_WEB_MODE=lite|advanced`, com Lite ativo por padrão na versão pública e contratos avançados preservados
-- [ ] Manter cérebro, prompts, regras comerciais, LLM, lead/session/conversation IDs, UTMs, histórico, etapas, objeções, score, checkout, webhook e analytics essenciais
-- [ ] No Lite, desativar somente PWA, Web Push, solicitação de permissão, registro de Service Worker, PushManager, Follow-up/Push e recovery/watchdog avançados
-- [ ] Na primeira execução Lite, desregistrar Service Workers antigos do Ravi e limpar somente caches Ravi/PWA, preservando localStorage, sessão, conversa e histórico
-- [ ] Implementar envio síncrono simples: bloquear um envio, persistir inbound, executar Ravi, persistir outbound, retornar e liberar o próximo envio
-- [ ] Implementar timeout finito que sempre remove digitando/sincronizando e mostra `Não consegui responder agora. Tentar novamente?`
-- [ ] Implementar botão `TENTAR NOVAMENTE` com o mesmo requestId e proteção contra inbound/outbound duplicados, sem criar sessão ou conversa
-- [ ] Remover do caminho Lite o polling/recovery automático complexo; manter apenas histórico de mensagens concluídas no bootstrap
-- [ ] Manter debug mínimo por `?debug=1` com sessionId, conversationId, último HTTP, duração e último erro, sem geometria de viewport
-- [ ] Garantir página em comportamento nativo: sem VisualViewport, cálculo JS de altura, fullscreen forçado, body lock ou controle manual do teclado
-- [ ] Pausar somente o Heartbeat `ravi-web-push-recovery` e documentar taskUid/estado; não desligar jobs de outras funcionalidades
-- [ ] Não excluir tabelas, registros, subscriptions, regras, jobs, eventos, métricas, migrations ou código avançado
-- [ ] Testar resposta normal, timeout, erro backend, retry idempotente, refresh, sessão existente, checkout e conversão
-- [ ] Executar teste automatizado com pelo menos 30 turnos cobrindo histórico, persistência, duplicidade e estabilidade
-- [ ] Validar 10 mensagens e histórico em iPhone/Safari, Android/Chrome e Desktop/Chrome, incluindo textos de 1/2/4 linhas
-- [ ] Executar `pnpm check`, suíte Vitest completa e build de produção antes do checkpoint Lite
+- [x] Salvar checkpoint de segurança da versão avançada antes de qualquer alteração funcional do modo Lite (`f73fa669`)
+- [x] Mapear dependências, funcionalidades públicas a pausar, jobs afetados, arquivos a alterar e caminho exato `lite → advanced`
+- [x] Criar feature flag central `webMode=lite|advanced`, com Lite ativo por padrão na versão pública, seletor administrativo e contratos avançados preservados
+- [x] Manter cérebro, prompts, regras comerciais, LLM, lead/session/conversation IDs, UTMs, histórico, etapas, objeções, score, checkout, webhook e analytics essenciais
+- [x] No Lite, desativar somente PWA, Web Push, solicitação de permissão, registro de Service Worker, PushManager, Follow-up/Push e recovery/watchdog avançados
+- [x] Na primeira execução Lite, desregistrar Service Workers antigos do Ravi e limpar somente caches Ravi/PWA, preservando localStorage, sessão, conversa e histórico
+- [x] Implementar envio síncrono simples: bloquear um envio, persistir inbound, executar Ravi, persistir outbound, retornar e liberar o próximo envio
+- [x] Implementar timeout finito de 45s que sempre remove digitando/sincronizando e mostra `Não consegui responder agora. Tentar novamente?`
+- [x] Implementar botão `TENTAR NOVAMENTE` com o mesmo requestId e proteção contra inbound/outbound duplicados, sem criar sessão ou conversa
+- [x] Remover do caminho Lite o polling/recovery automático complexo; manter apenas histórico de mensagens concluídas no bootstrap
+- [x] Manter debug mínimo por `?debug=1` com sessionId, conversationId, último HTTP, duração e último erro, sem geometria de viewport
+- [x] Garantir página em comportamento nativo: sem VisualViewport, cálculo JS de altura, fullscreen forçado, body lock ou controle manual do teclado
+- [x] Pausar somente o Heartbeat `ravi-web-push-recovery` (`jPPaMDLPc5hXZnXLSKpH8B`) e documentar estado; nenhum outro job foi alterado
+- [x] Não excluir tabelas, registros, subscriptions, regras, jobs, eventos, métricas, migrations ou código avançado
+- [x] Testar resposta normal, erro de transporte, retry idempotente pelo mesmo requestId, refresh, sessão existente, checkout e conversão; timeout finito coberto por regressão de código
+- [x] Executar teste automatizado com 30 turnos/60 mensagens cobrindo ordem, chaves únicas, crescimento linear do histórico e estabilidade
+- [ ] Validar fisicamente 10 mensagens e histórico em iPhone/Safari e Android/Chrome após publicação; Desktop/Chrome e viewports 390×844/1440×900 já validados
+- [x] Executar `pnpm check`, suíte Vitest completa (78 arquivos/573 testes) e build de produção antes do checkpoint Lite
 - [ ] Salvar checkpoint Ravi Web Lite e entregar a versão para publicação/validação no iPhone real

@@ -27,6 +27,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRoute } from "wouter";
 import {
+  disableRaviPwaForLite,
   getPushCapability,
   registerRaviServiceWorker,
   subscribeBrowserToPush,
@@ -35,6 +36,7 @@ import ViewportDebugPanel from "../components/ViewportDebugPanel";
 
 type PublicConfig = {
   slug: string;
+  mode: "lite" | "advanced";
   displayName: string;
   statusText: string;
   avatarUrl: string | null;
@@ -85,10 +87,12 @@ type PendingRequest = {
   text?: string;
 };
 type RequestDebug = {
+  sessionId: number | null;
   requestId: string | null;
   requestStatus: "idle" | "processing" | "completed" | "failed" | "expired";
   conversationId: number | null;
   lastHTTPStatus: number | null;
+  lastResponseMs: number | null;
   recoveryAttempts: number;
   lastRecoveryResult: string | null;
   frontendError: string | null;
@@ -104,6 +108,7 @@ const DEFAULT_TIMING: Timing = {
 };
 
 const DIRECT_REQUEST_TIMEOUT_MS = 30_000;
+const LITE_REQUEST_TIMEOUT_MS = 45_000;
 const MAX_REVEAL_TIME_MS = 15_000;
 
 function sleep(ms: number) {
@@ -207,7 +212,7 @@ function messageUrl(body: string | null | undefined) {
   return body?.match(/https?:\/\/[^\s]+/i)?.[0] ?? null;
 }
 
-function mapHistory(messages: any[], config: PublicConfig): ChatItem[] {
+export function mapHistory(messages: any[], config: PublicConfig): ChatItem[] {
   return messages.map(message => {
     const metadata = (message.metadata || {}) as Record<string, unknown>;
     const ts = message.createdAt ? new Date(message.createdAt).getTime() : Date.now();
@@ -290,12 +295,15 @@ export default function PublicSimulatorChat() {
   const [pushEnabled, setPushEnabled] = useState(false);
   const [showIosInstructions, setShowIosInstructions] = useState(false);
   const [pushBusy, setPushBusy] = useState(false);
+  const [liteRetryAvailable, setLiteRetryAvailable] = useState(false);
   const [slowNotice, setSlowNotice] = useState<string | null>(null);
   const [requestDebug, setRequestDebug] = useState<RequestDebug>({
+    sessionId: null,
     requestId: null,
     requestStatus: "idle",
     conversationId: null,
     lastHTTPStatus: null,
+    lastResponseMs: null,
     recoveryAttempts: 0,
     lastRecoveryResult: null,
     frontendError: null,
@@ -313,12 +321,14 @@ export default function PublicSimulatorChat() {
   const itemsRef = useRef<ChatItem[]>([]);
   const revealRunRef = useRef(0);
   const recoveredOnMountRef = useRef(false);
+  const sendLockRef = useRef(false);
+  const liteRetryActionRef = useRef<null | (() => Promise<void>)>(null);
 
   const busy = phase === "thinking" || phase === "typing";
   const started = status !== "waiting";
   const pushSupport = trpc.publicSimulator.pushSupport.useQuery(
     credentials || { publicId: "invalid-public-session", token: "invalid-public-session-token" },
-    { enabled: Boolean(credentials), refetchOnWindowFocus: false },
+    { enabled: Boolean(credentials && config?.mode === "advanced"), refetchOnWindowFocus: false },
   );
   const pushCapability = useMemo(
     () => (typeof window === "undefined" ? null : getPushCapability()),
@@ -327,6 +337,7 @@ export default function PublicSimulatorChat() {
   const consentEligible = Boolean(pushPrompt?.eligible || pushSupport.data?.consentEligible);
   const strongInterest = Boolean(pushPrompt?.strongInterest || pushSupport.data?.strongInterest);
   const mayOfferPush = Boolean(
+    config?.mode === "advanced" &&
     config?.push?.enabled &&
       config.push.consentEnabled &&
       pushSupport.data?.enabled &&
@@ -358,6 +369,9 @@ export default function PublicSimulatorChat() {
     sessionStorage.removeItem("ravi:asset-recovery");
     if (mountedRef.current) return;
     mountedRef.current = true;
+    if (new URLSearchParams(window.location.search).get("noSW") === "1") {
+      void disableRaviPwaForLite().then(result => console.info("[Ravi Lite noSW]", result));
+    }
     bootstrap
       .mutateAsync({
         slug,
@@ -374,13 +388,25 @@ export default function PublicSimulatorChat() {
         setStatus(result.status);
         setRequestDebug(previous => ({
           ...previous,
+          sessionId: result.internalSessionId,
           conversationId: result.conversationId,
         }));
         const historyItems = mapHistory(result.messages as any[], result.config as PublicConfig);
         itemsRef.current = historyItems;
         setItems(historyItems);
-        setPushEnabled(Boolean((result.config as PublicConfig)?.push?.enabled));
-        if ((result.config as PublicConfig)?.push?.enabled) {
+        const publicConfig = result.config as PublicConfig;
+        const advanced = publicConfig.mode === "advanced";
+        setPushEnabled(Boolean(advanced && publicConfig.push?.enabled));
+        if (!advanced) {
+          void disableRaviPwaForLite().then(cleanup => {
+            console.info("[Ravi Lite cleanup]", cleanup);
+            const reloadKey = "ravi:lite-sw-cleared";
+            if (cleanup.hadController && sessionStorage.getItem(reloadKey) !== "1") {
+              sessionStorage.setItem(reloadKey, "1");
+              window.location.reload();
+            }
+          });
+        } else if (publicConfig.push?.enabled) {
           void registerRaviServiceWorker().catch(() => undefined);
         }
       })
@@ -442,12 +468,14 @@ export default function PublicSimulatorChat() {
         for (let index = 0; index < actions.length; index += 1) {
           if (runId !== revealRunRef.current) return;
           const action = actions[index];
-          const alreadyVisible = itemsRef.current.some(item => {
-            if (item.side !== "agent") return false;
-            if (action.kind === "text") return item.kind === "text" && item.text === action.text;
-            if (action.kind === "checkout") return item.kind === "checkout" && item.checkoutUrl === action.url;
-            return item.kind === action.mediaType && item.mediaUrl === action.mediaUrl;
-          });
+          const alreadyVisible =
+            config?.mode === "advanced" &&
+            itemsRef.current.some(item => {
+              if (item.side !== "agent") return false;
+              if (action.kind === "text") return item.kind === "text" && item.text === action.text;
+              if (action.kind === "checkout") return item.kind === "checkout" && item.checkoutUrl === action.url;
+              return item.kind === action.mediaType && item.mediaUrl === action.mediaUrl;
+            });
           if (alreadyVisible) continue;
 
           const content = String(action.text || action.caption || action.filename || "mídia");
@@ -482,7 +510,7 @@ export default function PublicSimulatorChat() {
         if (runId === revealRunRef.current) setPhase("idle");
       }
     },
-    [pushItem, timing],
+    [config?.mode, pushItem, timing],
   );
 
   const recoverRequest = useCallback(
@@ -581,7 +609,7 @@ export default function PublicSimulatorChat() {
   );
 
   useEffect(() => {
-    if (!credentials || !config || recoveredOnMountRef.current) return;
+    if (!credentials || !config || config.mode === "lite" || recoveredOnMountRef.current) return;
     const pending = readPendingRequest(slug);
     if (!pending) return;
     recoveredOnMountRef.current = true;
@@ -615,7 +643,10 @@ export default function PublicSimulatorChat() {
 
   const processTextNow = useCallback(
     async (content: string, kind: "start" | "text" = "text") => {
-      if (!credentials || !config) return;
+      if (!credentials || !config) {
+        sendLockRef.current = false;
+        return;
+      }
       const requestId = crypto.randomUUID();
       const pending: PendingRequest = { requestId, createdAt: Date.now(), kind, text: content };
       savePendingRequest(slug, pending);
@@ -624,10 +655,58 @@ export default function PublicSimulatorChat() {
         requestId,
         requestStatus: "processing",
         lastHTTPStatus: null,
+        lastResponseMs: null,
         recoveryAttempts: 0,
         lastRecoveryResult: "sending_original_request",
         frontendError: null,
       }));
+      if (config.mode === "lite") {
+        const sendOriginal = () => sendText.mutateAsync({ slug, ...credentials, requestId, kind, text: content });
+        const runLiteRequest = async () => {
+          const startedAt = Date.now();
+          sendLockRef.current = true;
+          liteRetryActionRef.current = null;
+          setLiteRetryAvailable(false);
+          setError(null);
+          setPhase("thinking");
+          setSlowNotice(null);
+          const slowTimer = window.setTimeout(() => setSlowNotice("Preparando sua resposta…"), 12_000);
+          try {
+            const result = await withTimeout(sendOriginal(), LITE_REQUEST_TIMEOUT_MS);
+            setRequestDebug(previous => ({
+              ...previous,
+              requestStatus: "completed",
+              lastHTTPStatus: 200,
+              lastResponseMs: Date.now() - startedAt,
+              lastRecoveryResult: "lite_request_completed",
+              frontendError: null,
+            }));
+            setStatus("active");
+            await revealActions(result);
+            clearPendingRequest(slug, requestId);
+          } catch (requestError: any) {
+            const message = String(requestError?.message || "Falha ao responder").slice(0, 180);
+            setRequestDebug(previous => ({
+              ...previous,
+              requestStatus: "failed",
+              lastHTTPStatus: requestHttpStatus(requestError),
+              lastResponseMs: Date.now() - startedAt,
+              lastRecoveryResult: "lite_request_failed",
+              frontendError: message,
+            }));
+            setError("Não consegui responder agora. Tentar novamente?");
+            liteRetryActionRef.current = runLiteRequest;
+            setLiteRetryAvailable(true);
+          } finally {
+            window.clearTimeout(slowTimer);
+            setSlowNotice(null);
+            setPhase("idle");
+            sendLockRef.current = false;
+          }
+        };
+        await runLiteRequest();
+        return;
+      }
       setPhase("thinking");
       setSlowNotice(null);
       const slowTimer = window.setTimeout(() => setSlowNotice("Preparando sua resposta…"), 12_000);
@@ -669,13 +748,15 @@ export default function PublicSimulatorChat() {
         window.clearTimeout(slowTimer);
         setSlowNotice(null);
         setPhase("idle");
+        sendLockRef.current = false;
       }
     },
     [config, credentials, recoverRequest, revealActions, sendText, slug],
   );
 
   const startConversation = async () => {
-    if (!config || !credentials || started || busy) return;
+    if (!config || !credentials || started || busy || sendLockRef.current) return;
+    sendLockRef.current = true;
     pushItem({ side: "lead", kind: "text", text: config.startLeadMessage });
     setStatus("active");
     await processTextNow(config.startLeadMessage, "start");
@@ -687,12 +768,16 @@ export default function PublicSimulatorChat() {
     const merged = queueRef.current.join("\n").trim();
     queueRef.current = [];
     if (merged) await processTextNow(merged, "text");
-    else setPhase("idle");
+    else {
+      setPhase("idle");
+      sendLockRef.current = false;
+    }
   }, [processTextNow]);
 
   const queueText = () => {
     const value = text.trim();
-    if (!value || !started || busy || recording) return;
+    if (!value || !started || busy || recording || liteRetryAvailable || sendLockRef.current) return;
+    sendLockRef.current = true;
     pushItem({ side: "lead", kind: "text", text: value });
     queueRef.current.push(value);
     setText("");
@@ -725,11 +810,13 @@ export default function PublicSimulatorChat() {
     chunksRef.current = [];
     setRecording(false);
     setRecordingMs(0);
+    sendLockRef.current = false;
     if (recordingTimerRef.current) window.clearInterval(recordingTimerRef.current);
   };
 
   const beginRecording = async () => {
-    if (!started || busy || phase === "waiting" || recording) return;
+    if (!started || busy || phase === "waiting" || recording || sendLockRef.current) return;
+    sendLockRef.current = true;
     setError(null);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -751,9 +838,13 @@ export default function PublicSimulatorChat() {
         chunksRef.current = [];
         setRecording(false);
         setRecordingMs(0);
-        if (!blob.size || !credentials || !config) return;
+        if (!blob.size || !credentials || !config) {
+          sendLockRef.current = false;
+          return;
+        }
         if (blob.size > 16 * 1024 * 1024) {
           setError("O áudio deve ter no máximo 16 MB.");
+          sendLockRef.current = false;
           return;
         }
         const localUrl = URL.createObjectURL(blob);
@@ -770,6 +861,7 @@ export default function PublicSimulatorChat() {
           requestId,
           requestStatus: "processing",
           lastHTTPStatus: null,
+          lastResponseMs: null,
           recoveryAttempts: 0,
           lastRecoveryResult: "sending_original_audio_request",
           frontendError: null,
@@ -788,6 +880,53 @@ export default function PublicSimulatorChat() {
             mimeType: blob.type.split(";")[0] || "audio/webm",
             durationMs,
           });
+          if (config.mode === "lite") {
+            const runLiteAudioRequest = async () => {
+              const startedAt = Date.now();
+              sendLockRef.current = true;
+              liteRetryActionRef.current = null;
+              setLiteRetryAvailable(false);
+              setError(null);
+              setPhase("thinking");
+              setSlowNotice(null);
+              const liteSlowTimer = window.setTimeout(() => setSlowNotice("Preparando seu áudio…"), 12_000);
+              try {
+                const liteResult = await withTimeout(sendOriginal(), LITE_REQUEST_TIMEOUT_MS);
+                setRequestDebug(previous => ({
+                  ...previous,
+                  requestStatus: "completed",
+                  lastHTTPStatus: 200,
+                  lastResponseMs: Date.now() - startedAt,
+                  lastRecoveryResult: "lite_audio_request_completed",
+                  frontendError: null,
+                }));
+                setStatus("active");
+                await revealActions(liteResult);
+                clearPendingRequest(slug, requestId);
+              } catch (requestError: any) {
+                const message = String(requestError?.message || "Falha ao responder ao áudio").slice(0, 180);
+                setRequestDebug(previous => ({
+                  ...previous,
+                  requestStatus: "failed",
+                  lastHTTPStatus: requestHttpStatus(requestError),
+                  lastResponseMs: Date.now() - startedAt,
+                  lastRecoveryResult: "lite_audio_request_failed",
+                  frontendError: message,
+                }));
+                setError("Não consegui responder agora. Tentar novamente?");
+                liteRetryActionRef.current = runLiteAudioRequest;
+                setLiteRetryAvailable(true);
+              } finally {
+                window.clearTimeout(liteSlowTimer);
+                setSlowNotice(null);
+                setPhase("idle");
+                sendLockRef.current = false;
+              }
+            };
+            window.clearTimeout(slowTimer);
+            await runLiteAudioRequest();
+            return;
+          }
           try {
             result = await withTimeout(
               sendOriginal(),
@@ -823,6 +962,7 @@ export default function PublicSimulatorChat() {
           window.clearTimeout(slowTimer);
           setSlowNotice(null);
           setPhase("idle");
+          sendLockRef.current = false;
         }
       };
       recorder.start(250);
@@ -832,6 +972,7 @@ export default function PublicSimulatorChat() {
         250,
       );
     } catch {
+      sendLockRef.current = false;
       setError("Permita o acesso ao microfone para enviar áudio.");
     }
   };
@@ -1003,9 +1144,26 @@ export default function PublicSimulatorChat() {
           {error && (
             <div className="flex items-center justify-between border-t border-red-400/20 bg-red-950/60 px-3 py-2 text-xs text-red-100">
               <span>{error}</span>
-              <button onClick={() => setError(null)} aria-label="Fechar aviso">
-                <X className="size-4" />
-              </button>
+              <div className="ml-3 flex shrink-0 items-center gap-2">
+                {config.mode === "lite" && liteRetryAvailable && (
+                  <button
+                    onClick={() => void liteRetryActionRef.current?.()}
+                    className="rounded-full bg-red-100 px-3 py-1.5 font-semibold text-red-950"
+                  >
+                    TENTAR NOVAMENTE
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    setError(null);
+                    setLiteRetryAvailable(false);
+                    liteRetryActionRef.current = null;
+                  }}
+                  aria-label="Fechar aviso"
+                >
+                  <X className="size-4" />
+                </button>
+              </div>
             </div>
           )}
 
@@ -1058,7 +1216,7 @@ export default function PublicSimulatorChat() {
                         queueText();
                       }
                     }}
-                    disabled={!started || busy}
+                    disabled={!started || busy || liteRetryAvailable}
                     autoComplete="off"
                     autoCorrect="on"
                     autoCapitalize="sentences"
@@ -1071,7 +1229,7 @@ export default function PublicSimulatorChat() {
                 <button
                   onClick={text.trim() ? queueText : beginRecording}
                   onPointerDown={event => event.preventDefault()}
-                  disabled={!started || busy || (phase === "waiting" && !text.trim())}
+                  disabled={!started || busy || liteRetryAvailable || (phase === "waiting" && !text.trim())}
                   className="grid size-11 shrink-0 place-items-center rounded-full bg-[var(--sim-accent)] text-[#071611] transition active:scale-95 disabled:opacity-40"
                   aria-label={text.trim() ? "Enviar mensagem" : "Gravar áudio"}
                 >
@@ -1130,7 +1288,7 @@ export default function PublicSimulatorChat() {
           * { scroll-behavior: auto !important; }
         }
       `}</style>
-      <ViewportDebugPanel request={requestDebug} />
+      <ViewportDebugPanel request={requestDebug} lite={config.mode === "lite"} />
     </div>
   );
 }

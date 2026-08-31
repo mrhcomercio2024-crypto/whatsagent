@@ -1076,6 +1076,7 @@ export const publicSimulatorConfigs = mysqlTable(
     agentId: int("agentId").notNull().unique(),
     slug: varchar("slug", { length: 100 }).notNull().unique(),
     enabled: boolean("enabled").default(true).notNull(),
+    webMode: mysqlEnum("webMode", ["lite", "advanced"]).default("lite").notNull(),
     displayName: varchar("displayName", { length: 120 }).default("RAVI").notNull(),
     statusText: varchar("statusText", { length: 120 }).default("online").notNull(),
     avatarUrl: varchar("avatarUrl", { length: 500 }),
