@@ -1097,11 +1097,29 @@ export const publicSimulatorConfigs = mysqlTable(
     webhookSecret: varchar("webhookSecret", { length: 128 }).notNull(),
     purchaseEventNames: json("purchaseEventNames"),
     checkoutRequestPatterns: json("checkoutRequestPatterns"),
+    // Recuperação multicanal — Web Push é o primeiro canal ativo.
+    pushEnabled: boolean("pushEnabled").default(false).notNull(),
+    pushConsentEnabled: boolean("pushConsentEnabled").default(true).notNull(),
+    pushConsentMinInteractions: int("pushConsentMinInteractions").default(4).notNull(),
+    pushInterestScoreThreshold: int("pushInterestScoreThreshold").default(40).notNull(),
+    pushStrongInterestScore: int("pushStrongInterestScore").default(65).notNull(),
+    pushConsentMessage: text("pushConsentMessage"),
+    pushConsentButtonText: varchar("pushConsentButtonText", { length: 160 })
+      .default("SIM, QUERO QUE O RAVI ME AVISE")
+      .notNull(),
+    pushGlobalCooldownMinutes: int("pushGlobalCooldownMinutes").default(180).notNull(),
+    pushMaxPerSequence: int("pushMaxPerSequence").default(3).notNull(),
+    pushAttributionWindowHours: int("pushAttributionWindowHours").default(168).notNull(),
+    pushAiPersonalizationEnabled: boolean("pushAiPersonalizationEnabled")
+      .default(true)
+      .notNull(),
+    recoveryCronTaskUid: varchar("recoveryCronTaskUid", { length: 65 }),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
     updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   },
   table => ({
     agentIdx: index("pub_sim_cfg_agent_idx").on(table.agentId),
+    recoveryCronIdx: index("pub_sim_cfg_recovery_cron_idx").on(table.recoveryCronTaskUid),
     slugIdx: index("pub_sim_cfg_slug_idx").on(table.slug),
   })
 );
@@ -1154,6 +1172,12 @@ export const publicSimulatorSessions = mysqlTable(
     orderId: varchar("orderId", { length: 180 }),
     amountCents: int("amountCents"),
     currency: varchar("currency", { length: 12 }).default("BRL"),
+    leadScore: int("leadScore").default(0).notNull(),
+    interestSignals: json("interestSignals"),
+    pushConsentOfferedAt: timestamp("pushConsentOfferedAt"),
+    pushConsentGrantedAt: timestamp("pushConsentGrantedAt"),
+    pushConsentDeclinedAt: timestamp("pushConsentDeclinedAt"),
+    pushOptedOutAt: timestamp("pushOptedOutAt"),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
     updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   },
@@ -1228,3 +1252,184 @@ export const publicSimulatorConversions = mysqlTable(
 );
 export type PublicSimulatorConversion = typeof publicSimulatorConversions.$inferSelect;
 export type InsertPublicSimulatorConversion = typeof publicSimulatorConversions.$inferInsert;
+
+/**
+ * Assinaturas Web Push do Ravi Web. Endpoint e chaves são armazenados
+ * cifrados; endpointHash existe apenas para deduplicação e lookup seguro.
+ */
+export const publicPushSubscriptions = mysqlTable(
+  "public_push_subscriptions",
+  {
+    id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
+    configId: int("configId").notNull(),
+    agentId: int("agentId").notNull(),
+    sessionId: bigint("sessionId", { mode: "number" }).notNull(),
+    leadId: int("leadId").notNull(),
+    conversationId: int("conversationId").notNull(),
+    endpointHash: varchar("endpointHash", { length: 64 }).notNull().unique(),
+    endpointCiphertext: longtext("endpointCiphertext").notNull(),
+    p256dhCiphertext: text("p256dhCiphertext").notNull(),
+    authCiphertext: text("authCiphertext").notNull(),
+    permissionStatus: mysqlEnum("permissionStatus", ["default", "granted", "denied"])
+      .default("granted")
+      .notNull(),
+    browser: varchar("browser", { length: 80 }),
+    device: varchar("device", { length: 80 }),
+    userAgent: varchar("userAgent", { length: 1000 }),
+    active: boolean("active").default(true).notNull(),
+    lastPushAt: timestamp("lastPushAt"),
+    failureCount: int("failureCount").default(0).notNull(),
+    invalidatedAt: timestamp("invalidatedAt"),
+    revokedAt: timestamp("revokedAt"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    sessionIdx: index("pub_push_sub_session_idx").on(table.sessionId, table.active),
+    conversationIdx: index("pub_push_sub_conv_idx").on(table.conversationId, table.active),
+    agentIdx: index("pub_push_sub_agent_idx").on(table.agentId, table.active),
+  })
+);
+export type PublicPushSubscription = typeof publicPushSubscriptions.$inferSelect;
+export type InsertPublicPushSubscription = typeof publicPushSubscriptions.$inferInsert;
+
+/**
+ * Regras genéricas de recuperação. A coluna channel já reserva os canais
+ * futuros sem acoplar o motor ao Web Push.
+ */
+export const recoveryRules = mysqlTable(
+  "recovery_rules",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    configId: int("configId").notNull(),
+    agentId: int("agentId").notNull(),
+    name: varchar("name", { length: 160 }).notNull(),
+    channel: mysqlEnum("channel", ["push", "email", "instagram", "whatsapp"])
+      .default("push")
+      .notNull(),
+    triggerType: mysqlEnum("triggerType", ["user_inactive"]).default("user_inactive").notNull(),
+    sequenceOrder: int("sequenceOrder").default(0).notNull(),
+    delayMinutes: int("delayMinutes").notNull(),
+    eligibleStages: json("eligibleStages"),
+    eligibleTemperatures: json("eligibleTemperatures"),
+    minLeadScore: int("minLeadScore").default(0).notNull(),
+    requireInterest: boolean("requireInterest").default(true).notNull(),
+    messageTemplate: text("messageTemplate").notNull(),
+    aiPersonalizationEnabled: boolean("aiPersonalizationEnabled").default(false).notNull(),
+    aiPrompt: text("aiPrompt"),
+    attributionWindowHours: int("attributionWindowHours").default(168).notNull(),
+    maxAttempts: int("maxAttempts").default(1).notNull(),
+    isActive: boolean("isActive").default(true).notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    configIdx: index("recovery_rule_config_idx").on(
+      table.configId,
+      table.channel,
+      table.isActive,
+      table.sequenceOrder
+    ),
+    agentIdx: index("recovery_rule_agent_idx").on(table.agentId),
+  })
+);
+export type RecoveryRule = typeof recoveryRules.$inferSelect;
+export type InsertRecoveryRule = typeof recoveryRules.$inferInsert;
+
+/** Fila persistente e idempotente de todos os canais de recuperação. */
+export const recoveryJobs = mysqlTable(
+  "recovery_jobs",
+  {
+    id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
+    pushId: varchar("pushId", { length: 64 }).notNull().unique(),
+    idempotencyKey: varchar("idempotencyKey", { length: 180 }).notNull().unique(),
+    ruleId: int("ruleId").notNull(),
+    configId: int("configId").notNull(),
+    agentId: int("agentId").notNull(),
+    sessionId: bigint("sessionId", { mode: "number" }).notNull(),
+    leadId: int("leadId").notNull(),
+    conversationId: int("conversationId").notNull(),
+    subscriptionId: bigint("subscriptionId", { mode: "number" }),
+    channel: mysqlEnum("channel", ["push", "email", "instagram", "whatsapp"])
+      .default("push")
+      .notNull(),
+    sequenceKey: varchar("sequenceKey", { length: 100 }).notNull(),
+    status: mysqlEnum("status", [
+      "pending",
+      "processing",
+      "sent",
+      "cancelled",
+      "failed",
+      "expired",
+    ]).default("pending").notNull(),
+    sequenceOrder: int("sequenceOrder").default(0).notNull(),
+    scheduledAt: timestamp("scheduledAt").notNull(),
+    lockedAt: timestamp("lockedAt"),
+    sentAt: timestamp("sentAt"),
+    deliveredAt: timestamp("deliveredAt"),
+    clickedAt: timestamp("clickedAt"),
+    returnedAt: timestamp("returnedAt"),
+    checkoutAfterPushAt: timestamp("checkoutAfterPushAt"),
+    purchaseAfterPushAt: timestamp("purchaseAfterPushAt"),
+    revenueAfterPushCents: int("revenueAfterPushCents"),
+    attributionWindowHours: int("attributionWindowHours").default(168).notNull(),
+    attributionExpiresAt: timestamp("attributionExpiresAt"),
+    attemptCount: int("attemptCount").default(0).notNull(),
+    maxAttempts: int("maxAttempts").default(1).notNull(),
+    payload: json("payload"),
+    lastError: text("lastError"),
+    cancelReason: varchar("cancelReason", { length: 120 }),
+    cancelledAt: timestamp("cancelledAt"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    dueIdx: index("recovery_job_due_idx").on(table.status, table.channel, table.scheduledAt),
+    sessionIdx: index("recovery_job_session_idx").on(table.sessionId, table.status),
+    sequenceIdx: index("recovery_job_sequence_idx").on(table.sessionId, table.sequenceKey, table.status),
+    attributionIdx: index("recovery_job_attr_idx").on(table.sessionId, table.sentAt),
+    ruleIdx: index("recovery_job_rule_idx").on(table.ruleId, table.status),
+  })
+);
+export type RecoveryJob = typeof recoveryJobs.$inferSelect;
+export type InsertRecoveryJob = typeof recoveryJobs.$inferInsert;
+
+/** Linha do tempo auditável de cada recuperação e de sua receita atribuída. */
+export const recoveryEvents = mysqlTable(
+  "recovery_events",
+  {
+    id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
+    eventId: varchar("eventId", { length: 80 }).notNull().unique(),
+    pushId: varchar("pushId", { length: 64 }).notNull(),
+    jobId: bigint("jobId", { mode: "number" }).notNull(),
+    ruleId: int("ruleId").notNull(),
+    sessionId: bigint("sessionId", { mode: "number" }).notNull(),
+    agentId: int("agentId").notNull(),
+    channel: mysqlEnum("channel", ["push", "email", "instagram", "whatsapp"])
+      .default("push")
+      .notNull(),
+    eventType: mysqlEnum("eventType", [
+      "queued",
+      "sent",
+      "delivered",
+      "clicked",
+      "returned",
+      "checkout_after_push",
+      "purchase_after_push",
+      "failed",
+      "cancelled",
+      "subscription_invalid",
+    ]).notNull(),
+    revenueCents: int("revenueCents"),
+    attributionWindowHours: int("attributionWindowHours"),
+    payload: json("payload"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => ({
+    pushIdx: index("recovery_event_push_idx").on(table.pushId, table.createdAt),
+    ruleIdx: index("recovery_event_rule_idx").on(table.ruleId, table.eventType),
+    sessionIdx: index("recovery_event_session_idx").on(table.sessionId, table.createdAt),
+  })
+);
+export type RecoveryEvent = typeof recoveryEvents.$inferSelect;
+export type InsertRecoveryEvent = typeof recoveryEvents.$inferInsert;

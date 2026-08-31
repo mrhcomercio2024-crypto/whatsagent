@@ -781,3 +781,42 @@
 - [x] Remover “começa a responder em Xs” da área de mensagens
 - [x] Manter o debounce interno sem expor segundos ao visitante
 - [x] Atualizar testes: suíte 519/519 verde; validação visual e checkpoint concluídos nesta fase
+## Fase 96: PWA + Web Push + recuperação de conversas do Ravi Web
+
+- [x] Reutilizar `leads`, `conversations`, `public_simulator_sessions` e conversões existentes, sem duplicar estruturas
+- [x] Estender `public_simulator_configs` com consentimento contextual, score, cooldown, limite e atribuição editáveis
+- [x] Criar `public_push_subscriptions` vinculada a sessão, lead e conversa, com endpoint/chaves cifrados
+- [x] Criar `recovery_rules` multicanal com delays 30min/4h/24h, estágio, temperatura, score, IA opcional e limites
+- [x] Criar `recovery_jobs` para fila persistente, idempotente, cancelável e com atribuição de receita
+- [x] Criar `recovery_events` para fila, envio, entrega, clique, retorno, checkout, compra, falha e cancelamento
+- [x] Gerar e aplicar migration aditiva `0027_lyrical_shriek.sql`
+- [x] Gerar e proteger chaves VAPID com subject `mailto:marcelo@wedrop.com.br`; credenciais validadas por Vitest
+- [x] Adicionar dependência server-side `web-push` e tipagens
+- [x] Criar PWA com `manifest.webmanifest`, ícones derivados do avatar aprovado e metatags mobile/Apple
+- [x] Criar Service Worker com eventos `push`, entrega, clique, foco/navegação de janela e fallback offline
+- [x] Criar feature detection para contexto seguro, Service Worker, PushManager, Notification API, iOS e modo standalone
+- [x] Solicitar permissão somente após clique explícito do visitante no CTA contextual
+- [x] Exibir convite apenas após 4 interações, score mínimo e sinais objetivos reais de interesse
+- [x] Calcular interesse por sinais objetivos: 4+ interações, preço, funcionamento, marketplaces, prova/case, clique em CTA, estágio avançado, temperatura e lead score
+- [x] Permitir que a IA apenas personalize mensagens elegíveis; nunca decide sozinha interesse ou envio
+- [x] Criar orientação específica para iPhone/iPad adicionar à Tela de Início
+- [x] No iPhone/iPad, só oferecer instalação após sinal forte ou pedido explícito de avisos
+- [x] Salvar/remover PushSubscription com token público validado e associação a sessão/lead/conversa
+- [x] Proteger endpoint, `p256dh` e `auth` com AES-256-GCM; frontend/admin recebem apenas estado e metadados não sensíveis
+- [x] Criar deep-link por `pushId` aleatório; a sessão continua validada pelo token já armazenado no mesmo navegador
+- [x] Marcar visitante online por `lastSeenAt`/heartbeat e cancelar follow-ups quando retornar
+- [x] Cancelar fila quando houver resposta, opt-out, permissão revogada, checkout ou compra
+- [x] Centralizar cancelamento de todos os pushes pendentes ao retornar, comprar, pedir para parar, invalidar subscription ou receber 404/410
+- [x] Implementar envio Web Push VAPID com tratamento de 404/410 e desativação automática da subscription
+- [x] Implementar cooldown global por lead e limite máximo configurável por sequência, usando `sequenceKey`
+- [x] Criar mensagens padrão e personalização opcional por `gpt-5-mini`, com fallback e regras fixas prioritárias
+- [x] Estruturar regras e adaptadores multicanal com `channel = push` ativo e contratos preparados para Instagram, e-mail e WhatsApp
+- [x] Criar endpoint `/api/scheduled/public-push-followups` autenticado, idempotente, cron-only e vinculado por `taskUid`
+- [x] Preparar Heartbeat persistente de 1 minuto, SDK legado e campo `recoveryCronTaskUid`; criação do cron fica para depois da publicação obrigatória
+- [x] Criar aba administrativa de configuração, regras editáveis, fila, subscriptions sem segredos e métricas
+- [x] Criar funil: enviados → entregues estimados → cliques → retornos → checkout → compras → receita
+- [x] Rastrear `push_id`, regra, `sent_at`, `delivered_at`, `clicked_at`, `returned_at`, checkout/compra/receita pós-push e janela de atribuição
+- [x] Exibir receita recuperada separadamente pelos pushes de 30min, 4h e 24h
+- [x] Testes Vitest de PWA, segurança, scoring, multicanal, VAPID, tracking, cancelamentos e agendamento — 536/536 verde
+- [x] Validar desktop/Android compatível: contexto seguro, Service Worker e PushManager ativos; fluxo instrutivo tardio do iPhone coberto por regra e teste
+- [x] Build de produção concluído; manifest, Service Worker e ícones servidos corretamente; checkpoint e instrução de publicação/agendamento nesta entrega

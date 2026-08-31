@@ -13,6 +13,8 @@ import { registerZapiWebhook } from "../whatsapp/zapiWebhook";
 import { registerExternalEventsWebhook } from "../external/webhook";
 import { registerRealtimeRoutes } from "../realtime/sse";
 import { registerPublicSimulatorWebhook } from "../publicSimulator/webhook";
+import { registerPublicPushEventRoutes } from "../publicSimulator/push/events";
+import { registerRecoveryScheduledRoute } from "../publicSimulator/recovery/scheduled";
 import { startFollowupEngine } from "../followup/engine";
 import { startDebounceWorker } from "../ai/debounceWorker";
 import { stopRetryWorker } from "../whatsapp/retryWorker";
@@ -54,6 +56,8 @@ async function startServer() {
   registerZapiWebhook(app);
   registerExternalEventsWebhook(app);
   registerPublicSimulatorWebhook(app);
+  registerPublicPushEventRoutes(app);
+  registerRecoveryScheduledRoute(app);
   registerRealtimeRoutes(app);
   // tRPC API
   app.use(

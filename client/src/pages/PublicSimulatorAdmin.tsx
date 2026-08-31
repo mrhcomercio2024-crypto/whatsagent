@@ -26,6 +26,7 @@ import {
   Save,
   Settings2,
   Smartphone,
+  BellRing,
   Upload,
   UserRound,
 } from "lucide-react";
@@ -33,6 +34,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { StepsEditor } from "./Steps";
 import { Library, Triggers } from "./Media";
+import { PublicSimulatorRecovery } from "./PublicSimulatorRecovery";
 
 type ConfigForm = {
   slug: string;
@@ -49,6 +51,17 @@ type ConfigForm = {
   checkoutButtonText: string;
   purchaseEventNamesText: string;
   checkoutRequestPatternsText: string;
+  pushEnabled: boolean;
+  pushConsentEnabled: boolean;
+  pushConsentMinInteractions: number;
+  pushInterestScoreThreshold: number;
+  pushStrongInterestScore: number;
+  pushConsentMessage: string;
+  pushConsentButtonText: string;
+  pushGlobalCooldownMinutes: number;
+  pushMaxPerSequence: number;
+  pushAttributionWindowHours: number;
+  pushAiPersonalizationEnabled: boolean;
 };
 
 const EMPTY_FORM: ConfigForm = {
@@ -66,6 +79,17 @@ const EMPTY_FORM: ConfigForm = {
   checkoutButtonText: "ABRIR CHECKOUT",
   purchaseEventNamesText: "order.paid\ninvoice.paid\ncharge.paid",
   checkoutRequestPatternsText: "quero o link\nmanda o link\nme passa o link\nquero comprar\ncheckout",
+  pushEnabled: false,
+  pushConsentEnabled: true,
+  pushConsentMinInteractions: 4,
+  pushInterestScoreThreshold: 40,
+  pushStrongInterestScore: 65,
+  pushConsentMessage: "Posso te avisar aqui caso você saia da página antes de terminarmos?",
+  pushConsentButtonText: "QUERO RECEBER AVISOS",
+  pushGlobalCooldownMinutes: 180,
+  pushMaxPerSequence: 3,
+  pushAttributionWindowHours: 168,
+  pushAiPersonalizationEnabled: false,
 };
 
 export default function PublicSimulatorAdmin() {
@@ -86,7 +110,7 @@ function AdminInner({ agentId }: { agentId: number }) {
         description="Publique uma conversa real com o seu agente, edite todo o roteiro e acompanhe do anúncio até a compra confirmada."
       />
       <Tabs value={tab} onValueChange={setTab} className="mt-6">
-        <TabsList className="grid h-auto w-full grid-cols-2 gap-1 bg-muted/40 p-1 md:grid-cols-4">
+        <TabsList className="grid h-auto w-full grid-cols-2 gap-1 bg-muted/40 p-1 md:grid-cols-5">
           <TabsTrigger value="config" className="gap-2 py-2.5">
             <Settings2 className="size-4" /> Configuração
           </TabsTrigger>
@@ -98,6 +122,9 @@ function AdminInner({ agentId }: { agentId: number }) {
           </TabsTrigger>
           <TabsTrigger value="history" className="gap-2 py-2.5">
             <UserRound className="size-4" /> Conversas
+          </TabsTrigger>
+          <TabsTrigger value="recovery" className="gap-2 py-2.5">
+            <BellRing className="size-4" /> Recuperação
           </TabsTrigger>
         </TabsList>
 
@@ -129,6 +156,9 @@ function AdminInner({ agentId }: { agentId: number }) {
         </TabsContent>
         <TabsContent value="history" className="mt-6">
           <HistoryPanel agentId={agentId} />
+        </TabsContent>
+        <TabsContent value="recovery" className="mt-6">
+          <PublicSimulatorRecovery agentId={agentId} />
         </TabsContent>
       </Tabs>
     </div>
@@ -179,6 +209,17 @@ function ConfigPanel({ agentId }: { agentId: number }) {
       checkoutButtonText: config.checkoutButtonText,
       purchaseEventNamesText: parseList(config.purchaseEventNames).join("\n"),
       checkoutRequestPatternsText: parseList(config.checkoutRequestPatterns).join("\n"),
+      pushEnabled: config.pushEnabled,
+      pushConsentEnabled: config.pushConsentEnabled,
+      pushConsentMinInteractions: config.pushConsentMinInteractions,
+      pushInterestScoreThreshold: config.pushInterestScoreThreshold,
+      pushStrongInterestScore: config.pushStrongInterestScore,
+      pushConsentMessage: config.pushConsentMessage || EMPTY_FORM.pushConsentMessage,
+      pushConsentButtonText: config.pushConsentButtonText,
+      pushGlobalCooldownMinutes: config.pushGlobalCooldownMinutes,
+      pushMaxPerSequence: config.pushMaxPerSequence,
+      pushAttributionWindowHours: config.pushAttributionWindowHours,
+      pushAiPersonalizationEnabled: config.pushAiPersonalizationEnabled,
     });
   }, [config]);
 
@@ -204,6 +245,17 @@ function ConfigPanel({ agentId }: { agentId: number }) {
       checkoutButtonText: form.checkoutButtonText.trim(),
       purchaseEventNames: splitLines(form.purchaseEventNamesText),
       checkoutRequestPatterns: splitLines(form.checkoutRequestPatternsText),
+      pushEnabled: form.pushEnabled,
+      pushConsentEnabled: form.pushConsentEnabled,
+      pushConsentMinInteractions: form.pushConsentMinInteractions,
+      pushInterestScoreThreshold: form.pushInterestScoreThreshold,
+      pushStrongInterestScore: form.pushStrongInterestScore,
+      pushConsentMessage: form.pushConsentMessage.trim(),
+      pushConsentButtonText: form.pushConsentButtonText.trim(),
+      pushGlobalCooldownMinutes: form.pushGlobalCooldownMinutes,
+      pushMaxPerSequence: form.pushMaxPerSequence,
+      pushAttributionWindowHours: form.pushAttributionWindowHours,
+      pushAiPersonalizationEnabled: form.pushAiPersonalizationEnabled,
     });
   };
 
@@ -374,6 +426,33 @@ function ConfigPanel({ agentId }: { agentId: number }) {
           </CardContent>
         </Card>
 
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2"><BellRing className="size-5" /> Web Push e recuperação</CardTitle>
+            <CardDescription>Critérios globais aplicados antes das regras de 30min, 4h e 24h. Nenhuma permissão é pedida automaticamente.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div className="grid gap-3 md:grid-cols-3">
+              <ToggleSetting label="Ativar Web Push" hint="Libera convite, subscriptions e envio." checked={form.pushEnabled} onChange={pushEnabled => setForm(previous => ({ ...previous, pushEnabled }))} />
+              <ToggleSetting label="Exibir consentimento" hint="Só após interesse objetivo." checked={form.pushConsentEnabled} onChange={pushConsentEnabled => setForm(previous => ({ ...previous, pushConsentEnabled }))} />
+              <ToggleSetting label="Personalização por IA" hint="Reescreve apenas mensagens elegíveis." checked={form.pushAiPersonalizationEnabled} onChange={pushAiPersonalizationEnabled => setForm(previous => ({ ...previous, pushAiPersonalizationEnabled }))} />
+            </div>
+            <div className="grid gap-4 md:grid-cols-3">
+              <Field label="Interações mínimas"><Input type="number" min={1} max={50} value={form.pushConsentMinInteractions} onChange={event => setForm(previous => ({ ...previous, pushConsentMinInteractions: Number(event.target.value) }))} /></Field>
+              <Field label="Score mínimo"><Input type="number" min={0} max={100} value={form.pushInterestScoreThreshold} onChange={event => setForm(previous => ({ ...previous, pushInterestScoreThreshold: Number(event.target.value) }))} /></Field>
+              <Field label="Score forte (iPhone)"><Input type="number" min={0} max={100} value={form.pushStrongInterestScore} onChange={event => setForm(previous => ({ ...previous, pushStrongInterestScore: Number(event.target.value) }))} /></Field>
+              <Field label="Cooldown global (min)"><Input type="number" min={1} value={form.pushGlobalCooldownMinutes} onChange={event => setForm(previous => ({ ...previous, pushGlobalCooldownMinutes: Number(event.target.value) }))} /></Field>
+              <Field label="Máximo por sequência"><Input type="number" min={1} max={20} value={form.pushMaxPerSequence} onChange={event => setForm(previous => ({ ...previous, pushMaxPerSequence: Number(event.target.value) }))} /></Field>
+              <Field label="Janela de atribuição (h)"><Input type="number" min={1} value={form.pushAttributionWindowHours} onChange={event => setForm(previous => ({ ...previous, pushAttributionWindowHours: Number(event.target.value) }))} /></Field>
+            </div>
+            <Field label="Mensagem do convite contextual"><Textarea rows={3} value={form.pushConsentMessage} onChange={event => setForm(previous => ({ ...previous, pushConsentMessage: event.target.value }))} /></Field>
+            <Field label="Texto do botão de consentimento"><Input value={form.pushConsentButtonText} onChange={event => setForm(previous => ({ ...previous, pushConsentButtonText: event.target.value }))} /></Field>
+            <div className="rounded-xl border border-blue-400/20 bg-blue-400/5 p-4 text-xs leading-relaxed text-muted-foreground">
+              No iPhone/iPad, a instrução de adicionar à Tela de Início só aparece quando o score forte é atingido ou o lead pede explicitamente para receber avisos.
+            </div>
+          </CardContent>
+        </Card>
+
         <div className="flex justify-end">
           <Button size="lg" onClick={save} disabled={update.isPending}>
             {update.isPending ? <Loader2 className="mr-2 size-4 animate-spin" /> : <Save className="mr-2 size-4" />}
@@ -516,6 +595,10 @@ function SessionDetail({ agentId, sessionId }: { agentId: number; sessionId: num
 
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return <div><div className="mb-1.5 flex items-center justify-between"><Label>{label}</Label>{hint && <span className="text-[11px] text-muted-foreground">{hint}</span>}</div>{children}</div>;
+}
+
+function ToggleSetting({ label, hint, checked, onChange }: { label: string; hint: string; checked: boolean; onChange: (checked: boolean) => void }) {
+  return <div className="flex items-center justify-between gap-3 rounded-xl border p-4"><div><p className="text-sm font-medium">{label}</p><p className="mt-1 text-xs text-muted-foreground">{hint}</p></div><Switch checked={checked} onCheckedChange={onChange} /></div>;
 }
 
 function CopyButton({ value }: { value: string }) {

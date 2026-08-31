@@ -5,6 +5,7 @@ import {
   calculateHumanTypingDelay,
 } from "@shared/humanTyping";
 import {
+  BellRing,
   CheckCheck,
   Download,
   FileText,
@@ -14,12 +15,18 @@ import {
   Pause,
   Play,
   Send,
+  Share2,
   Smile,
   Square,
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRoute } from "wouter";
+import {
+  getPushCapability,
+  registerRaviServiceWorker,
+  subscribeBrowserToPush,
+} from "../lib/webPush";
 
 type PublicConfig = {
   slug: string;
@@ -32,6 +39,15 @@ type PublicConfig = {
   startLeadMessage: string;
   inputPlaceholder: string;
   checkoutButtonText: string;
+  push?: {
+    enabled: boolean;
+    consentEnabled: boolean;
+    minInteractions: number;
+    interestScoreThreshold: number;
+    strongInterestScore: number;
+    consentMessage: string;
+    consentButtonText: string;
+  };
 };
 
 type Timing = {
@@ -144,6 +160,7 @@ function visitorMetadata() {
     fbclid: params.get("fbclid"),
     referrer: document.referrer || null,
     landingUrl: window.location.href,
+    pushId: params.get("push_id"),
   };
 }
 
@@ -154,6 +171,10 @@ export default function PublicSimulatorChat() {
   const sendText = trpc.publicSimulator.sendText.useMutation();
   const sendAudio = trpc.publicSimulator.sendAudio.useMutation();
   const checkoutClicked = trpc.publicSimulator.checkoutClicked.useMutation();
+  const pushSubscribe = trpc.publicSimulator.pushSubscribe.useMutation();
+  const pushConsentOffered = trpc.publicSimulator.pushConsentOffered.useMutation();
+  const pushConsentDeclined = trpc.publicSimulator.pushConsentDeclined.useMutation();
+  const presence = trpc.publicSimulator.presence.useMutation();
 
   const [credentials, setCredentials] = useState<StoredSession | null>(null);
   const [config, setConfig] = useState<PublicConfig | null>(null);
@@ -165,6 +186,15 @@ export default function PublicSimulatorChat() {
   const [error, setError] = useState<string | null>(null);
   const [recording, setRecording] = useState(false);
   const [recordingMs, setRecordingMs] = useState(0);
+  const [pushPrompt, setPushPrompt] = useState<{
+    eligible: boolean;
+    strongInterest: boolean;
+    score: number;
+    signals: Array<{ code: string; label: string; points: number }>;
+  } | null>(null);
+  const [pushEnabled, setPushEnabled] = useState(false);
+  const [showIosInstructions, setShowIosInstructions] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
 
   const mountedRef = useRef(false);
   const endRef = useRef<HTMLDivElement>(null);
@@ -177,6 +207,28 @@ export default function PublicSimulatorChat() {
 
   const busy = phase === "thinking" || phase === "typing";
   const started = status !== "waiting";
+  const pushSupport = trpc.publicSimulator.pushSupport.useQuery(
+    credentials || { publicId: "invalid-public-session", token: "invalid-public-session-token" },
+    { enabled: Boolean(credentials), refetchOnWindowFocus: false },
+  );
+  const pushCapability = useMemo(
+    () => (typeof window === "undefined" ? null : getPushCapability()),
+    [],
+  );
+  const consentEligible = Boolean(pushPrompt?.eligible || pushSupport.data?.consentEligible);
+  const strongInterest = Boolean(pushPrompt?.strongInterest || pushSupport.data?.strongInterest);
+  const mayOfferPush = Boolean(
+    config?.push?.enabled &&
+      config.push.consentEnabled &&
+      pushSupport.data?.enabled &&
+      pushSupport.data?.vapidPublicKey &&
+      !pushSupport.data?.subscriptionActive &&
+      !pushSupport.data?.consentDeclinedAt &&
+      !pushSupport.data?.optedOutAt &&
+      consentEligible &&
+      pushCapability &&
+      (pushCapability.ios ? strongInterest : pushCapability.supported),
+  );
 
   useEffect(() => {
     document.title = "Conversa com RAVI";
@@ -197,9 +249,34 @@ export default function PublicSimulatorChat() {
         setTiming((result.timing || DEFAULT_TIMING) as Timing);
         setStatus(result.status);
         setItems(mapHistory(result.messages as any[], result.config as PublicConfig));
+        setPushEnabled(Boolean((result.config as PublicConfig)?.push?.enabled));
+        if ((result.config as PublicConfig)?.push?.enabled) {
+          void registerRaviServiceWorker().catch(() => undefined);
+        }
       })
       .catch(err => setError(err?.message || "Não foi possível abrir a conversa."));
   }, [slug]);
+
+  useEffect(() => {
+    if (!credentials || !pushEnabled) return;
+    const ping = () => {
+      if (document.visibilityState === "visible") {
+        void presence.mutateAsync(credentials).catch(() => undefined);
+      }
+    };
+    ping();
+    const timer = window.setInterval(ping, 45_000);
+    document.addEventListener("visibilitychange", ping);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", ping);
+    };
+  }, [credentials, presence, pushEnabled]);
+
+  useEffect(() => {
+    if (!mayOfferPush || !credentials || pushSupport.data?.consentOfferedAt) return;
+    void pushConsentOffered.mutateAsync(credentials).catch(() => undefined);
+  }, [credentials, mayOfferPush, pushConsentOffered, pushSupport.data?.consentOfferedAt]);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -276,6 +353,7 @@ export default function PublicSimulatorChat() {
           text: content,
         });
         setStatus("active");
+        if (result.pushConsent) setPushPrompt(result.pushConsent);
         await revealActions(result);
       } catch (err: any) {
         setError(err?.message || "Não foi possível enviar. Tente novamente.");
@@ -379,6 +457,7 @@ export default function PublicSimulatorChat() {
             mimeType: blob.type.split(";")[0] || "audio/webm",
             durationMs,
           });
+          if (result.pushConsent) setPushPrompt(result.pushConsent);
           await revealActions(result);
         } catch (err: any) {
           setError(err?.message || "Não foi possível entender o áudio.");
@@ -404,6 +483,41 @@ export default function PublicSimulatorChat() {
     } catch {
       // O checkout já abriu; tracking não pode bloquear a compra.
     }
+  };
+
+  const enablePush = async () => {
+    if (!credentials || !pushSupport.data?.vapidPublicKey || !pushCapability) return;
+    if (pushCapability.ios && !pushCapability.standalone) {
+      setShowIosInstructions(true);
+      return;
+    }
+    setPushBusy(true);
+    setError(null);
+    try {
+      const result = await subscribeBrowserToPush(pushSupport.data.vapidPublicKey);
+      await pushSubscribe.mutateAsync({ ...credentials, subscription: result.payload });
+      setPushEnabled(true);
+      setPushPrompt(null);
+      await pushSupport.refetch();
+    } catch (pushError: any) {
+      const message = String(pushError?.message || "");
+      if (message.includes("DENIED") || message.includes("DEFAULT")) {
+        await pushConsentDeclined.mutateAsync(credentials).catch(() => undefined);
+        await pushSupport.refetch();
+        setError("As notificações não foram ativadas. Você pode continuar conversando normalmente.");
+      } else {
+        setError("Não foi possível ativar os avisos neste navegador.");
+      }
+    } finally {
+      setPushBusy(false);
+    }
+  };
+
+  const declinePush = async () => {
+    if (!credentials) return;
+    setPushPrompt(null);
+    await pushConsentDeclined.mutateAsync(credentials).catch(() => undefined);
+    await pushSupport.refetch();
   };
 
   if (bootstrap.isPending || (!config && !error)) {
@@ -469,6 +583,58 @@ export default function PublicSimulatorChat() {
                 />
               ))}
               {(phase === "thinking" || phase === "typing") && <TypingBubble />}
+              {mayOfferPush && (
+                <div className="flex justify-start py-2">
+                  <div className="max-w-[92%] rounded-xl border border-[var(--sim-accent)]/30 bg-[#17252c] p-3 shadow-lg">
+                    <div className="flex items-start gap-3">
+                      <div className="grid size-9 shrink-0 place-items-center rounded-full bg-[var(--sim-accent)]/15 text-[var(--sim-accent)]">
+                        <BellRing className="size-4" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[13px] font-medium text-[#e9edef]">Não perca a continuação</p>
+                        <p className="mt-1 text-xs leading-relaxed text-[#aebac1]">
+                          {config.push?.consentMessage}
+                        </p>
+                        <div className="mt-3 flex items-center gap-2">
+                          <button
+                            onClick={enablePush}
+                            disabled={pushBusy}
+                            className="rounded-full bg-[var(--sim-accent)] px-4 py-2 text-xs font-semibold text-[#071611] disabled:opacity-60"
+                          >
+                            {pushBusy
+                              ? "Ativando…"
+                              : config.push?.consentButtonText || "QUERO RECEBER AVISOS"}
+                          </button>
+                          <button onClick={declinePush} className="px-2 py-2 text-xs text-[#8696a0]">
+                            Agora não
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+              {showIosInstructions && strongInterest && (
+                <div className="flex justify-start py-2">
+                  <div className="max-w-[92%] rounded-xl border border-white/10 bg-[#202c33] p-4 shadow-lg">
+                    <div className="flex gap-3">
+                      <Share2 className="mt-0.5 size-5 shrink-0 text-[var(--sim-accent)]" />
+                      <div>
+                        <p className="text-sm font-semibold">Receber avisos no iPhone</p>
+                        <p className="mt-1 text-xs leading-relaxed text-[#aebac1]">
+                          Toque em <strong>Compartilhar</strong>, escolha <strong>Adicionar à Tela de Início</strong>, abra o Ravi pelo novo ícone e toque novamente em ativar avisos.
+                        </p>
+                        <button
+                          onClick={() => setShowIosInstructions(false)}
+                          className="mt-3 text-xs font-semibold text-[var(--sim-accent)]"
+                        >
+                          ENTENDI
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
               <div ref={endRef} />
             </div>
           </section>

@@ -3,8 +3,10 @@ import type { Agent } from "../../drizzle/schema";
 import {
   appendMessage,
   getAgentById,
+  getConversationById,
   getMediaById,
   getLeadById,
+  getStepById,
   recordMetric,
 } from "../db";
 import { processInboundForReply } from "../ai/orchestrator";
@@ -20,7 +22,15 @@ import {
   recordPublicConversion,
   requirePublicSimulatorSession,
   updatePublicSimulatorSession,
+  listPublicSessionMessages,
 } from "./db";
+import { getActiveSubscriptionForSession, revokeAllPushSubscriptionsForSession } from "./push/db";
+import {
+  cancelPendingRecoveryJobs,
+  recordCheckoutAfterPush,
+  scheduleRecoverySequence,
+} from "./recovery/service";
+import { isPushOptOutMessage, isStrongInterest, scoreObjectiveInterest } from "./recovery/interest";
 
 const AUDIO_MIMES = new Set([
   "audio/webm",
@@ -235,6 +245,11 @@ export async function processPublicSimulatorTurn(input: {
     checkoutUrl?: string | null;
     checkoutButtonText: string;
     checkoutRequestPatterns?: unknown;
+    pushEnabled?: boolean;
+    pushConsentEnabled?: boolean;
+    pushConsentMinInteractions?: number;
+    pushInterestScoreThreshold?: number;
+    pushStrongInterestScore?: number;
   };
 }) {
   const session = await requirePublicSimulatorSession(input.publicId, input.token);
@@ -256,6 +271,9 @@ export async function processPublicSimulatorTurn(input: {
 
     const agent = await getAgentById(session.agentId);
     if (!agent || agent.status !== "active") throw new Error("AGENT_UNAVAILABLE");
+
+    // Uma nova mensagem do lead invalida qualquer abandono anterior.
+    await cancelPendingRecoveryJobs(session.id, "lead_replied");
 
     let inboundText = (input.text || "").trim();
     let inputMediaUrl: string | null = null;
@@ -319,6 +337,34 @@ export async function processPublicSimulatorTurn(input: {
         startedAt: new Date(),
       });
     }
+
+    const optedOut = isPushOptOutMessage(inboundText);
+    if (optedOut) {
+      await revokeAllPushSubscriptionsForSession(session.id, "denied");
+      await cancelPendingRecoveryJobs(session.id, "lead_opted_out");
+    }
+
+    const historyForInterest = await listPublicSessionMessages(session.conversationId);
+    const inboundTexts = historyForInterest
+      .filter(message => message.direction === "inbound" && typeof message.body === "string")
+      .map(message => message.body || "");
+    const lead = await getLeadById(session.leadId);
+    const conversation = await getConversationById(session.conversationId);
+    const currentStep = conversation?.currentStepId
+      ? await getStepById(conversation.currentStepId)
+      : null;
+    const interest = scoreObjectiveInterest({
+      inboundTexts,
+      interactionCount: inboundTexts.length,
+      temperature: lead?.temperature,
+      advancedStage: Boolean(currentStep && currentStep.orderIndex >= 2),
+      previousLeadScore: session.leadScore,
+      scoreThreshold: input.config.pushInterestScoreThreshold ?? 40,
+    });
+    await updatePublicSimulatorSession(session.id, {
+      leadScore: interest.score,
+      interestSignals: interest.signals,
+    });
 
     await recordMetric({
       agentId: agent.id,
@@ -388,6 +434,27 @@ export async function processPublicSimulatorTurn(input: {
       });
     }
 
+    const activeSubscription = await getActiveSubscriptionForSession(session.id);
+    if (activeSubscription && !optedOut && !wantsCheckout) {
+      await scheduleRecoverySequence(session.id);
+    }
+
+    const consentEligible = Boolean(
+      input.config.pushEnabled &&
+        input.config.pushConsentEnabled &&
+        !activeSubscription &&
+        !session.pushConsentGrantedAt &&
+        !session.pushConsentDeclinedAt &&
+        !session.pushOptedOutAt &&
+        inboundTexts.length >= (input.config.pushConsentMinInteractions ?? 4) &&
+        interest.eligible,
+    );
+    const strongInterest = isStrongInterest({
+      score: interest.score,
+      strongThreshold: input.config.pushStrongInterestScore ?? 65,
+      signals: interest.signals,
+    });
+
     const response = {
       sessionId: session.publicId,
       conversationId: session.conversationId,
@@ -401,6 +468,12 @@ export async function processPublicSimulatorTurn(input: {
         mediaUrl: inputMediaUrl,
         transcript: publicTranscript,
         durationMs: input.audioDurationMs ?? null,
+      },
+      pushConsent: {
+        eligible: consentEligible,
+        strongInterest,
+        score: interest.score,
+        signals: interest.signals,
       },
     };
     await completePublicRequest(input.requestId, response);
@@ -425,6 +498,7 @@ export async function trackCheckoutClick(input: {
     eventType: "checkout_clicked",
     payload: { at: now.toISOString() },
   });
+  await recordCheckoutAfterPush(session.id);
   return { ok: true as const };
 }
 

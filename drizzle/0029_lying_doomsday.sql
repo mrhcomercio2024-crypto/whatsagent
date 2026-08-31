@@ -1,0 +1,2 @@
+ALTER TABLE `public_simulator_configs` ADD `recoveryCronTaskUid` varchar(65);--> statement-breakpoint
+CREATE INDEX `pub_sim_cfg_recovery_cron_idx` ON `public_simulator_configs` (`recoveryCronTaskUid`);

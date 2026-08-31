@@ -21,7 +21,7 @@ export type InvokeWithModelParams = {
   temperature?: number;
   /** Contexto de cobrança — quando informado, grava em llm_usage. */
   tracking?: {
-    purpose: "orchestrator" | "qualifier" | "followup" | "simulator" | "transcription" | "vision" | "validator" | "summary" | "status_classifier" | "intent_classifier" | "reaction_classifier" | "step_compliance" | "step_compliance_regen" | "lead_facts_extraction" | "other";
+    purpose: "orchestrator" | "qualifier" | "followup" | "recovery_followup" | "simulator" | "transcription" | "vision" | "validator" | "summary" | "status_classifier" | "intent_classifier" | "reaction_classifier" | "step_compliance" | "step_compliance_regen" | "lead_facts_extraction" | "other";
     agentId?: number;
     conversationId?: number;
     leadId?: number;
@@ -52,8 +52,9 @@ export async function invokeWithModel(params: InvokeWithModelParams): Promise<{
           ? m.content
           : [m.content],
     })),
-    max_tokens: params.maxTokens ?? 4096,
   };
+  if (model.startsWith("gpt-5")) payload.max_completion_tokens = params.maxTokens ?? 4096;
+  else payload.max_tokens = params.maxTokens ?? 4096;
   if (params.temperature !== undefined) payload.temperature = params.temperature;
   if (params.responseFormat) payload.response_format = params.responseFormat;
 

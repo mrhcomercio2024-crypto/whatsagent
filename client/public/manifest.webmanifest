@@ -1,0 +1,26 @@
+{
+  "name": "Ravi Wedrop",
+  "short_name": "Ravi",
+  "description": "Converse com o Ravi Wedrop e continue de onde parou.",
+  "id": "/simulador/ravi",
+  "start_url": "/simulador/ravi?source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0b141a",
+  "theme_color": "#202c33",
+  "icons": [
+    {
+      "src": "/manus-storage/ravi-pwa-192_4710a701.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/manus-storage/ravi-pwa-512_76361d59.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

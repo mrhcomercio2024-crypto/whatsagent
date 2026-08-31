@@ -8,6 +8,7 @@ import {
   recordPublicConversion,
   updatePublicSimulatorSession,
 } from "./db";
+import { recordPurchaseAfterPush } from "./recovery/service";
 
 type AnyObject = Record<string, unknown>;
 
@@ -180,6 +181,7 @@ export function registerPublicSimulatorWebhook(app: Express) {
             amountCents: ids.amountCents,
             currency: ids.currency,
           });
+          await recordPurchaseAfterPush(session.id, ids.amountCents);
         } else if (mapped === "purchase_refunded") {
           await updatePublicSimulatorSession(session.id, { status: "completed" });
         }
