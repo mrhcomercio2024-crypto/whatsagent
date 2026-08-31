@@ -3,10 +3,6 @@ import fs from "node:fs";
 import path from "node:path";
 
 const root = process.cwd();
-const viewportSource = fs.readFileSync(
-  path.join(root, "client/src/hooks/useChatVisualViewport.ts"),
-  "utf8",
-);
 const chatSource = fs.readFileSync(
   path.join(root, "client/src/pages/PublicSimulatorChat.tsx"),
   "utf8",
@@ -17,22 +13,23 @@ const htmlSource = fs.readFileSync(path.join(root, "client/index.html"), "utf8")
 const appSource = fs.readFileSync(path.join(root, "client/src/App.tsx"), "utf8");
 
 describe("Ravi Web — proteção contra tela branca no Safari", () => {
-  it("não escuta visualViewport.scroll nem fixa o body", () => {
-    expect(viewportSource).not.toContain('viewport?.addEventListener("scroll"');
-    expect(viewportSource).not.toContain('body.style.position = "fixed"');
+  it("não possui hook, listener ou controle manual do viewport", () => {
+    expect(fs.existsSync(path.join(root, "client/src/hooks/useChatVisualViewport.ts"))).toBe(false);
+    expect(chatSource).not.toContain("visualViewport");
+    expect(chatSource).not.toContain("ravi:viewport-resize");
   });
 
-  it("não aplica altura, mínimo artificial ou offsetTop calculados pelo JavaScript", () => {
-    expect(viewportSource).not.toContain("window.visualViewport");
-    expect(viewportSource).not.toContain("Math.max(240");
-    expect(chatSource).toContain("height: 100dvh;");
-    expect(chatSource).toContain("min-height: 0;");
-    expect(chatSource).not.toContain("min-height: 240px;");
+  it("usa três faixas estáveis sem fullscreen fixo ou altura calculada por JavaScript", () => {
+    expect(chatSource).toContain("min-h-[100svh]");
+    expect(chatSource).toContain("grid-rows-[auto_minmax(0,1fr)_auto]");
+    expect(chatSource).toContain("h-[100svh]");
+    expect(chatSource).not.toContain("fixed inset-0");
+    expect(chatSource).not.toContain("100dvh");
   });
 
-  it("não executa auto-scroll duplo em cada resize", () => {
-    expect(chatSource).not.toContain('window.setTimeout(() => scrollToLatest("auto"), 120)');
-    expect(chatSource).not.toContain('window.addEventListener("ravi:viewport-resize"');
+  it("não intercepta scroll nem força foco após o envio", () => {
+    expect(chatSource).not.toContain("window.scrollTo(0, 0)");
+    expect(chatSource).not.toContain('inputRef.current?.focus({ preventScroll: true })');
   });
 
   it("Service Worker nunca devolve navegação indefinida", () => {

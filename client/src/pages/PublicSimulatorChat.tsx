@@ -22,7 +22,6 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRoute } from "wouter";
-import { useChatVisualViewport } from "../hooks/useChatVisualViewport";
 import {
   getPushCapability,
   registerRaviServiceWorker,
@@ -196,8 +195,6 @@ export default function PublicSimulatorChat() {
   const [pushEnabled, setPushEnabled] = useState(false);
   const [showIosInstructions, setShowIosInstructions] = useState(false);
   const [pushBusy, setPushBusy] = useState(false);
-  const keyboardOpen = useChatVisualViewport();
-
   const mountedRef = useRef(false);
   const endRef = useRef<HTMLDivElement>(null);
   const messagesRef = useRef<HTMLElement>(null);
@@ -236,8 +233,9 @@ export default function PublicSimulatorChat() {
 
   const scrollToLatest = useCallback((behavior: ScrollBehavior = "smooth") => {
     window.requestAnimationFrame(() => {
-      const messages = messagesRef.current;
-      if (messages) messages.scrollTo({ top: messages.scrollHeight, behavior });
+      // Com o teclado aberto, o Safari já mantém o textarea visível. Não
+      // disputamos essa posição; fora do foco, rolamos o documento normalmente.
+      if (document.activeElement === inputRef.current) return;
       endRef.current?.scrollIntoView({ behavior, block: "end" });
     });
   }, []);
@@ -399,7 +397,6 @@ export default function PublicSimulatorChat() {
     queueRef.current.push(value);
     setText("");
     if (inputRef.current) inputRef.current.style.height = "32px";
-    window.requestAnimationFrame(() => inputRef.current?.focus({ preventScroll: true }));
     if (debounceRef.current !== null) return;
     let left = Math.max(0, timing.debounceSeconds);
     if (left === 0) {
@@ -562,13 +559,12 @@ export default function PublicSimulatorChat() {
 
   return (
     <div
-      className="ravi-app-shell fixed inset-0 flex overflow-hidden bg-[#071015] text-[#e9edef] sm:items-center sm:justify-center sm:p-3"
-      data-keyboard-open={keyboardOpen ? "true" : "false"}
+      className="ravi-page min-h-[100svh] overflow-hidden bg-[#071015] text-[#e9edef] sm:flex sm:min-h-screen sm:items-center sm:justify-center sm:p-3"
       style={{ "--sim-accent": config.accentColor } as React.CSSProperties}
     >
-      <div className="flex h-full w-full max-w-[620px] overflow-hidden bg-[#0b141a] shadow-2xl sm:max-h-[920px] sm:rounded-2xl sm:border sm:border-white/10">
-        <main className="flex min-w-0 flex-1 flex-col">
-          <header className="ravi-header z-10 flex shrink-0 items-center gap-3 bg-[#202c33] px-3 shadow-sm sm:px-4">
+      <div className="mx-auto flex h-[100svh] w-full max-w-[620px] overflow-hidden bg-[#0b141a] shadow-2xl sm:h-[min(920px,calc(100vh-24px))] sm:rounded-2xl sm:border sm:border-white/10">
+        <main className="grid min-h-0 min-w-0 flex-1 grid-rows-[auto_minmax(0,1fr)_auto]">
+          <header className="ravi-header z-20 flex shrink-0 items-center gap-3 bg-[#202c33] px-3 shadow-sm sm:px-4">
             <Avatar config={config} size="md" />
             <div className="min-w-0 flex-1">
               <h1 className="truncate text-[15px] font-medium">{config.displayName}</h1>
@@ -582,7 +578,7 @@ export default function PublicSimulatorChat() {
             </div>
           </header>
 
-          <section ref={messagesRef} className="sim-chat-bg min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 py-3 [scrollbar-width:none] sm:px-4 sm:py-4">
+          <section ref={messagesRef} className="sim-chat-bg min-h-0 overflow-y-auto overscroll-contain px-2 py-3 [scrollbar-width:none] sm:px-4 sm:py-4">
             <div className="mx-auto mb-4 w-fit rounded-lg bg-[#182229] px-3 py-1.5 text-center text-[11px] text-[#8696a0] shadow">
               HOJE
             </div>
@@ -664,7 +660,7 @@ export default function PublicSimulatorChat() {
             </div>
           )}
 
-          <footer className="ravi-composer z-10 shrink-0 bg-[#202c33] px-2 pt-1.5 sm:px-3 sm:pt-2">
+          <footer className="ravi-composer z-20 shrink-0 bg-[#202c33] px-2 pt-1.5 sm:px-3 sm:pt-2">
             {recording ? (
               <div className="flex h-12 items-center gap-3">
                 <button
@@ -723,6 +719,7 @@ export default function PublicSimulatorChat() {
                 </div>
                 <button
                   onClick={text.trim() ? queueText : beginRecording}
+                  onPointerDown={event => event.preventDefault()}
                   disabled={!started || busy || (phase === "waiting" && !text.trim())}
                   className="grid size-11 shrink-0 place-items-center rounded-full bg-[var(--sim-accent)] text-[#071611] transition active:scale-95 disabled:opacity-40"
                   aria-label={text.trim() ? "Enviar mensagem" : "Gravar áudio"}
@@ -742,13 +739,9 @@ export default function PublicSimulatorChat() {
       </div>
 
       <style>{`
-        .ravi-app-shell {
-          height: 100vh;
-          height: 100dvh;
-          min-height: 0;
+        .ravi-page {
           background: #071015;
-          overscroll-behavior: none;
-          touch-action: none;
+          overflow-anchor: none;
         }
         .ravi-header {
           height: calc(60px + env(safe-area-inset-top));
@@ -764,9 +757,6 @@ export default function PublicSimulatorChat() {
           padding-bottom: max(.5rem, env(safe-area-inset-bottom));
           box-shadow: 0 -1px 0 rgba(255,255,255,.04);
           touch-action: manipulation;
-        }
-        .ravi-app-shell[data-keyboard-open="true"] .ravi-composer {
-          padding-bottom: .375rem;
         }
         .sim-chat-bg {
           background-color: #0b141a;

@@ -874,3 +874,19 @@
 - [x] Executar suíte completa (553/553), TypeScript e build de produção
 - [x] Salvar checkpoint e solicitar publicação
 - [ ] Validar o teclado aberto no iPhone real após publicação
+- [x] Confirmar em produção o bundle `index-Bv_UUb5M.js`: sem `--ravi-visual-height`/mínimo 240px, com shell `100dvh` e focus detection
+- [x] Validar em produção textarea de 2 linhas: shell 1100px, mensagens 776px, compositor 82px e `window.scrollY=0`
+## Fase 101: Fallback nativo definitivo para Safari iPhone
+
+- [x] Correlacionar a nova ocorrência com a versão publicada; logs recentes sem erro, timeout ou exceção no backend — falha restrita ao layout/renderização do Safari
+- [x] Remover `useChatVisualViewport` da conversa pública e excluir o arquivo do hook
+- [x] Remover `position: fixed`, `100dvh`, body lock e interceptação de scroll
+- [x] Remover estado, atributos, CSS e metatag `interactive-widget` específicos de teclado
+- [x] Usar shell CSS puro em `100svh` com grid `auto / minmax(0,1fr) / auto`, sem `fixed`, JavaScript ou metatag especial de teclado
+- [x] Manter mensagens na faixa central rolável; cabeçalho e compositor ocupam faixas próprias e nunca disputam altura
+- [x] Garantir textarea multilinha, envio e áudio sem refocus, scroll ou controle manual do viewport
+- [x] Atualizar testes para proibir hook, `VisualViewport`, body lock, fullscreen fixed, `100dvh`, refocus e `interactive-widget`
+- [x] Validar mobile 390×844 e textarea de duas linhas: main 918px, header 60px, mensagens 774px, compositor 84px, `window.scrollY=0`, body estático/visível
+- [x] Executar suíte completa (553/553), TypeScript e build de produção
+- [x] Salvar checkpoint e solicitar publicação
+- [ ] Validar no iPhone real após publicação

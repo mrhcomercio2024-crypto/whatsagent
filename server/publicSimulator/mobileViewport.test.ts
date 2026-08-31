@@ -1,50 +1,47 @@
-import fs from "fs";
-import path from "path";
+import fs from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 const root = process.cwd();
-const hook = fs.readFileSync(path.join(root, "client/src/hooks/useChatVisualViewport.ts"), "utf8");
 const chat = fs.readFileSync(path.join(root, "client/src/pages/PublicSimulatorChat.tsx"), "utf8");
 const html = fs.readFileSync(path.join(root, "client/index.html"), "utf8");
+const hookPath = path.join(root, "client/src/hooks/useChatVisualViewport.ts");
 
 describe("Ravi mobile keyboard viewport", () => {
-  it("lets Safari manage the visual viewport without resizing the app in JavaScript", () => {
-    expect(hook).not.toContain("window.visualViewport");
-    expect(hook).not.toContain("--ravi-visual-height");
-    expect(hook).not.toContain("--ravi-visual-top");
-    expect(chat).toContain('className="ravi-app-shell fixed inset-0');
-    expect(chat).toContain("height: 100dvh");
+  it("remove completamente o hook e qualquer manipulação de VisualViewport", () => {
+    expect(fs.existsSync(hookPath)).toBe(false);
+    expect(chat).not.toContain("useChatVisualViewport");
+    expect(chat).not.toContain("visualViewport");
+    expect(chat).not.toContain("--ravi-visual-height");
   });
 
-  it("locks overflow without fixing the iOS body and restores styles on unmount", () => {
-    expect(hook).not.toContain('body.style.position = "fixed"');
-    expect(hook).toContain('body.style.overflow = "hidden"');
-    expect(hook).toContain("restore(root, previousRoot)");
-    expect(hook).toContain("restore(body, previousBody)");
-    expect(hook).toContain('window.addEventListener("scroll", keepDocumentAtOrigin');
-    expect(hook).toContain("window.scrollTo(0, 0)");
+  it("usa documento nativo, sem fullscreen fixo, body lock ou altura dinâmica", () => {
+    expect(chat).toContain('className="ravi-page min-h-[100svh]');
+    expect(chat).not.toContain("fixed inset-0");
+    expect(chat).not.toContain("height: 100dvh");
+    expect(chat).not.toContain("window.scrollTo(0, 0)");
   });
 
-  it("uses independent message scrolling and keeps the composer inside safe areas", () => {
+  it("mantém header, mensagens e compositor em três faixas estáveis", () => {
+    expect(chat).toContain("grid-rows-[auto_minmax(0,1fr)_auto]");
+    expect(chat).toContain("h-[100svh]");
+    expect(chat).toContain("min-h-0 overflow-y-auto overscroll-contain");
     expect(chat).toContain('ref={messagesRef}');
-    expect(chat).toContain('className="ravi-composer');
     expect(chat).toContain("env(safe-area-inset-bottom)");
     expect(chat).toContain("env(safe-area-inset-top)");
-    expect(chat).toContain("-webkit-overflow-scrolling: touch");
   });
 
-  it("prevents iPhone input zoom without disabling user zoom", () => {
+  it("impede zoom do input no iPhone sem desativar o zoom do usuário", () => {
     expect(chat).toContain("text-[16px]");
     expect(html).toContain("viewport-fit=cover");
-    expect(html).toContain("interactive-widget=resizes-content");
+    expect(html).not.toContain("interactive-widget");
     expect(html).not.toContain("maximum-scale=1");
     expect(html).not.toContain("user-scalable=no");
   });
 
-  it("keeps focus and scrolls to the latest message without viewport event loops", () => {
+  it("não refoca ou rola a página depois do envio", () => {
     expect(chat).not.toContain('window.addEventListener("ravi:viewport-resize"');
-    expect(chat).toContain('onFocus={() =>');
-    expect(chat).toContain('focus({ preventScroll: true })');
-    expect(chat).toContain('messages.scrollTo({ top: messages.scrollHeight');
+    expect(chat).not.toContain('inputRef.current?.focus({ preventScroll: true })');
+    expect(chat).toContain('onPointerDown={event => event.preventDefault()}');
   });
 });
