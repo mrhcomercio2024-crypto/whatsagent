@@ -969,4 +969,4 @@
 - [x] Executar teste automatizado com 30 turnos/60 mensagens cobrindo ordem, chaves únicas, crescimento linear do histórico e estabilidade
 - [ ] Validar fisicamente 10 mensagens e histórico em iPhone/Safari e Android/Chrome após publicação; Desktop/Chrome e viewports 390×844/1440×900 já validados
 - [x] Executar `pnpm check`, suíte Vitest completa (78 arquivos/573 testes) e build de produção antes do checkpoint Lite
-- [ ] Salvar checkpoint Ravi Web Lite e entregar a versão para publicação/validação no iPhone real
+- [x] Salvar checkpoint Ravi Web Lite (`4461040e`) e entregar a versão para publicação/validação no iPhone real
