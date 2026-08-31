@@ -768,3 +768,10 @@
 - [x] Validar visualmente em 390×844 e desktop: somente a conversa é exibida; no desktop ela fica centralizada com largura de celular
 - [x] Expor URL pública temporária para teste no celular: `https://3000-i7ecmog0vc18eghb8zn0m-48b433ee.us2.manus.computer/simulador/ravi`
 - [x] Salvar checkpoint final
+## Fase 94: Avatar e nome do Ravi Wedrop
+
+- [x] Armazenar permanentemente a foto enviada em `/manus-storage/ravi-wedrop-profile_cfe05c90.png`
+- [x] Definir a foto como avatar público do simulador
+- [x] Alterar o nome exibido para “Ravi Wedrop”
+- [x] Validar o cabeçalho e o avatar no layout móvel em 390×844
+- [x] Salvar checkpoint final
