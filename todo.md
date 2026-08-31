@@ -1041,9 +1041,59 @@
 
 - [x] Registrar evidência: cinco DMs foram enviadas para `@wedropbr`, mas não existe nenhuma row em `instagram_webhook_events`, `messages` Instagram ou `channel_identities`
 - [x] Confirmar que OAuth, Page Token, `subscribed_apps` e health check estão corretos; ausência ocorre antes da aplicação, na configuração do callback/campos Meta
-- [ ] Configurar no Meta App o callback `https://agentedozap.com/webhooks/meta/instagram` com um Verify Token compartilhado e seguro
-- [ ] Assinar os campos de mensageria compatíveis com Instagram no produto Webhooks/Graph API
-- [ ] Validar o challenge GET em produção e confirmar que o callback fica verificado na Meta
-- [ ] Confirmar via Graph API a Page subscription e os campos efetivamente inscritos
-- [ ] Enviar uma DM sentinela e confirmar evento, MID, identidade, inbound, scheduling e outbound
+- [x] Configurar no objeto Instagram do Meta App o callback `https://agentedozap.com/webhooks/meta/instagram` com Verify Token compartilhado e seguro
+- [x] Assinar em v26.0 os campos `messages`, `message_reactions`, `messaging_postbacks`, `messaging_referral` e `messaging_seen`
+- [x] Validar o challenge GET em produção e confirmar callback verificado e teste Meta entregue com sucesso
+- [x] Confirmar via Graph API Page subscription ativa para `messages`, `messaging_postbacks` e `messaging_referrals`, além do objeto Instagram ativo no App
+- [x] Enviar DMs sentinela 1200/1220 e confirmar que a Meta não gerou POST/MID antes de Ravi, banco ou Send API
 - [ ] Repetir as cinco DMs em sequência e validar contexto, inbox, handoff e histórico sem duplicidade
+
+## Fase 113 — Teste @marcelomenezesfc e liberação pública das DMs
+
+- [x] Confirmar oficialmente que Standard Access só permite responder pessoas com função no App e que contas externas exigem Advanced Access/App Review
+- [x] Confirmar que o Facebook que controla `@marcelomenezesfc` já é Administrador ativo do App; função tester duplicada não é aplicável
+- [x] Confirmar ausência de convite pendente: nenhuma aceitação adicional existe para o administrador atual
+- [x] Enviar as sentinelas `Teste real Ravi 1200` e `Teste development Ravi 1220` de `@marcelomenezesfc` para `@wedropbr`
+- [x] Confirmar por ausência de POST/MID que o bloqueio ocorre na Meta antes de identidade, lead, conversa, inbound ou resposta do Ravi
+- [ ] Confirmar histórico no inbox Instagram e testar ASSUMIR/DEVOLVER sem resposta simultânea
+- [x] Reduzir a solicitação `2679013885864389` para somente `instagram_manage_messages` e preencher instruções/geo/Facebook Login no rascunho, sem enviar
+- [ ] Adicionar `instagram_basic`, dependência obrigatória indicada pela Meta para analisar `instagram_manage_messages`
+- [x] Executar uma chamada Graph API read-only bem-sucedida com `instagram_basic` para atender ao pré-requisito de uso recente
+- [ ] Preencher descrição de uso permitido, confirmar conformidade e anexar screencast ponta a ponta
+- [ ] Aguardar a Meta contabilizar a chamada `instagram_basic` e habilitar o botão de Advanced Access
+- [x] Com autorização explícita, alternar temporariamente o App de Live para Development; resta repetir a DM do administrador para gerar a evidência
+- [x] Documentar rascunho de App Review, vídeo/evidências, tratamento de dados e passos de revisão empresarial necessários para responder DMs de qualquer conta
+- [ ] Após aprovação Meta, enviar DM de uma conta sem função e confirmar operação pública
+
+## Fase 114 — Autópsia da DM “Teste real Ravi 1200”
+
+- [x] Confirmar que nenhum POST chegou ao Webhook no minuto da DM 1200 e que não houve falha de assinatura/rate limit/parsing
+- [x] Consultar `instagram_webhook_events`: nenhum evento `messages`, MID, IGSID, accountId, status ou erro foi criado
+- [x] Consultar `channel_identities`, leads, conversations e messages e provar ausência total de criação parcial
+- [x] Consultar logs do Ravi Core, scheduling e Instagram Adapter e provar que nenhum deles executou
+- [x] Consultar Graph API `/{PAGE_ID}/subscribed_apps`: App ativo para `messages`, `messaging_postbacks` e `messaging_referrals`
+- [x] Consultar `/debug_token`: Page Token válido, App ID correto e todos os oito escopos presentes, sem expor token
+- [x] Verificar App em modo Live pela interface e Standard Access sem aprovação para usuários externos
+- [x] Verificar `/{APP_ID}/roles`: Marcelo é Administrador ativo; `@marcelomenezesfc` pertence a outro portfólio e não recebe função Instagram automaticamente
+- [x] Identificar a primeira etapa ausente: a Meta não entregou o evento específico; não houve erro Send API porque Ravi Core/adapter nunca executaram
+- [ ] Aplicar somente a correção sustentada pelas evidências e repetir a DM ponta a ponta
+
+## Fase 115 — Habilitar @marcelomenezesfc como tester Meta
+
+- [x] Confirmar oficialmente: Standard Access exige pessoa com App Role aceita; o produto também permite adicionar conta pública em Instagram Testers, devendo usar ambos quando a seção estiver disponível
+- [x] Identificar a tela oficial `https://developers.facebook.com/apps/2533423037090142/roles/roles/` e o aceite em Facebook → Apps e sites → Solicitações
+- [x] Confirmar que Marcelo Menezes já é Administrador do App e possui acesso total no Business Suite; não adicionar função duplicada
+- [x] Verificar que a configuração atual não expõe Instagram Testers separado e não possui convite pendente; não criar convite duplicado para o administrador
+- [x] Confirmar que não existe convite aplicável a aceitar: Marcelo já está ativo como Administrador do App
+- [x] Consultar `/{APP_ID}/roles` e comprovar Marcelo ativo como `administrators`; nenhum tester adicional existe
+- [x] Enviar DM sentinela `Teste development Ravi 1220`; confirmar ausência total de evento mesmo em Development Mode e restaurar o App para Live
+- [x] Identificar a solicitação de App Review não enviada `2679013885864389`, suas cinco seções obrigatórias e `instagram_manage_messages` como permissão central
+- [x] Confirmar no painel que `instagram_manage_messages` está em Standard Access, zero chamadas e sem App Review aprovado; documentação exige Advanced Access para Webhooks reais em Apps Business
+
+## Fase 116 — Habilitar acesso às mensagens em @wedropbr
+
+- [x] Verificar por captura que `@wedropbr` já possui Ferramentas conectadas → Permitir acesso às mensagens ativado
+- [x] Confirmar que pedidos de contato estão permitidos para Todos; nenhuma configuração precisou ser alterada
+- [x] Usar a DM sentinela `Teste development Ravi 1220`, enviada enquanto o toggle já estava ativo, para a verificação
+- [x] Confirmar novamente ausência de POST, evento `messages`, MID/IGSID, Ravi Core e Send API apesar do toggle ativo
+- [x] Descartar Connected Tools como causa e retomar a solicitação de Advanced Access com evidência consolidada

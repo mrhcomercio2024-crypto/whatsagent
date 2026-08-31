@@ -158,6 +158,73 @@ O OAuth publicado abriu `facebook.com/v26.0/dialog/oauth` com App ID, scopes, st
 
 O redirect deve corresponder integralmente à allowlist, inclusive path e parâmetros fixos; o parâmetro `state` é ignorado na comparação. Não será usado wildcard, HTTP ou domínio alternativo.[11]
 
+### Entrega efetiva de DMs pelo Webhook
+
+Após a conexão de `@wedropbr`, cinco DMs reais foram enviadas, porém nenhuma notificação chegou ao endpoint: não houve registro em `instagram_webhook_events`, `messages` ou `channel_identities`. OAuth, Page Access Token, `subscribed_apps` e health check estavam válidos, portanto a ausência ocorreu antes da aplicação.
+
+Para Facebook Login for Business, a Meta exige quatro passos independentes: verificar o callback HTTPS com Verify Token; selecionar o objeto **Instagram** no produto Webhooks; assinar os campos no App Dashboard; e habilitar a conta profissional via `/me/subscribed_apps` usando Page Access Token.[13] A configuração inicial deve priorizar `messages`, `messaging_postbacks`, `message_reactions`, `messaging_seen` e `messaging_referral`. O endpoint de Page subscriptions não substitui a assinatura dos campos Instagram no nível do App.[13] [14]
+
+A documentação também exige que o App esteja **Ao vivo** para entregar Webhooks. Sem Advanced Access/App Review, eventos reais só são entregues quando a pessoa remetente possui uma função no App; para o teste inicial, a conta remetente deve ser adicionada como tester/desenvolvedor ou associada a um usuário com função. Mensagens de qualquer usuário externo exigirão Advanced Access, verificação empresarial e aprovação das permissões relevantes.[13] [15]
+
+Para o envio, a regra é igualmente explícita: Apps com **Standard Access** só podem responder pessoas que possuam uma função no App. O teste imediato `@marcelomenezesfc → @wedropbr` deve usar o Facebook responsável por `@marcelomenezesfc` como administrador, desenvolvedor ou tester e com o convite aceito. A abertura para qualquer conta não é um toggle da aplicação: exige App Review/Advanced Access para `instagram_manage_messages` e permissões dependentes.[16] [17]
+
+Como o WhatsAgent atende somente uma empresa própria (`@wedropbr`), a documentação classifica o cenário como negócio próprio com Facebook Login e Standard Access, sem App Review obrigatório; porém a limitação de destinatários/remetentes com função permanece no teste padrão. Para atendimento público irrestrito, a solicitação de Advanced Access deve incluir uso detalhado, credenciais de revisão e screencast de OAuth, inbound, resposta do Ravi, inbox e handoff.[17]
+
+## Autópsia da DM “Teste real Ravi 1200”
+
+A DM foi enviada de `@marcelomenezesfc` para `@wedropbr`, mas **nenhum POST chegou à aplicação**. Não existe row em `instagram_webhook_events`, `channel_identities` ou `messages` do canal Instagram; os logs não mostram falha de assinatura, rate limit, parsing, Ravi Core ou Send API. Portanto, o fluxo parou **antes do Webhook**, na elegibilidade da Meta para entregar esse evento específico.
+
+A auditoria read-only da Graph API confirmou:
+
+| Evidência | Resultado |
+|---|---|
+| Page Token | válido, tipo `PAGE`, `profile_id=103793205491621`, `app_id=2533423037090142` |
+| Escopos | `pages_show_list`, `business_management`, `pages_messaging`, `instagram_basic`, `instagram_manage_messages`, `pages_read_engagement`, `pages_manage_metadata`, `public_profile` |
+| Page subscription | ativa para `messages`, `messaging_postbacks`, `messaging_referrals` |
+| App subscription | objeto `instagram`, callback correto, `active=true`, campos `messages`, `message_reactions`, `messaging_postbacks`, `messaging_seen`, `messaging_referral` ativos em v26.0 |
+| App domains | `agentedozap.com`; URL pública `https://agentedozap.com/` |
+| Funções aceitas | somente Facebook user `1071087682511700` como `administrators` |
+| Evento/MID/IGSID da DM 1200 | inexistentes, pois a Meta não entregou o POST |
+| Ravi Core/Send API | não executados; portanto não há erro Meta de envio |
+
+Os únicos erros retornados pela Graph durante a sonda foram `(#100) Tried accessing nonexisting field (permissions)` ao consultar `/me/permissions` com Page Token e `(#100) Tried accessing nonexisting field (subscribed_apps)` no Instagram Account ID. Eles são diagnósticos de endpoint/tipo de token e **não causaram a DM ausente**: o `debug_token` contém todos os escopos e a subscription correta é comprovada no Page ID.
+
+Assim, a hipótese restante e sustentada pelas evidências é **autorização de teste/Access Level**: o portfólio empresarial e a descoberta OAuth de `@marcelomenezesfc` não provam que esse perfil esteja aceito como tester do App. A correção mínima é adicionar e aceitar explicitamente a função de teste correspondente; a abertura para remetentes sem função exige Advanced Access/App Review.[15] [16]
+
+A DM `Teste development Ravi 1220` foi enviada após alternar temporariamente o App para Development Mode. O resultado permaneceu idêntico: `instagram_webhook_events=0`, identidades Instagram `=0`, mensagens Instagram `=0` e nenhum log novo de Ravi/adapter. Portanto, Development Mode e a função Facebook de Administrador não autorizaram automaticamente o perfil profissional `@marcelomenezesfc`. O App foi restaurado a **Live Mode** (`switch=true`) imediatamente após o teste. A exigência restante é Advanced Access/App Review; não há correção de código a aplicar nessa etapa.
+
+### Fluxo de tester para @marcelomenezesfc
+
+A documentação oficial de App Roles confirma que o convite é enviado em **App Roles/Funções do app** e só se torna ativo depois que o convidado o aceita em **Facebook → Configurações e privacidade → Sua atividade → Aplicativos e sites → Solicitações**. Um tester comum não precisa ser Meta Developer, mas precisa aceitar os termos e confirmar que atua em nome do proprietário do App.[18]
+
+Para o produto Instagram, a Meta também permite adicionar contas públicas de Instagram para testes em **App Roles → Roles** e informa que essas contas podem ser gerenciadas na mesma área.[19] No caso atual, a sequência mais segura é: (1) adicionar o Facebook titular como Authorized App Tester; (2) aceitar o convite no Facebook; (3) se a seção **Instagram Testers** estiver disponível, adicionar `marcelomenezesfc`; (4) aceitar o convite em Instagram → Configurações → Apps e sites → Convites de tester. A conta só deve ser considerada habilitada após aparecer como função ativa e uma DM gerar um MID real.
+
+A inspeção autenticada do painel mostrou uma distinção importante. O App `2533423037090142` é gerenciado pelo portfólio `4354138904841069` (Rafaela Gomes de Jesus) e lista **Marcelo Menezes como Administrador**. No Meta Business Suite, o App também mostra Marcelo com acesso total. Portanto, adicionar novamente o mesmo Facebook como tester seria redundante e a Meta exige outra conta para um novo convite. Já `@marcelomenezesfc` aparece no portfólio empresarial `786659509548743`, vinculado ao ativo “Venda Sem Estoque”. Assim, os dois ativos **não estão no mesmo portfólio**; ser administrador do App não transformou automaticamente a identidade Instagram daquele outro portfólio em testadora autorizada.
+
+O próximo passo mínimo não é alterar o código nem duplicar a função Facebook de Marcelo. É localizar a configuração específica de conta de teste do produto Instagram ou, caso o App com Facebook Login não exponha Instagram Testers, conceder Advanced Access. A prova continua sendo a geração de um MID real no Webhook.
+
+### Access Level confirmado no App
+
+A inspeção autenticada de **Análise do app → Permissões e recursos** confirmou que `instagram_manage_messages` está em **Standard access**, com zero chamadas e nenhuma análise aprovada. A documentação oficial de Webhooks atualizada em 3 de março de 2026 estabelece que Apps Business/Instagram Messaging via Messenger Platform precisam de **Advanced Access** e verificação empresarial para receber notificações Webhook reais. Também diferencia o teste de amostra do painel — que apenas comprova callback — de uma mensagem real enviada por uma conta pública adicionada ao teste.[20]
+
+Isto explica a combinação observada: callback e campo `messages` estão ativos, o teste “Enviar para meu servidor” retorna sucesso, Page/App subscriptions e escopos estão corretos, mas DMs reais não geram POST, MID ou IGSID. O App não possui Advanced Access. Uma função Facebook duplicada não resolve; o único atalho de teste possível é adicionar explicitamente uma conta pública na configuração de teste do produto Instagram, se essa interface estiver disponível. Para qualquer remetente público, a correção necessária é concluir Business Verification e App Review de `instagram_manage_messages`.[20]
+
+A tela autenticada confirmou `instagram_manage_messages` em **Standard access**, “Pronto para usar (0)” e sem análise aprovada. O App já possui uma solicitação de análise **não enviada** (`submission_id=2679013885864389`) contendo `instagram_manage_messages`, `instagram_business_manage_messages` e `Human Agent`. O formulário exige concluir Verificação, Configurações do app, Uso permitido, Tratamento de dados e Instruções da análise antes do envio. Nenhuma submissão foi realizada.
+
+Para o fluxo final via Facebook Login/Messenger Platform, `instagram_manage_messages` é a permissão central. `instagram_business_manage_messages` pertence ao fluxo Instagram Login e `Human Agent` amplia a política de resposta; ambos devem ser removidos da solicitação salvo necessidade comercial documentada, reduzindo escopo e risco de rejeição. O envio do App Review é operação externa sensível e só será realizado após revisão do proprietário.
+
+A inspeção completa de **Funções do app** confirmou que não há tester adicional nem convite pendente; Marcelo já é Administrador ativo. O formulário “Adicionar pessoas” não aceita duplicar Marcelo como tester e a configuração atual do produto não expõe uma seção separada de Instagram Testers. Portanto, o teste por função não oferece outro passo aplicável ao mesmo titular. O bloqueio restante é exclusivamente o nível **Standard access** de `instagram_manage_messages`.
+
+### Pré-requisito da conta profissional: Connected Tools
+
+A documentação oficial de Getting Started da Instagram Messaging API adiciona um pré-requisito independente de OAuth, subscriptions e Access Level: a conta profissional precisa habilitar **Instagram → Configurações → Mensagens e respostas ao story → Controles de mensagem → Ferramentas conectadas → Permitir acesso às mensagens**.[21] Se esse toggle estiver desligado, mensagens permanecem acessíveis apenas no Instagram e não são entregues a ferramentas de terceiros.[22]
+
+Esse ajuste ainda não havia sido confirmado em `@wedropbr` e deve ser verificado antes de atribuir definitivamente a ausência de MID ao App Review. A DM 1220 provou ausência de evento, mas não distingue Standard Access de Connected Tools desligado. A ordem correta agora é validar/habilitar o toggle, repetir uma sentinela e só então retomar Advanced Access se ainda não houver POST.
+
+O proprietário forneceu uma captura do Instagram `@wedropbr` comprovando **Ferramentas conectadas → Permitir acesso às mensagens = ativado**. A mesma tela confirma pedidos de contato permitidos para **Todos**. Portanto, Connected Tools e controles de solicitações não explicam a ausência dos Webhooks e essa hipótese foi descartada sem alteração.
+
+Na etapa **Instruções para o analista**, a Meta solicita: URL pública, explicação de navegação/teste, indicação se Facebook Login está integrado, credenciais/códigos de acesso quando necessários, restrições geográficas e documentação de apoio. A submissão deve usar uma conta administrativa de revisão dedicada — nunca a senha pessoal do proprietário — e um vídeo mostrando login em `agentedozap.com`, `OPERAÇÃO > INSTAGRAM`, OAuth “Conectar via Facebook”, chegada de uma DM, resposta do Ravi e handoff humano.
+
 ## Referências
 
 [1]: https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-instagram-login "Instagram API with Instagram Login — Meta for Developers"
@@ -172,3 +239,13 @@ O redirect deve corresponder integralmente à allowlist, inclusive path e parâm
 [10]: https://developers.facebook.com/docs/graph-api/reference/page/subscribed_apps/ "Page Subscribed Apps — Graph API Reference"
 [11]: https://developers.facebook.com/documentation/facebook-login/security "Facebook Login Security — Meta for Developers"
 [12]: https://developers.facebook.com/documentation/facebook-login/guides/advanced/manual-flow "Manually Build a Login Flow — Meta for Developers"
+[13]: https://developers.facebook.com/documentation/instagram-platform/webhooks "Setup Webhooks Subscriptions — Meta for Developers"
+[14]: https://developers.facebook.com/docs/graph-api/reference/page/subscribed_apps/ "Page Subscribed Apps — Meta for Developers"
+[15]: https://developers.facebook.com/documentation/business-messaging/instagram-messaging/webhooks "Webhooks for Instagram Messaging — Meta for Developers"
+[16]: https://developers.facebook.com/documentation/business-messaging/instagram-messaging/features/send-message "Send a Message — Instagram Messaging — Meta for Developers"
+[17]: https://developers.facebook.com/documentation/instagram-platform/app-review "App Review for Instagram API — Meta for Developers"
+[18]: https://developers.facebook.com/documentation/development/build-and-test/app-roles "App Roles — Meta for Developers"
+[19]: https://developers.facebook.com/documentation/instagram-platform/create-an-instagram-app "Customize the Manage messaging and content on Instagram Use Case — Meta for Developers"
+[20]: https://developers.facebook.com/documentation/instagram-platform/webhooks "Setup Webhooks Subscriptions — Meta for Developers, atualizado em 3 mar. 2026"
+[21]: https://developers.facebook.com/documentation/business-messaging/instagram-messaging/get-started "Instagram Messaging Getting Started — Enable message control connected tools settings"
+[22]: https://www.facebook.com/help/instagram/791161338412168 "Manage access to Instagram messages across apps — Instagram Help Center"
