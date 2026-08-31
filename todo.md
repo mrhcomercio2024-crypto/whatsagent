@@ -1024,4 +1024,26 @@
 - [x] Atualizar status e textos para “Conectar via Facebook”, exibir Página autorizada e oferecer seleção de múltiplos ativos sem expor tokens
 - [x] Adicionar testes de URL OAuth, state/replay, troca de token, descoberta de ativos, seleção segura, Page Token, Send API e regressões do fluxo Instagram
 - [x] Executar TypeScript, suíte Vitest completa (83 arquivos/601 testes) e build de produção
-- [ ] Salvar checkpoint, publicar e concluir a autorização real via Facebook Business
+- [x] Salvar checkpoint `4fbbccaf`, publicar e concluir a autorização real via Facebook Business para `@wedropbr`
+
+## Fase 111 — Liberar domínio e callback OAuth no Meta App
+
+- [x] Confirmar por documentação oficial os campos App Domains, Site URL, Valid OAuth Redirect URIs, Strict Mode, Client/Web OAuth e HTTPS exigidos pelo Facebook Login
+- [x] Cadastrar `agentedozap.com` no App Domains do App `2533423037090142`
+- [x] Cadastrar `https://agentedozap.com/` como Site URL da plataforma Website
+- [x] Cadastrar exatamente `https://agentedozap.com/api/instagram/oauth/callback` em Valid OAuth Redirect URIs e confirmar validador verde
+- [x] Manter Client OAuth Login, Web OAuth Login, HTTPS e Strict Mode habilitados, sem redirect amplo
+- [x] Reexecutar CONECTAR VIA FACEBOOK e confirmar consentimento e seleção de quatro contas profissionais
+- [x] Validar `@wedropbr`: Page `103793205491621`, Instagram `17841451150571001`, token cifrado, seleção limpa, Webhook subscribed e health check OK
+- [ ] Executar cinco DMs reais e confirmar contexto, inbox, handoff e histórico
+
+## Fase 112 — Ativar entrega real do Webhook Instagram
+
+- [x] Registrar evidência: cinco DMs foram enviadas para `@wedropbr`, mas não existe nenhuma row em `instagram_webhook_events`, `messages` Instagram ou `channel_identities`
+- [x] Confirmar que OAuth, Page Token, `subscribed_apps` e health check estão corretos; ausência ocorre antes da aplicação, na configuração do callback/campos Meta
+- [ ] Configurar no Meta App o callback `https://agentedozap.com/webhooks/meta/instagram` com um Verify Token compartilhado e seguro
+- [ ] Assinar os campos de mensageria compatíveis com Instagram no produto Webhooks/Graph API
+- [ ] Validar o challenge GET em produção e confirmar que o callback fica verificado na Meta
+- [ ] Confirmar via Graph API a Page subscription e os campos efetivamente inscritos
+- [ ] Enviar uma DM sentinela e confirmar evento, MID, identidade, inbound, scheduling e outbound
+- [ ] Repetir as cinco DMs em sequência e validar contexto, inbox, handoff e histórico sem duplicidade

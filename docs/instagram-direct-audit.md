@@ -152,6 +152,12 @@ Para mensageria, serão solicitadas somente as permissões documentadas para est
 
 O envio deve usar `POST /v26.0/{PAGE_ID}/messages`, com Page Access Token, `messaging_type=RESPONSE` e o IGSID como destinatário. A inscrição do App na Página usa `/{PAGE_ID}/subscribed_apps`; os campos Instagram também permanecem configurados no App Dashboard.[9] [10]
 
+### Bloqueio de domínio observado em produção
+
+O OAuth publicado abriu `facebook.com/v26.0/dialog/oauth` com App ID, scopes, state e redirect corretos, mas a Meta exibiu “Não é possível carregar a URL — O domínio dessa URL não está incluído nos domínios do app”. Isso confirma um bloqueio de configuração do App, não do callback da aplicação. A correção segura é cadastrar `agentedozap.com` em **App Settings > Basic > App Domains**, habilitar a plataforma Website com `https://agentedozap.com/` e incluir exatamente `https://agentedozap.com/api/instagram/oauth/callback` em **Facebook Login > Settings > Valid OAuth Redirect URIs**. Client OAuth Login e Web OAuth Login precisam estar ativos; Strict Mode e HTTPS devem permanecer habilitados.[11] [12]
+
+O redirect deve corresponder integralmente à allowlist, inclusive path e parâmetros fixos; o parâmetro `state` é ignorado na comparação. Não será usado wildcard, HTTP ou domínio alternativo.[11]
+
 ## Referências
 
 [1]: https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-instagram-login "Instagram API with Instagram Login — Meta for Developers"
@@ -164,3 +170,5 @@ O envio deve usar `POST /v26.0/{PAGE_ID}/messages`, com Page Access Token, `mess
 [8]: https://developers.facebook.com/documentation/facebook-login/guides/access-tokens/get-long-lived "Long-Lived Access Tokens — Meta for Developers"
 [9]: https://developers.facebook.com/documentation/business-messaging/messenger-platform/send-messages "Messenger Platform — Send a Message"
 [10]: https://developers.facebook.com/docs/graph-api/reference/page/subscribed_apps/ "Page Subscribed Apps — Graph API Reference"
+[11]: https://developers.facebook.com/documentation/facebook-login/security "Facebook Login Security — Meta for Developers"
+[12]: https://developers.facebook.com/documentation/facebook-login/guides/advanced/manual-flow "Manually Build a Login Flow — Meta for Developers"
