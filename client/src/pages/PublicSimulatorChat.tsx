@@ -27,6 +27,7 @@ import {
   registerRaviServiceWorker,
   subscribeBrowserToPush,
 } from "../lib/webPush";
+import ViewportDebugPanel from "../components/ViewportDebugPanel";
 
 type PublicConfig = {
   slug: string;
@@ -75,16 +76,47 @@ type ChatItem = {
 type StoredSession = { publicId: string; token: string };
 
 const DEFAULT_TIMING: Timing = {
-  debounceSeconds: 8,
+  debounceSeconds: 2,
   typingSimulationEnabled: true,
-  typingCps: 22,
-  typingMinDelayMs: 800,
-  typingMaxDelayMs: 8000,
-  interMessageDelayMs: 1200,
+  typingCps: 16,
+  typingMinDelayMs: 650,
+  typingMaxDelayMs: 3500,
+  interMessageDelayMs: 850,
 };
+
+const DIRECT_REQUEST_TIMEOUT_MS = 30_000;
+const REQUEST_RECOVERY_TIMEOUT_MS = 120_000;
+const MAX_REVEAL_TIME_MS = 15_000;
 
 function sleep(ms: number) {
   return new Promise<void>(resolve => window.setTimeout(resolve, ms));
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = window.setTimeout(() => reject(new Error("CLIENT_REQUEST_TIMEOUT")), timeoutMs);
+    promise.then(
+      value => {
+        window.clearTimeout(timer);
+        resolve(value);
+      },
+      error => {
+        window.clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
+function safePublicTiming(value: Partial<Timing> | null | undefined): Timing {
+  return {
+    debounceSeconds: Math.max(0, Math.min(2, Number(value?.debounceSeconds ?? DEFAULT_TIMING.debounceSeconds))),
+    typingSimulationEnabled: value?.typingSimulationEnabled !== false,
+    typingCps: Math.max(16, Math.min(45, Number(value?.typingCps ?? DEFAULT_TIMING.typingCps))),
+    typingMinDelayMs: Math.max(250, Math.min(650, Number(value?.typingMinDelayMs ?? DEFAULT_TIMING.typingMinDelayMs))),
+    typingMaxDelayMs: Math.max(650, Math.min(3500, Number(value?.typingMaxDelayMs ?? DEFAULT_TIMING.typingMaxDelayMs))),
+    interMessageDelayMs: Math.max(350, Math.min(850, Number(value?.interMessageDelayMs ?? DEFAULT_TIMING.interMessageDelayMs))),
+  };
 }
 
 function formatTime(ts: number) {
@@ -96,6 +128,40 @@ function formatTime(ts: number) {
 
 function sessionStorageKey(slug: string) {
   return `whatsagent:public-simulator:${slug}`;
+}
+
+function pendingRequestStorageKey(slug: string) {
+  return `whatsagent:public-simulator:pending:${slug}`;
+}
+
+function readPendingRequest(slug: string): { requestId: string; createdAt: number } | null {
+  try {
+    const raw = localStorage.getItem(pendingRequestStorageKey(slug));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { requestId?: string; createdAt?: number };
+    if (!parsed.requestId || !parsed.createdAt) return null;
+    if (Date.now() - parsed.createdAt > 10 * 60_000) {
+      localStorage.removeItem(pendingRequestStorageKey(slug));
+      return null;
+    }
+    return { requestId: parsed.requestId, createdAt: parsed.createdAt };
+  } catch {
+    return null;
+  }
+}
+
+function savePendingRequest(slug: string, requestId: string) {
+  localStorage.setItem(
+    pendingRequestStorageKey(slug),
+    JSON.stringify({ requestId, createdAt: Date.now() }),
+  );
+}
+
+function clearPendingRequest(slug: string, requestId: string) {
+  const current = readPendingRequest(slug);
+  if (!current || current.requestId === requestId) {
+    localStorage.removeItem(pendingRequestStorageKey(slug));
+  }
 }
 
 function readStoredSession(slug: string): StoredSession | undefined {
@@ -175,6 +241,7 @@ export default function PublicSimulatorChat() {
   const pushConsentOffered = trpc.publicSimulator.pushConsentOffered.useMutation();
   const pushConsentDeclined = trpc.publicSimulator.pushConsentDeclined.useMutation();
   const presence = trpc.publicSimulator.presence.useMutation();
+  const utils = trpc.useUtils();
 
   const [credentials, setCredentials] = useState<StoredSession | null>(null);
   const [config, setConfig] = useState<PublicConfig | null>(null);
@@ -195,6 +262,7 @@ export default function PublicSimulatorChat() {
   const [pushEnabled, setPushEnabled] = useState(false);
   const [showIosInstructions, setShowIosInstructions] = useState(false);
   const [pushBusy, setPushBusy] = useState(false);
+  const [slowNotice, setSlowNotice] = useState<string | null>(null);
   const mountedRef = useRef(false);
   const endRef = useRef<HTMLDivElement>(null);
   const messagesRef = useRef<HTMLElement>(null);
@@ -205,6 +273,9 @@ export default function PublicSimulatorChat() {
   const chunksRef = useRef<Blob[]>([]);
   const recordingStartedRef = useRef(0);
   const recordingTimerRef = useRef<number | null>(null);
+  const itemsRef = useRef<ChatItem[]>([]);
+  const revealRunRef = useRef(0);
+  const recoveredOnMountRef = useRef(false);
 
   const busy = phase === "thinking" || phase === "typing";
   const started = status !== "waiting";
@@ -241,6 +312,11 @@ export default function PublicSimulatorChat() {
   }, []);
 
   useEffect(() => {
+    document.body.classList.add("ravi-public-page");
+    return () => document.body.classList.remove("ravi-public-page");
+  }, []);
+
+  useEffect(() => {
     document.title = "Conversa com RAVI";
     sessionStorage.removeItem("ravi:asset-recovery");
     if (mountedRef.current) return;
@@ -257,9 +333,11 @@ export default function PublicSimulatorChat() {
         localStorage.setItem(sessionStorageKey(slug), JSON.stringify(nextCredentials));
         setCredentials(nextCredentials);
         setConfig(result.config as PublicConfig);
-        setTiming((result.timing || DEFAULT_TIMING) as Timing);
+        setTiming(safePublicTiming(result.timing));
         setStatus(result.status);
-        setItems(mapHistory(result.messages as any[], result.config as PublicConfig));
+        const historyItems = mapHistory(result.messages as any[], result.config as PublicConfig);
+        itemsRef.current = historyItems;
+        setItems(historyItems);
         setPushEnabled(Boolean((result.config as PublicConfig)?.push?.enabled));
         if ((result.config as PublicConfig)?.push?.enabled) {
           void registerRaviServiceWorker().catch(() => undefined);
@@ -302,76 +380,150 @@ export default function PublicSimulatorChat() {
   }, []);
 
   const pushItem = useCallback((item: Omit<ChatItem, "id" | "ts"> & { ts?: number }) => {
-    setItems(previous => [
-      ...previous,
-      { id: crypto.randomUUID(), ts: item.ts ?? Date.now(), ...item },
-    ]);
+    setItems(previous => {
+      const next = [
+        ...previous,
+        { id: crypto.randomUUID(), ts: item.ts ?? Date.now(), ...item } as ChatItem,
+      ];
+      itemsRef.current = next;
+      return next;
+    });
   }, []);
 
   const revealActions = useCallback(
     async (result: any) => {
-      const nextTiming = (result.timing || timing) as Timing;
+      const runId = ++revealRunRef.current;
+      const nextTiming = safePublicTiming(result?.timing || timing);
+      const actions = Array.isArray(result?.actions) ? result.actions : [];
+      const startedAt = Date.now();
       setTiming(nextTiming);
-      for (let index = 0; index < result.actions.length; index += 1) {
-        const action = result.actions[index];
-        const content = String(action.text || action.caption || action.filename || "mídia");
-        setPhase("typing");
-        await sleep(calculateHumanPreparationDelay(index));
-        await sleep(
-          action.kind === "text" || action.kind === "checkout"
-            ? calculateHumanTypingDelay(content, nextTiming)
-            : Math.max(850, Math.min(1800, calculateHumanTypingDelay(content, nextTiming))),
-        );
-        if (action.kind === "text") {
-          pushItem({ side: "agent", kind: "text", text: action.text });
-        } else if (action.kind === "checkout") {
-          pushItem({
-            side: "agent",
-            kind: "checkout",
-            text: action.text,
-            checkoutUrl: action.url,
-            checkoutButtonText: action.buttonText,
+      try {
+        for (let index = 0; index < actions.length; index += 1) {
+          if (runId !== revealRunRef.current) return;
+          const action = actions[index];
+          const alreadyVisible = itemsRef.current.some(item => {
+            if (item.side !== "agent") return false;
+            if (action.kind === "text") return item.kind === "text" && item.text === action.text;
+            if (action.kind === "checkout") return item.kind === "checkout" && item.checkoutUrl === action.url;
+            return item.kind === action.mediaType && item.mediaUrl === action.mediaUrl;
           });
-        } else {
-          pushItem({
-            side: "agent",
-            kind: action.mediaType,
-            text: action.caption,
-            mediaUrl: action.mediaUrl,
-            filename: action.filename,
-          });
+          if (alreadyVisible) continue;
+
+          const content = String(action.text || action.caption || action.filename || "mídia");
+          const remaining = Math.max(0, MAX_REVEAL_TIME_MS - (Date.now() - startedAt));
+          setPhase("typing");
+          if (remaining > 0) {
+            await sleep(Math.min(remaining, calculateHumanPreparationDelay(index)));
+            const afterPreparation = Math.max(0, MAX_REVEAL_TIME_MS - (Date.now() - startedAt));
+            const typingDelay =
+              action.kind === "text" || action.kind === "checkout"
+                ? calculateHumanTypingDelay(content, nextTiming)
+                : Math.max(650, Math.min(1400, calculateHumanTypingDelay(content, nextTiming)));
+            if (afterPreparation > 0) await sleep(Math.min(afterPreparation, typingDelay));
+          }
+          if (runId !== revealRunRef.current) return;
+          if (action.kind === "text") {
+            pushItem({ side: "agent", kind: "text", text: action.text });
+          } else if (action.kind === "checkout") {
+            pushItem({ side: "agent", kind: "checkout", text: action.text, checkoutUrl: action.url, checkoutButtonText: action.buttonText });
+          } else {
+            pushItem({ side: "agent", kind: action.mediaType, text: action.caption, mediaUrl: action.mediaUrl, filename: action.filename });
+          }
+          if (index < actions.length - 1) {
+            setPhase("idle");
+            const remainingBetween = Math.max(0, MAX_REVEAL_TIME_MS - (Date.now() - startedAt));
+            if (remainingBetween > 0) {
+              await sleep(Math.min(remainingBetween, calculateHumanInterMessageDelay(nextTiming.interMessageDelayMs)));
+            }
+          }
         }
-        if (index < result.actions.length - 1) {
-          setPhase("idle");
-          await sleep(calculateHumanInterMessageDelay(nextTiming.interMessageDelayMs));
-        }
+      } finally {
+        if (runId === revealRunRef.current) setPhase("idle");
       }
-      setPhase("idle");
     },
     [pushItem, timing],
   );
 
-  const processTextNow = useCallback(
-    async (content: string, kind: "start" | "text" = "text") => {
-      if (!credentials || !config) return;
-      setPhase("thinking");
-      try {
-        const result = await sendText.mutateAsync({
-          slug,
-          ...credentials,
-          requestId: crypto.randomUUID(),
-          kind,
-          text: content,
-        });
+  const recoverRequest = useCallback(
+    async (requestId: string) => {
+      if (!credentials) throw new Error("Sessão indisponível");
+      const deadline = Date.now() + REQUEST_RECOVERY_TIMEOUT_MS;
+      while (Date.now() < deadline) {
+        try {
+          const state = await utils.publicSimulator.requestStatus.fetch({ ...credentials, requestId });
+          if (state.status === "completed" && state.response) return state.response as any;
+          if (state.status === "failed") {
+            clearPendingRequest(slug, requestId);
+            throw new Error(state.errorMessage || "A resposta falhou");
+          }
+          if (state.status === "missing") {
+            clearPendingRequest(slug, requestId);
+            throw new Error("Resposta não encontrada");
+          }
+        } catch (error: any) {
+          if (/falhou|não encontrada/i.test(String(error?.message || ""))) throw error;
+          // Oscilação de rede não encerra a recuperação; a resposta pode já estar no banco.
+        }
+        await sleep(1500);
+      }
+      throw new Error("A resposta está demorando mais que o normal. Tente sincronizar novamente.");
+    },
+    [credentials, slug, utils.publicSimulator.requestStatus],
+  );
+
+  useEffect(() => {
+    if (!credentials || !config || recoveredOnMountRef.current) return;
+    const pending = readPendingRequest(slug);
+    if (!pending) return;
+    recoveredOnMountRef.current = true;
+    setPhase("thinking");
+    setSlowNotice("Recuperando a resposta…");
+    void recoverRequest(pending.requestId)
+      .then(async result => {
         setStatus("active");
         if (result.pushConsent) setPushPrompt(result.pushConsent);
         await revealActions(result);
+        clearPendingRequest(slug, pending.requestId);
+      })
+      .catch(error => setError(error?.message || "Não foi possível recuperar a resposta."))
+      .finally(() => {
+        setSlowNotice(null);
+        setPhase("idle");
+      });
+  }, [config, credentials, recoverRequest, revealActions, slug]);
+
+  const processTextNow = useCallback(
+    async (content: string, kind: "start" | "text" = "text") => {
+      if (!credentials || !config) return;
+      const requestId = crypto.randomUUID();
+      savePendingRequest(slug, requestId);
+      setPhase("thinking");
+      setSlowNotice(null);
+      const slowTimer = window.setTimeout(() => setSlowNotice("Preparando sua resposta…"), 12_000);
+      try {
+        let result: any;
+        try {
+          result = await withTimeout(
+            sendText.mutateAsync({ slug, ...credentials, requestId, kind, text: content }),
+            DIRECT_REQUEST_TIMEOUT_MS,
+          );
+        } catch {
+          setSlowNotice("Sincronizando a resposta…");
+          result = await recoverRequest(requestId);
+        }
+        setStatus("active");
+        if (result.pushConsent) setPushPrompt(result.pushConsent);
+        await revealActions(result);
+        clearPendingRequest(slug, requestId);
       } catch (err: any) {
         setError(err?.message || "Não foi possível enviar. Tente novamente.");
+      } finally {
+        window.clearTimeout(slowTimer);
+        setSlowNotice(null);
         setPhase("idle");
       }
     },
-    [config, credentials, revealActions, sendText, slug],
+    [config, credentials, recoverRequest, revealActions, sendText, slug],
   );
 
   const startConversation = async () => {
@@ -458,21 +610,39 @@ export default function PublicSimulatorChat() {
         }
         const localUrl = URL.createObjectURL(blob);
         pushItem({ side: "lead", kind: "audio", mediaUrl: localUrl, durationMs });
+        const requestId = crypto.randomUUID();
+        savePendingRequest(slug, requestId);
         setPhase("thinking");
+        setSlowNotice(null);
+        const slowTimer = window.setTimeout(() => setSlowNotice("Preparando seu áudio…"), 12_000);
         try {
           const base64 = await blobToBase64(blob);
-          const result = await sendAudio.mutateAsync({
-            slug,
-            ...credentials,
-            requestId: crypto.randomUUID(),
-            audioBase64: base64,
-            mimeType: blob.type.split(";")[0] || "audio/webm",
-            durationMs,
-          });
+          let result: any;
+          try {
+            result = await withTimeout(
+              sendAudio.mutateAsync({
+                slug,
+                ...credentials,
+                requestId,
+                audioBase64: base64,
+                mimeType: blob.type.split(";")[0] || "audio/webm",
+                durationMs,
+              }),
+              DIRECT_REQUEST_TIMEOUT_MS,
+            );
+          } catch {
+            setSlowNotice("Sincronizando a resposta…");
+            result = await recoverRequest(requestId);
+          }
+          setStatus("active");
           if (result.pushConsent) setPushPrompt(result.pushConsent);
           await revealActions(result);
+          clearPendingRequest(slug, requestId);
         } catch (err: any) {
           setError(err?.message || "Não foi possível entender o áudio.");
+        } finally {
+          window.clearTimeout(slowTimer);
+          setSlowNotice(null);
           setPhase("idle");
         }
       };
@@ -559,11 +729,11 @@ export default function PublicSimulatorChat() {
 
   return (
     <div
-      className="ravi-page min-h-[100svh] overflow-hidden bg-[#071015] text-[#e9edef] sm:flex sm:min-h-screen sm:items-center sm:justify-center sm:p-3"
+      className="ravi-page w-full min-h-[100svh] bg-[#071015] text-[#e9edef]"
       style={{ "--sim-accent": config.accentColor } as React.CSSProperties}
     >
-      <div className="mx-auto flex h-[100svh] w-full max-w-[620px] overflow-hidden bg-[#0b141a] shadow-2xl sm:h-[min(920px,calc(100vh-24px))] sm:rounded-2xl sm:border sm:border-white/10">
-        <main className="grid min-h-0 min-w-0 flex-1 grid-rows-[auto_minmax(0,1fr)_auto]">
+      <div className="mx-auto w-full max-w-[620px] bg-[#0b141a] shadow-2xl sm:border-x sm:border-white/10">
+        <main className="ravi-shell flex min-h-[100svh] min-w-0 flex-col">
           <header className="ravi-header z-20 flex shrink-0 items-center gap-3 bg-[#202c33] px-3 shadow-sm sm:px-4">
             <Avatar config={config} size="md" />
             <div className="min-w-0 flex-1">
@@ -578,7 +748,7 @@ export default function PublicSimulatorChat() {
             </div>
           </header>
 
-          <section ref={messagesRef} className="sim-chat-bg min-h-0 overflow-y-auto overscroll-contain px-2 py-3 [scrollbar-width:none] sm:px-4 sm:py-4">
+          <section ref={messagesRef} className="ravi-messages sim-chat-bg w-full flex-1 overflow-visible px-2 py-3 sm:px-4 sm:py-4">
             <div className="mx-auto mb-4 w-fit rounded-lg bg-[#182229] px-3 py-1.5 text-center text-[11px] text-[#8696a0] shadow">
               HOJE
             </div>
@@ -594,7 +764,7 @@ export default function PublicSimulatorChat() {
                   startBusy={busy}
                 />
               ))}
-              {(phase === "thinking" || phase === "typing") && <TypingBubble />}
+              {(phase === "thinking" || phase === "typing") && <TypingBubble label={slowNotice} />}
               {mayOfferPush && (
                 <div className="flex justify-start py-2">
                   <div className="max-w-[92%] rounded-xl border border-[var(--sim-accent)]/30 bg-[#17252c] p-3 shadow-lg">
@@ -660,7 +830,7 @@ export default function PublicSimulatorChat() {
             </div>
           )}
 
-          <footer className="ravi-composer z-20 shrink-0 bg-[#202c33] px-2 pt-1.5 sm:px-3 sm:pt-2">
+          <footer className="ravi-composer z-30 shrink-0 bg-[#202c33] px-2 pt-1.5 sm:px-3 sm:pt-2">
             {recording ? (
               <div className="flex h-12 items-center gap-3">
                 <button
@@ -699,7 +869,9 @@ export default function PublicSimulatorChat() {
                       event.currentTarget.style.height = `${Math.min(112, event.currentTarget.scrollHeight)}px`;
                     }}
                     onFocus={() => {
-                      window.requestAnimationFrame(() => scrollToLatest("auto"));
+                      window.setTimeout(() => {
+                        inputRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+                      }, 180);
                     }}
                     onKeyDown={event => {
                       if (event.key === "Enter" && !event.shiftKey) {
@@ -740,12 +912,20 @@ export default function PublicSimulatorChat() {
 
       <style>{`
         .ravi-page {
+          width: 100%;
+          min-height: 100svh;
           background: #071015;
-          overflow-anchor: none;
+          overflow-x: hidden;
         }
         .ravi-header {
+          position: sticky;
+          top: 0;
           height: calc(60px + env(safe-area-inset-top));
           padding-top: env(safe-area-inset-top);
+        }
+        .ravi-messages {
+          width: 100%;
+          overflow: visible;
         }
         .sim-chat-bg {
           touch-action: pan-y;
@@ -754,6 +934,8 @@ export default function PublicSimulatorChat() {
         }
         .sim-chat-bg::-webkit-scrollbar { display: none; }
         .ravi-composer {
+          position: sticky;
+          bottom: 0;
           padding-bottom: max(.5rem, env(safe-area-inset-bottom));
           box-shadow: 0 -1px 0 rgba(255,255,255,.04);
           touch-action: manipulation;
@@ -769,6 +951,7 @@ export default function PublicSimulatorChat() {
           * { scroll-behavior: auto !important; }
         }
       `}</style>
+      <ViewportDebugPanel />
     </div>
   );
 }
@@ -885,17 +1068,20 @@ function RichText({ text }: { text: string }) {
   );
 }
 
-function TypingBubble() {
+function TypingBubble({ label }: { label?: string | null }) {
   return (
     <div className="flex justify-start">
-      <div className="flex items-center gap-1 rounded-lg bg-[#202c33] px-3 py-3 shadow">
-        {[0, 1, 2].map(index => (
-          <span
-            key={index}
-            className="size-1.5 animate-pulse rounded-full bg-[#8696a0]"
-            style={{ animationDelay: `${index * 150}ms` }}
-          />
-        ))}
+      <div className="flex items-center gap-2 rounded-lg bg-[#202c33] px-3 py-3 shadow">
+        <span className="flex items-center gap-1">
+          {[0, 1, 2].map(index => (
+            <span
+              key={index}
+              className="size-1.5 animate-pulse rounded-full bg-[#8696a0]"
+              style={{ animationDelay: `${index * 150}ms` }}
+            />
+          ))}
+        </span>
+        {label && <span className="text-[11px] text-[#aebac1]">{label}</span>}
       </div>
     </div>
   );

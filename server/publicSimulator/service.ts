@@ -156,12 +156,12 @@ function audioExtension(mimeType: string) {
 
 function timing(agent: Agent) {
   return {
-    debounceSeconds: agent.debounceSeconds,
+    debounceSeconds: Math.min(agent.debounceSeconds, 2),
     typingSimulationEnabled: agent.typingSimulationEnabled,
-    typingCps: agent.typingCps,
-    typingMinDelayMs: agent.typingMinDelayMs,
-    typingMaxDelayMs: agent.typingMaxDelayMs,
-    interMessageDelayMs: agent.interMessageDelayMs,
+    typingCps: Math.max(agent.typingCps, 16),
+    typingMinDelayMs: Math.min(agent.typingMinDelayMs, 650),
+    typingMaxDelayMs: Math.min(agent.typingMaxDelayMs, 3500),
+    interMessageDelayMs: Math.min(agent.interMessageDelayMs, 850),
   };
 }
 

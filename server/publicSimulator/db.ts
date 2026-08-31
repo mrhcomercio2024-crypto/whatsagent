@@ -309,6 +309,22 @@ export async function beginPublicRequest(
   }
 }
 
+export async function getPublicRequestForSession(sessionId: number, requestId: string) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  const rows = await db
+    .select()
+    .from(publicSimulatorRequests)
+    .where(
+      and(
+        eq(publicSimulatorRequests.sessionId, sessionId),
+        eq(publicSimulatorRequests.requestId, requestId),
+      ),
+    )
+    .limit(1);
+  return rows[0];
+}
+
 export async function completePublicRequest(requestId: string, response: unknown) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");

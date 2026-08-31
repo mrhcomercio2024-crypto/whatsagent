@@ -873,7 +873,7 @@
 - [x] Atualizar testes de regressão para exigir ausência de `visualViewport`/altura JS, scroll interno e bloqueio do auto-scroll do Safari
 - [x] Executar suíte completa (553/553), TypeScript e build de produção
 - [x] Salvar checkpoint e solicitar publicação
-- [ ] Validar o teclado aberto no iPhone real após publicação
+- [x] (substituído) Validação da abordagem anterior encerrada após reincidência; solução consolidada na Fase 103
 - [x] Confirmar em produção o bundle `index-Bv_UUb5M.js`: sem `--ravi-visual-height`/mínimo 240px, com shell `100dvh` e focus detection
 - [x] Validar em produção textarea de 2 linhas: shell 1100px, mensagens 776px, compositor 82px e `window.scrollY=0`
 ## Fase 101: Fallback nativo definitivo para Safari iPhone
@@ -889,7 +889,7 @@
 - [x] Validar mobile 390×844 e textarea de duas linhas: main 918px, header 60px, mensagens 774px, compositor 84px, `window.scrollY=0`, body estático/visível
 - [x] Executar suíte completa (553/553), TypeScript e build de produção
 - [x] Salvar checkpoint e solicitar publicação
-- [ ] Validar no iPhone real após publicação
+- [x] (substituído) Validação da abordagem anterior encerrada após reincidência; solução consolidada na Fase 103
 ## Fase 102: Limpar somente os dados operacionais do Ravi Web
 
 - [x] Mapear 15 tabelas com `sessionId`, `conversationId` ou `leadId` e isolar registros por `public_simulator_sessions`
@@ -900,3 +900,21 @@
 - [x] Preservar `public_simulator_configs`, `recovery_rules`, agente, cérebro, etapas, mídias e integrações
 - [x] Preservar integralmente 12 conversas e 12 leads do WhatsApp/Z-API
 - [x] Verificar contagens zeradas: sessões, requests, conversões, subscriptions, recovery jobs/events, conversas, mensagens e leads `SIMWEB:*` em zero; 1 config, 3 regras e 1 agente preservados
+## Fase 103: Eliminar travamento em digitando e viewport concorrente no iPhone
+
+- [x] Correlacionar sessão #14/conversa 150014: backend concluiu todos os requests e persistiu outbounds; último turno levou 17s, anterior 70s, sem erro — travamento é client-side
+- [x] Auditar ciclo: resposta de cada turno restaura timing bruto (10s/2s/até 8s), `revealActions` não usa `finally`, requestId não é persistido e não existe recuperação quando a resposta HTTP se perde
+- [x] Remover `100vh`, `100dvh` fixo, `calc()` de viewport, `innerHeight`, `visualViewport`, listeners de resize e variáveis `--vh` da rota pública
+- [x] Remover `position: fixed`, overflow hidden, body lock, transform, filter, perspective e contain dos ancestrais; única transformação restante é a animação dos três pontos, sem afetar ancestral
+- [x] Reconstruir `.ravi-page` com `min-height: 100svh` em fluxo natural, sem shell de altura fixa
+- [x] Tornar `.ravi-header` sticky, `.ravi-messages` visível e `.ravi-composer` sticky com safe-area
+- [x] Manter textarea com 16px, crescimento limitado a 4–5 linhas e sem alterar containers
+- [x] Usar somente `scrollIntoView({ block: "nearest" })` após 180ms no foco, sem alterar viewport
+- [x] Garantir timeout de 30s, limite total de revelação de 15s e `finally` para nunca deixar `phase="typing"` indefinidamente
+- [x] Persistir `requestId`, consultar `requestStatus` por token e recuperar resposta concluída por até 120s quando o HTTP se perder
+- [x] Restaurar credenciais, request pendente e histórico pelo mesmo `publicId`; falha de chunk agora exibe recuperação manual, sem reload silencioso
+- [x] Implementar `?debugViewport=1` com innerHeight, clientHeight, scrollY, retângulos, activeElement e textarea, sem código ativo no modo normal
+- [x] Testar 1/2/4 linhas com foco real: textarea 32/56/104px, compositor 60/84/132px, mensagens terminando exatamente no topo do compositor e `scrollY=0`
+- [x] Executar TypeScript, suíte completa (559/559) e build de produção
+- [x] Salvar checkpoint, solicitar publicação e informar versão exata do deploy
+- [ ] Validar no iPhone real antes de considerar resolvido

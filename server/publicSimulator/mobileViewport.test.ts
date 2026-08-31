@@ -16,16 +16,17 @@ describe("Ravi mobile keyboard viewport", () => {
   });
 
   it("usa documento nativo, sem fullscreen fixo, body lock ou altura dinâmica", () => {
-    expect(chat).toContain('className="ravi-page min-h-[100svh]');
+    expect(chat).toContain('className="ravi-page w-full min-h-[100svh]');
     expect(chat).not.toContain("fixed inset-0");
     expect(chat).not.toContain("height: 100dvh");
     expect(chat).not.toContain("window.scrollTo(0, 0)");
   });
 
-  it("mantém header, mensagens e compositor em três faixas estáveis", () => {
-    expect(chat).toContain("grid-rows-[auto_minmax(0,1fr)_auto]");
-    expect(chat).toContain("h-[100svh]");
-    expect(chat).toContain("min-h-0 overflow-y-auto overscroll-contain");
+  it("mantém header e compositor sticky com mensagens no fluxo natural", () => {
+    expect(chat).toContain("ravi-shell flex min-h-[100svh]");
+    expect(chat).toContain("position: sticky");
+    expect(chat).toContain("ravi-messages sim-chat-bg w-full flex-1 overflow-visible");
+    expect(chat).toContain("overflow: visible");
     expect(chat).toContain('ref={messagesRef}');
     expect(chat).toContain("env(safe-area-inset-bottom)");
     expect(chat).toContain("env(safe-area-inset-top)");
@@ -39,9 +40,10 @@ describe("Ravi mobile keyboard viewport", () => {
     expect(html).not.toContain("user-scalable=no");
   });
 
-  it("não refoca ou rola a página depois do envio", () => {
+  it("não refoca nem controla a página depois do envio", () => {
     expect(chat).not.toContain('window.addEventListener("ravi:viewport-resize"');
     expect(chat).not.toContain('inputRef.current?.focus({ preventScroll: true })');
+    expect(chat).toContain('scrollIntoView({ block: "nearest", behavior: "smooth" })');
     expect(chat).toContain('onPointerDown={event => event.preventDefault()}');
   });
 });

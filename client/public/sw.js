@@ -102,7 +102,7 @@ self.addEventListener("fetch", event => {
       const cached = await caches.match(RAVI_START_URL);
       if (cached) return cached;
       return new Response(
-        '<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><body style="margin:0;background:#071015;color:#e9edef;font:16px system-ui;display:grid;place-items:center;min-height:100vh"><main style="text-align:center;padding:24px"><p>Reconectando sua conversa…</p><button onclick="location.reload()" style="border:0;border-radius:999px;padding:12px 18px;background:#00a884;color:white;font-weight:700">Tentar novamente</button></main></body>',
+        '<!doctype html><html style="min-height:100%;background:#071015"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><body style="margin:0;min-height:100%;background:#071015;color:#e9edef;font:16px system-ui"><main style="text-align:center;padding:72px 24px 24px"><p>Reconectando sua conversa…</p><button onclick="location.reload()" style="border:0;border-radius:999px;padding:12px 18px;background:#00a884;color:white;font-weight:700">Tentar novamente</button></main></body></html>',
         { status: 503, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } },
       );
     })(),

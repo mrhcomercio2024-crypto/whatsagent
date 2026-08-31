@@ -17,7 +17,18 @@ const recoverPublicSimulatorChunk = (reason: string) => {
   const key = "ravi:asset-recovery";
   if (sessionStorage.getItem(key)) return;
   sessionStorage.setItem(key, reason);
-  window.location.reload();
+  const showRecovery = () => {
+    document.documentElement.style.background = "#071015";
+    document.body.style.background = "#071015";
+    const root = document.getElementById("root");
+    if (!root) return;
+    root.innerHTML = `<main style="min-height:100svh;background:#071015;color:#e9edef;font:16px system-ui;padding:72px 24px;text-align:center"><h1 style="font-size:18px">Atualizando sua conversa</h1><p style="color:#aebac1;line-height:1.5">Seu histórico continua salvo. Toque abaixo para carregar a versão mais recente.</p><button onclick="location.reload()" style="border:0;border-radius:999px;padding:12px 18px;background:#00a884;color:#071611;font-weight:700">Continuar conversa</button></main>`;
+  };
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", showRecovery, { once: true });
+  } else {
+    showRecovery();
+  }
 };
 
 window.addEventListener("vite:preloadError", event => {

@@ -9,6 +9,7 @@ import {
   ensurePublicSimulatorConfig,
   getPublicSimulatorConfigByAgent,
   getPublicSimulatorConfigBySlug,
+  getPublicRequestForSession,
   getPublicSimulatorSessionAdmin,
   listPublicConversions,
   listPublicSessionMessages,
@@ -197,6 +198,23 @@ export const publicSimulatorRouter = router({
         }
         throw new TRPCError({ code: "BAD_REQUEST", message });
       }
+    }),
+
+  requestStatus: publicProcedure
+    .input(
+      sessionAuthSchema.extend({
+        requestId: z.string().min(8).max(80),
+      }),
+    )
+    .query(async ({ input }) => {
+      const session = await requirePublicSimulatorSession(input.publicId, input.token);
+      const request = await getPublicRequestForSession(session.id, input.requestId);
+      if (!request) return { status: "missing" as const, response: null, errorMessage: null };
+      return {
+        status: request.status,
+        response: request.status === "completed" ? request.response : null,
+        errorMessage: request.status === "failed" ? request.errorMessage : null,
+      };
     }),
 
   sendAudio: publicProcedure

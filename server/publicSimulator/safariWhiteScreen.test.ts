@@ -19,10 +19,10 @@ describe("Ravi Web — proteção contra tela branca no Safari", () => {
     expect(chatSource).not.toContain("ravi:viewport-resize");
   });
 
-  it("usa três faixas estáveis sem fullscreen fixo ou altura calculada por JavaScript", () => {
+  it("usa fluxo natural com sticky sem fullscreen fixo ou altura calculada por JavaScript", () => {
     expect(chatSource).toContain("min-h-[100svh]");
-    expect(chatSource).toContain("grid-rows-[auto_minmax(0,1fr)_auto]");
-    expect(chatSource).toContain("h-[100svh]");
+    expect(chatSource).toContain("position: sticky");
+    expect(chatSource).toContain("overflow: visible");
     expect(chatSource).not.toContain("fixed inset-0");
     expect(chatSource).not.toContain("100dvh");
   });
@@ -45,10 +45,12 @@ describe("Ravi Web — proteção contra tela branca no Safari", () => {
     expect(htmlSource).toContain("Abrindo sua conversa…");
   });
 
-  it("recupera falhas de chunk uma única vez", () => {
+  it("mostra recuperação de chunk sem recarregar silenciosamente", () => {
     expect(mainSource).toContain('window.addEventListener("vite:preloadError"');
     expect(mainSource).toContain('const key = "ravi:asset-recovery"');
-    expect(mainSource).toContain("window.location.reload()");
+    expect(mainSource).not.toContain("window.location.reload();");
+    expect(mainSource).toContain("Seu histórico continua salvo");
+    expect(mainSource).toContain("Continuar conversa");
   });
 
   it("possui Error Boundary específico sem perder o histórico", () => {

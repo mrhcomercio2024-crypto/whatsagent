@@ -61,7 +61,7 @@ describe("human typing rhythm", () => {
     );
     expect(source).not.toContain("<aside");
     expect(source).toContain("max-w-[620px]");
-    expect(source).toContain("for (let index = 0; index < result.actions.length; index += 1)");
+    expect(source).toContain("for (let index = 0; index < actions.length; index += 1)");
     expect(source).toContain("setPhase(\"idle\")");
     expect(source).toContain("calculateHumanInterMessageDelay");
   });

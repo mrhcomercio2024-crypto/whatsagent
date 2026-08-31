@@ -29,7 +29,7 @@ export default class PublicSimulatorErrorBoundary extends Component<Props, State
   render() {
     if (!this.state.error) return this.props.children;
     return (
-      <div className="grid min-h-[100dvh] place-items-center bg-[#071015] px-6 text-center text-[#e9edef]">
+      <div className="grid min-h-[100svh] place-items-center bg-[#071015] px-6 text-center text-[#e9edef]">
         <div className="max-w-sm">
           <div className="mx-auto mb-4 grid size-12 place-items-center rounded-full bg-[#00a884]/15 text-xl text-[#00a884]">
             ↻

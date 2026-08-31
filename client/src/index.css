@@ -124,17 +124,28 @@
   * {
     @apply border-border outline-ring/50;
   }
-  html, body {
+  html, body, #root {
     font-family: var(--font-sans);
     font-feature-settings: "ss01", "cv11";
     letter-spacing: -0.005em;
+    width: 100%;
+    min-height: 100%;
   }
   body {
     @apply bg-background text-foreground antialiased;
+    overflow-x: hidden;
+    overflow-y: auto;
     background-image:
       radial-gradient(900px circle at 12% -5%, oklch(0.22 0.05 152 / 0.18), transparent 55%),
       radial-gradient(700px circle at 95% 102%, oklch(0.30 0.07 78 / 0.10), transparent 55%);
     background-attachment: fixed;
+  }
+  body.ravi-public-page {
+    background: #071015;
+    background-image: none;
+    background-attachment: scroll;
+    overflow-x: hidden;
+    overflow-y: auto;
   }
   .font-serif { font-family: var(--font-serif); letter-spacing: -0.01em; }
   .font-mono  { font-family: var(--font-mono); }
