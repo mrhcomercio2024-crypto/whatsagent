@@ -80,12 +80,15 @@ function publicConfig(config: Awaited<ReturnType<typeof getPublicSimulatorConfig
 function publicTiming(agent: Awaited<ReturnType<typeof getAgentById>>) {
   if (!agent) return null;
   return {
-    debounceSeconds: agent.debounceSeconds,
+    // O WhatsApp real pode usar uma cadência mais lenta. No Ravi Web, a
+    // latência de rede/LLM já cria uma pausa natural, então limitamos atrasos
+    // artificiais sem alterar a configuração global do agente/Z-API.
+    debounceSeconds: Math.min(agent.debounceSeconds, 2),
     typingSimulationEnabled: agent.typingSimulationEnabled,
-    typingCps: agent.typingCps,
-    typingMinDelayMs: agent.typingMinDelayMs,
-    typingMaxDelayMs: agent.typingMaxDelayMs,
-    interMessageDelayMs: agent.interMessageDelayMs,
+    typingCps: Math.max(agent.typingCps, 16),
+    typingMinDelayMs: Math.min(agent.typingMinDelayMs, 650),
+    typingMaxDelayMs: Math.min(agent.typingMaxDelayMs, 3500),
+    interMessageDelayMs: Math.min(agent.interMessageDelayMs, 850),
   };
 }
 

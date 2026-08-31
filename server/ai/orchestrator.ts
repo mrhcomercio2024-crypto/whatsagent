@@ -227,9 +227,10 @@ export async function processInboundForReply(opts: {
     : steps[0];
   if (!currentStep && steps.length > 0) currentStep = steps[0];
 
-  // 3.0 CLASSIFICADOR DE STATUS AUTOMÁTICO (IA paralela)
-  // Roda antes da geração normal. Se detectar uma regra, atualiza o lead e
-  // — se for bloqueante — substitui a resposta pela replyWhenBlocked.
+  // 3.0 CLASSIFICADOR DE STATUS AUTOMÁTICO.
+  // No simulador público, opt-out e cancelamentos já são tratados de forma
+  // objetiva pelo serviço. Evitamos este round-trip extra no caminho crítico.
+  if (!opts.isSimulation) {
   try {
     const statusRules = await listLeadStatusRules(agent.id);
     if (statusRules.length > 0) {
@@ -297,6 +298,7 @@ export async function processInboundForReply(opts: {
     }
   } catch (e) {
     console.warn("[orchestrator] status classifier falhou:", (e as Error).message);
+  }
   }
 
   // 3.a Auto-avanço por teto de mensagens da etapa: se a etapa atual tem
@@ -521,6 +523,7 @@ export async function processInboundForReply(opts: {
     mediaReaction: mediaReactionCtx,
     leadFactsBlock,
     objectionHint,
+    fastMode: Boolean(opts.isSimulation),
   };
 
   const messages = buildMessages(ctx);
@@ -555,7 +558,7 @@ export async function processInboundForReply(opts: {
     const r = await invokeWithModel({
       model,
       messages,
-      maxTokens: 800,
+      maxTokens: opts.isSimulation ? 500 : 800,
       temperature: 0.5,
       tracking: {
         purpose: "orchestrator",

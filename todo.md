@@ -833,3 +833,14 @@
 - [x] Criar 5 testes de source/viewport e executar suíte completa — 541/541 verde
 - [x] Validar em 390×844 e com teclado simulado de 430px: cabeçalho, mensagens e compositor permaneceram dentro da área útil; input em 16px e body bloqueado
 - [x] Build de produção concluído, servidor restaurado, checkpoint salvo e publicação solicitada
+## Fase 98: Corrigir demora excessiva das respostas no Ravi Web
+
+- [x] Medir debounce configurado: 10s no agente, aplicado no navegador antes de cada requisição
+- [x] Medir latência real: 18–40s entre inbound persistido e primeira outbound nos turnos recentes
+- [x] Inspecionar produção: sem timeout/erro do simulador; servidor respondendo, com logs públicos poluídos por avisos de sessão ausente
+- [x] Separar tempo: prompt principal ~13,5 mil tokens, classificador de status síncrono, debounce 10s, digitação a 5 CPS e pausa de 3s entre balões
+- [x] Corrigir a causa dominante: prompt compacto no simulador, histórico limitado a 14 mensagens e classificador de status removido do caminho crítico público
+- [x] Definir limites públicos sem alterar Z-API: debounce máximo 2s, mínimo 16 CPS, digitação máxima 3,5s e pausa entre balões máxima 850ms
+- [x] Testar fluxo real no Ravi Web: backend caiu de 18–40s para ~2s no turno medido; resposta continuou em balões progressivos
+- [x] Executar suíte completa (545/545), TypeScript e build de produção; servidor restaurado
+- [x] Salvar checkpoint e solicitar publicação

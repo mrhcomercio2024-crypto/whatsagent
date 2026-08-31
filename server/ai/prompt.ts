@@ -46,6 +46,8 @@ export type PromptContext = {
   objectionHint?: string | null;
   /** Hint de regeneração após falha de stepCompliance (vindo de buildRegenHint). */
   forceRegenHint?: string | null;
+  /** Compacta contexto redundante em canais interativos que priorizam resposta rápida. */
+  fastMode?: boolean;
 };
 
 const HARD_RULES = `
@@ -85,6 +87,15 @@ function fmtIfPresent(label: string, val?: string | null): string {
   return `\n## ${label}\n${val.trim()}\n`;
 }
 
+function compactPromptText(value: string | null | undefined, maxChars: number): string | null | undefined {
+  if (!value || value.length <= maxChars) return value;
+  const separator = "\n\n[… trecho intermediário condensado para resposta rápida …]\n\n";
+  const available = Math.max(400, maxChars - separator.length);
+  const headSize = Math.floor(available * 0.72);
+  const tailSize = available - headSize;
+  return `${value.slice(0, headSize).trimEnd()}${separator}${value.slice(-tailSize).trimStart()}`;
+}
+
 /** Aceita string JSON de array OU array nativo OU null. Retorna array de strings não vazias. */
 function parseJsonArrayLike(value: unknown): string[] {
   if (!value) return [];
@@ -115,6 +126,16 @@ function buildSummaryBlock(summary?: string | null): string {
 
 export function buildSystemPrompt(ctx: PromptContext): string {
   const { agent, brain, steps, currentStep, knowledge, availableMedia, leadName, leadPhone, conversationSummary } = ctx;
+  const promptBrain = brain && ctx.fastMode
+    ? {
+        ...brain,
+        masterPrompt: compactPromptText(brain.masterPrompt, 6500) || "",
+        rules: compactPromptText(brain.rules, 3200),
+        products: compactPromptText(brain.products, 2800),
+        objections: compactPromptText(brain.objections, 4200),
+        companyInfo: compactPromptText(brain.companyInfo, 3200),
+      }
+    : brain;
 
   // O funil aparece como contexto SEM mostrar instruções (só o esqueleto),
   // para o agente saber em que ponto está, mas não ler os detalhes em voz alta.
@@ -295,7 +316,7 @@ ${knowledge
   return `Você é "${agent.name}", agente de vendas via WhatsApp.
 
 # CÉREBRO DO AGENTE
-${fmtIfPresent("Persona", agent.persona)}${fmtIfPresent("Prompt mestre", brain?.masterPrompt)}${showCerebroTone ? fmtIfPresent("Tom de voz", brain?.tone) : ""}${fmtIfPresent("Regras estritas", brain?.rules)}${fmtIfPresent("Produtos / Serviços", brain?.products)}${fmtIfPresent("Objeções comuns e respostas", brain?.objections)}${fmtIfPresent("Informações da empresa", brain?.companyInfo)}
+${fmtIfPresent("Persona", agent.persona)}${fmtIfPresent("Prompt mestre", promptBrain?.masterPrompt)}${showCerebroTone ? fmtIfPresent("Tom de voz", promptBrain?.tone) : ""}${fmtIfPresent("Regras estritas", promptBrain?.rules)}${fmtIfPresent("Produtos / Serviços", promptBrain?.products)}${fmtIfPresent("Objeções comuns e respostas", promptBrain?.objections)}${fmtIfPresent("Informações da empresa", promptBrain?.companyInfo)}
 
 # COMO VOCÊ ESCREVE
 ${toneBlock}
@@ -362,7 +383,7 @@ function buildShortReplyHint(text: string): string {
 export function buildMessages(ctx: PromptContext, maxHistory = 30): Message[] {
   const system = buildSystemPrompt(ctx);
   const history: Message[] = ctx.history
-    .slice(-maxHistory)
+    .slice(-(ctx.fastMode ? Math.min(maxHistory, 14) : maxHistory))
     .filter(m => m.body && m.body.trim().length > 0)
     .map(m => ({
       role:
