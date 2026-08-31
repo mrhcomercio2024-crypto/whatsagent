@@ -858,5 +858,5 @@
 - [x] Garantir altura mínima de 240px, valor finito e `top: 0` quando `visualViewport` oscilar
 - [x] Remover listener `visualViewport.scroll`, `body:fixed` e auto-scroll duplo que formavam o ciclo de relayout
 - [x] Executar suíte completa (553/553), build e teste de estresse no preview com 800 eventos de viewport durante “digitando”
-- [ ] Confirmar correção no domínio de produção após publicação
+- [x] Confirmar correção em `agentedozap.com`: Service Worker v2 ativo, shell escuro, fallback seguro e turno completo após 1.000 eventos de viewport durante “digitando”, sem tela branca ou erro no console
 - [x] Salvar checkpoint e solicitar publicação
