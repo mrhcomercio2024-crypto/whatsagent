@@ -812,7 +812,7 @@
 - [x] Criar mensagens padrão e personalização opcional por `gpt-5-mini`, com fallback e regras fixas prioritárias
 - [x] Estruturar regras e adaptadores multicanal com `channel = push` ativo e contratos preparados para Instagram, e-mail e WhatsApp
 - [x] Criar endpoint `/api/scheduled/public-push-followups` autenticado, idempotente, cron-only e vinculado por `taskUid`
-- [x] Preparar Heartbeat persistente de 1 minuto, SDK legado e campo `recoveryCronTaskUid`; criação do cron fica para depois da publicação obrigatória
+- [x] Ativar Heartbeat persistente de 1 minuto (`jPPaMDLPc5hXZnXLSKpH8B`), SDK legado e vínculo por `recoveryCronTaskUid`; primeira execução em produção retornou HTTP 200
 - [x] Criar aba administrativa de configuração, regras editáveis, fila, subscriptions sem segredos e métricas
 - [x] Criar funil: enviados → entregues estimados → cliques → retornos → checkout → compras → receita
 - [x] Rastrear `push_id`, regra, `sent_at`, `delivered_at`, `clicked_at`, `returned_at`, checkout/compra/receita pós-push e janela de atribuição
