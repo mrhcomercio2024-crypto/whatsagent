@@ -140,6 +140,18 @@ Mensagens só serão enviadas após interação do usuário e dentro da janela o
 
 A área **OPERAÇÃO > INSTAGRAM** foi validada no preview em `1440×900` e `390×844`. O desktop mantém status, métricas, filtros, inbox em três áreas e logs sem alterar a ordem dos demais módulos. No mobile, as mesmas áreas passam para fluxo vertical responsivo, sem largura excedente ou sobreposição. Estados vazios exibem apenas zeros e “—”, sem dados simulados.
 
+Após a publicação do checkpoint `d8462ca1`, o login administrativo e o item **OPERAÇÃO > INSTAGRAM** foram confirmados no domínio de produção `agentedozap.com`, mantendo os demais menus e métricas existentes intactos.
+
+O botão **CONECTAR INSTAGRAM** em produção gerou um state assinado e abriu com sucesso a tela oficial `instagram.com/oauth/authorize/third_party/`, vinculada ao App `2533423037090142`, com redirect para `https://agentedozap.com/api/instagram/oauth/callback`. A próxima etapa exige autenticação e consentimento manual do titular da conta profissional.
+
+## Adaptação para Facebook Login for Business
+
+Por decisão do proprietário, a autorização será realizada pelo **Facebook Login for Business**, pois o usuário administra o App e os ativos pela conta Facebook. A Meta exige uma Página vinculada ao Instagram profissional; o fluxo obtém um User Access Token curto, troca-o no backend por token de longa duração, consulta `/me/accounts` e resolve `instagram_business_account` para cada Página autorizada.[6] [8]
+
+Para mensageria, serão solicitadas somente as permissões documentadas para este uso: `pages_show_list`, `pages_manage_metadata`, `pages_messaging`, `pages_read_engagement`, `business_management`, `instagram_basic` e `instagram_manage_messages`.[7] O host Graph muda de `graph.instagram.com` para `graph.facebook.com`. Quando houver uma única conta profissional, ela será selecionada automaticamente; com múltiplas contas, os candidatos e respectivos Page Access Tokens permanecerão cifrados no backend até a escolha administrativa. Nenhum ID ou token será solicitado manualmente ao usuário.
+
+O envio deve usar `POST /v26.0/{PAGE_ID}/messages`, com Page Access Token, `messaging_type=RESPONSE` e o IGSID como destinatário. A inscrição do App na Página usa `/{PAGE_ID}/subscribed_apps`; os campos Instagram também permanecem configurados no App Dashboard.[9] [10]
+
 ## Referências
 
 [1]: https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-instagram-login "Instagram API with Instagram Login — Meta for Developers"
@@ -147,3 +159,8 @@ A área **OPERAÇÃO > INSTAGRAM** foi validada no preview em `1440×900` e `390
 [3]: https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-instagram-login/messaging-api "Send Messages — Meta for Developers"
 [4]: https://developers.facebook.com/documentation/instagram-platform/webhooks "Setup Webhooks Subscriptions — Meta for Developers"
 [5]: https://developers.facebook.com/docs/graph-api/changelog/ "Graph API Changelog — Meta for Developers"
+[6]: https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-facebook-login/get-started "Instagram API with Facebook Login — Getting Started"
+[7]: https://developers.facebook.com/documentation/business-messaging/messenger-platform/overview "Messenger Platform Overview — Meta for Developers"
+[8]: https://developers.facebook.com/documentation/facebook-login/guides/access-tokens/get-long-lived "Long-Lived Access Tokens — Meta for Developers"
+[9]: https://developers.facebook.com/documentation/business-messaging/messenger-platform/send-messages "Messenger Platform — Send a Message"
+[10]: https://developers.facebook.com/docs/graph-api/reference/page/subscribed_apps/ "Page Subscribed Apps — Graph API Reference"

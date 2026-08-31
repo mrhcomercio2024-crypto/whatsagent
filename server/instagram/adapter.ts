@@ -34,7 +34,12 @@ export async function dispatchInstagramActions(opts: {
   const { agent, conversationId, actions, sender } = opts;
   const integration = await getInstagramIntegrationByAgent(agent.id);
   const conversation = await getConversationById(conversationId);
-  if (!integration?.isConnected || !integration.accessTokenEncrypted || !integration.instagramAccountId) {
+  if (
+    !integration?.isConnected ||
+    !integration.accessTokenEncrypted ||
+    !integration.instagramAccountId ||
+    !integration.facebookPageId
+  ) {
     throw new Error("INSTAGRAM_NOT_CONNECTED");
   }
   if (!conversation || conversation.channel !== "instagram") throw new Error("INSTAGRAM_CONVERSATION_INVALID");
@@ -57,7 +62,7 @@ export async function dispatchInstagramActions(opts: {
       let result: { message_id: string };
       if (action.type === "text") {
         result = await sendInstagramText(
-          integration.instagramAccountId,
+          integration.facebookPageId,
           accessToken,
           identity.externalUserId,
           action.text,
@@ -71,7 +76,11 @@ export async function dispatchInstagramActions(opts: {
           body: action.text,
           providerMessageId: result.message_id,
           providerStatus: "sent",
-          metadata: { instagramAccountId: integration.instagramAccountId, igsid: identity.externalUserId },
+          metadata: {
+            facebookPageId: integration.facebookPageId,
+            instagramAccountId: integration.instagramAccountId,
+            igsid: identity.externalUserId,
+          },
         });
       } else {
         const media = await getMediaById(action.mediaId);
@@ -79,7 +88,7 @@ export async function dispatchInstagramActions(opts: {
         const url = await resolvePublicMediaUrl(media.storageUrl, media.storageKey);
         const mediaType = media.mediaType === "document" ? "file" : media.mediaType;
         result = await sendInstagramAttachment(
-          integration.instagramAccountId,
+          integration.facebookPageId,
           accessToken,
           identity.externalUserId,
           mediaType,
@@ -96,7 +105,11 @@ export async function dispatchInstagramActions(opts: {
           mediaId: media.id,
           providerMessageId: result.message_id,
           providerStatus: "sent",
-          metadata: { instagramAccountId: integration.instagramAccountId, igsid: identity.externalUserId },
+          metadata: {
+            facebookPageId: integration.facebookPageId,
+            instagramAccountId: integration.instagramAccountId,
+            igsid: identity.externalUserId,
+          },
         });
       }
       await recordMetric({

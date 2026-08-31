@@ -33,7 +33,12 @@ export async function getInstagramIntegrationByAccount(instagramAccountId: strin
   const rows = await db
     .select()
     .from(instagramIntegrations)
-    .where(eq(instagramIntegrations.instagramAccountId, instagramAccountId))
+    .where(
+      or(
+        eq(instagramIntegrations.instagramAccountId, instagramAccountId),
+        eq(instagramIntegrations.facebookPageId, instagramAccountId),
+      ),
+    )
     .limit(1);
   return rows[0] ?? null;
 }

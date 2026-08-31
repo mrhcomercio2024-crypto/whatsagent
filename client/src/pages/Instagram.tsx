@@ -99,6 +99,7 @@ function InstagramInner({ agentId }: { agentId: number }) {
   );
 
   const status = trpc.instagram.status.useQuery({ agentId });
+  const pendingAssets = trpc.instagram.pendingAssets.useQuery({ agentId });
   const metrics = trpc.instagram.metrics.useQuery({ agentId, days: 30 });
   const logs = trpc.instagram.logs.useQuery({ agentId, limit: 50 });
   const inbox = trpc.instagram.inbox.useQuery(inboxInput, { refetchInterval: 15_000 });
@@ -115,8 +116,11 @@ function InstagramInner({ agentId }: { agentId: number }) {
     const params = new URLSearchParams(window.location.search);
     const result = params.get("instagram");
     if (result === "connected") {
-      toast.success("Conta Instagram conectada e Webhook inscrito.");
+      toast.success("Conta Instagram conectada via Facebook e Webhook inscrito.");
       status.refetch();
+    } else if (result === "select") {
+      toast.info("Selecione abaixo a Página e a conta Instagram autorizadas.");
+      pendingAssets.refetch();
     } else if (result === "error") {
       toast.error(`Não foi possível conectar: ${params.get("code") || "erro OAuth"}`);
     }
@@ -125,6 +129,7 @@ function InstagramInner({ agentId }: { agentId: number }) {
   const invalidateAll = async () => {
     await Promise.all([
       utils.instagram.status.invalidate({ agentId }),
+      utils.instagram.pendingAssets.invalidate({ agentId }),
       utils.instagram.metrics.invalidate({ agentId, days: 30 }),
       utils.instagram.logs.invalidate({ agentId, limit: 50 }),
       utils.instagram.inbox.invalidate(),
@@ -139,6 +144,13 @@ function InstagramInner({ agentId }: { agentId: number }) {
   const health = trpc.instagram.healthCheck.useMutation({
     onSuccess: async () => {
       toast.success("Integração validada diretamente na Meta.");
+      await invalidateAll();
+    },
+    onError: error => toast.error(error.message),
+  });
+  const selectAsset = trpc.instagram.selectAsset.useMutation({
+    onSuccess: async () => {
+      toast.success("Página e conta Instagram conectadas.");
       await invalidateAll();
     },
     onError: error => toast.error(error.message),
@@ -193,6 +205,12 @@ function InstagramInner({ agentId }: { agentId: number }) {
                 {status.data?.username ? `@${status.data.username}` : "Nenhuma conta profissional conectada"}
                 {status.data?.accountId ? ` · ID ${status.data.accountId}` : ""}
               </p>
+              {status.data?.facebookPageName && (
+                <p className="text-xs text-muted-foreground truncate">
+                  Página: {status.data.facebookPageName}
+                  {status.data.facebookPageId ? ` · ${status.data.facebookPageId}` : ""}
+                </p>
+              )}
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -202,7 +220,7 @@ function InstagramInner({ agentId }: { agentId: number }) {
               className="bg-gradient-to-r from-fuchsia-600 to-pink-600 hover:from-fuchsia-500 hover:to-pink-500"
             >
               {connect.isPending ? <Loader2 className="size-4 mr-2 animate-spin" /> : <Link2 className="size-4 mr-2" />}
-              {status.data?.connected ? "RECONECTAR INSTAGRAM" : "CONECTAR INSTAGRAM"}
+              {status.data?.connected ? "RECONECTAR VIA FACEBOOK" : "CONECTAR VIA FACEBOOK"}
             </Button>
             <Button variant="outline" onClick={() => health.mutate({ agentId })} disabled={!status.data?.connected || health.isPending}>
               {health.isPending ? <Loader2 className="size-4 mr-2 animate-spin" /> : <RefreshCw className="size-4 mr-2" />}
@@ -220,13 +238,47 @@ function InstagramInner({ agentId }: { agentId: number }) {
           </div>
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
           <StatusItem icon={ShieldCheck} label="Token" value={status.data?.tokenStatus ?? "missing"} detail={dateTime(status.data?.tokenExpiresAt)} />
           <StatusItem icon={Webhook} label="Webhook" value={status.data?.webhookStatus ?? "pending"} detail={dateTime(status.data?.lastWebhookAt)} />
           <StatusItem icon={MessageCircle} label="Última inbound" value={relativeTime(status.data?.lastInboundAt)} detail={dateTime(status.data?.lastInboundAt)} />
           <StatusItem icon={Send} label="Última outbound" value={relativeTime(status.data?.lastOutboundAt)} detail={dateTime(status.data?.lastOutboundAt)} />
           <StatusItem icon={Clock3} label="App Meta" value={status.data?.metaAppId ?? "2533423037090142"} detail="Graph API v26.0" />
+          <StatusItem icon={Link2} label="Autorização" value="Facebook Business" detail={status.data?.facebookPageName ?? "Página ainda não selecionada"} />
         </div>
+
+        {pendingAssets.data && pendingAssets.data.length > 0 && (
+          <div className="rounded-xl border border-blue-500/30 bg-blue-500/5 p-4 space-y-3">
+            <div>
+              <p className="text-sm font-medium text-blue-100">Selecione a conta profissional</p>
+              <p className="text-xs text-blue-100/70">
+                O Facebook autorizou mais de uma Página com Instagram vinculado. Os tokens permanecem cifrados no servidor.
+              </p>
+            </div>
+            <div className="grid gap-2 md:grid-cols-2">
+              {pendingAssets.data.map(asset => (
+                <button
+                  key={`${asset.pageId}:${asset.instagramAccountId}`}
+                  type="button"
+                  onClick={() =>
+                    selectAsset.mutate({
+                      agentId,
+                      pageId: asset.pageId,
+                      instagramAccountId: asset.instagramAccountId,
+                    })
+                  }
+                  disabled={selectAsset.isPending}
+                  className="rounded-xl border border-border/60 bg-background/40 p-3 text-left hover:border-blue-400/50 disabled:opacity-50"
+                >
+                  <p className="text-sm font-medium">
+                    {asset.instagramUsername ? `@${asset.instagramUsername}` : asset.instagramName || asset.instagramAccountId}
+                  </p>
+                  <p className="text-xs text-muted-foreground">Página: {asset.pageName}</p>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {status.data?.lastError && (
           <div className="rounded-xl border border-red-500/30 bg-red-500/5 px-4 py-3 flex gap-3">

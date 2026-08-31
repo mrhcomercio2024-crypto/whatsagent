@@ -993,14 +993,14 @@
 - [x] Confirmar uso exclusivo do Meta App `Dashboard Marcelo` / `2533423037090142` e não criar outro App
 - [x] Criar e aplicar migration `0032_nice_chronomancer.sql` para configuração Instagram, identidades multicanal, canal da conversa/mensagem, OAuth, eventos/logs e attribution, sem duplicar CRM
 - [x] Preservar integralmente WhatsApp, Z-API, Ravi Web Lite/PWA, Follow-up Engine, checkout e Ravi Core; 22 leads, 22 conversas e todo o histórico permaneceram intactos
-- [x] Implementar OAuth oficial Instagram Login com state HMAC + nonce one-time, redirect fixo, troca de code, long-lived token, refresh e inscrição de Webhooks
+- [x] Implementar OAuth oficial com state HMAC + nonce one-time; fluxo final substituído por Facebook Login for Business na Fase 110
 - [x] Armazenar Access Token cifrado AES-256-GCM somente no backend; App Secret/Verify Token em env e DTOs/logs sem secrets
 - [x] Implementar GET/POST `/webhooks/meta/instagram` com verify token, raw body antes do parser JSON, `X-Hub-Signature-256`, sanitização e ACK seguro
 - [x] Suportar prioritariamente `messages` e estruturar postbacks, referral, seen e reactions sem atrasar o MVP
 - [x] Deduplicar persistentemente por MID/eventKey e ignorar `is_echo=true`, garantindo uma execução comercial por inbound
 - [x] Normalizar IGSID/accountId/referral/ad_id/ads_context_data/reply_to/anexos e persistir payload seguro para attribution
 - [x] Reutilizar leads/conversations/messages com `channel_identities`, histórico completo e contexto contínuo no mesmo Ravi Core
-- [x] Implementar Instagram Adapter oficial em `graph.instagram.com/v26.0`, janela de 24h e erro Meta estruturado sem expor token
+- [x] Implementar Instagram Adapter oficial; transporte final usa `graph.facebook.com/v26.0/{PAGE_ID}/messages`, Page Access Token, janela de 24h e erro Meta estruturado
 - [x] Implementar handoff humano exclusivo com ASSUMIR CONVERSA e DEVOLVER PARA O RAVI, bloqueando envio humano antes do handoff e IA enquanto pausada
 - [x] Criar `OPERAÇÃO > INSTAGRAM` no design system atual sem reorganizar menus existentes
 - [x] Construir status/health check sem secrets, botão CONECTAR INSTAGRAM, reconexão, desconexão e teste não invasivo
@@ -1012,3 +1012,16 @@
 - [ ] Validar a sequência de contexto de cinco DMs e histórico no inbox com conta profissional de teste
 - [x] Executar `pnpm check`, suíte Vitest completa (82 arquivos/597 testes) e build de produção
 - [ ] Salvar checkpoint, publicar, concluir configuração manual Meta e executar o teste de aceitação real ponta a ponta
+
+## Fase 110 — OAuth Instagram via Facebook Login for Business
+
+- [x] Confirmar na documentação oficial o Facebook OAuth, scopes Messenger/Instagram, long-lived user token, Page Access Token, `/me/accounts` e `instagram_business_account`
+- [x] Manter exclusivamente o App Meta `2533423037090142` e o callback `https://agentedozap.com/api/instagram/oauth/callback`
+- [x] Substituir apenas a autorização Instagram Login pelo Facebook OAuth, preservando Webhook, Ravi Core, adapter, inbox e dados existentes
+- [x] Descobrir via `/me/accounts` as Páginas autorizadas e `instagram_business_account`, sem solicitar IDs manuais ao usuário
+- [x] Usar Page Access Token para `/{PAGE_ID}/messages` e `/{PAGE_ID}/subscribed_apps`, armazenado cifrado no backend
+- [x] Tratar zero, uma ou múltiplas contas Instagram profissionais com erro explícito, seleção cifrada e validação server-side
+- [x] Atualizar status e textos para “Conectar via Facebook”, exibir Página autorizada e oferecer seleção de múltiplos ativos sem expor tokens
+- [x] Adicionar testes de URL OAuth, state/replay, troca de token, descoberta de ativos, seleção segura, Page Token, Send API e regressões do fluxo Instagram
+- [x] Executar TypeScript, suíte Vitest completa (83 arquivos/601 testes) e build de produção
+- [ ] Salvar checkpoint, publicar e concluir a autorização real via Facebook Business

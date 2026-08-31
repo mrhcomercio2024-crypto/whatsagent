@@ -3,8 +3,13 @@ export const INSTAGRAM_CALLBACK_URL = "https://agentedozap.com/webhooks/meta/ins
 export const INSTAGRAM_OAUTH_REDIRECT_URI = "https://agentedozap.com/api/instagram/oauth/callback";
 export const INSTAGRAM_ADMIN_REDIRECT = "https://agentedozap.com/instagram";
 export const INSTAGRAM_SCOPES = [
-  "instagram_business_basic",
-  "instagram_business_manage_messages",
+  "pages_show_list",
+  "pages_manage_metadata",
+  "pages_messaging",
+  "pages_read_engagement",
+  "business_management",
+  "instagram_basic",
+  "instagram_manage_messages",
 ] as const;
 
 export function instagramEnv() {

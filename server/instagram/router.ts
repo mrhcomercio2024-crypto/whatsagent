@@ -4,11 +4,11 @@ import { protectedProcedure, router } from "../_core/trpc";
 import { getAgentById, getConversationById, updateConversation } from "../db";
 import { dispatchActions } from "../whatsapp/dispatcher";
 import {
+  type FacebookInstagramAsset,
   MetaInstagramError,
   getInstagramProfile,
-  refreshLongLivedInstagramToken,
 } from "./client";
-import { createInstagramConnectUrl } from "./oauth";
+import { createInstagramConnectUrl, finalizeFacebookInstagramAsset } from "./oauth";
 import { decryptInstagramToken, encryptInstagramToken } from "./crypto";
 import {
   getInstagramIntegrationByAgent,
@@ -41,6 +41,9 @@ function publicStatus(integration: Awaited<ReturnType<typeof getInstagramIntegra
   return {
     configured: Boolean(integration),
     connected: Boolean(integration?.isConnected && integration.accessTokenEncrypted),
+    oauthProvider: integration?.oauthProvider ?? "facebook",
+    facebookPageId: integration?.facebookPageId ?? null,
+    facebookPageName: integration?.facebookPageName ?? null,
     accountId: integration?.instagramAccountId ?? null,
     username: integration?.username ?? null,
     accountName: integration?.accountName ?? null,
@@ -71,28 +74,66 @@ export const instagramRouter = router({
     if (!agent) throw new TRPCError({ code: "NOT_FOUND", message: "Agente não encontrado." });
     return { url: await createInstagramConnectUrl(input.agentId, ctx.user.id) };
   }),
+  pendingAssets: protectedProcedure.input(input).query(async ({ input }) => {
+    const integration = await getInstagramIntegrationByAgent(input.agentId);
+    if (!integration?.pendingAssetsEncrypted) return [];
+    try {
+      const assets = JSON.parse(
+        decryptInstagramToken(integration.pendingAssetsEncrypted),
+      ) as FacebookInstagramAsset[];
+      return assets.map(asset => ({
+        pageId: asset.pageId,
+        pageName: asset.pageName,
+        instagramAccountId: asset.instagramAccountId,
+        instagramUsername: asset.instagramUsername ?? null,
+        instagramName: asset.instagramName ?? null,
+        profilePictureUrl: asset.profilePictureUrl ?? null,
+      }));
+    } catch {
+      return [];
+    }
+  }),
+  selectAsset: protectedProcedure
+    .input(
+      input.extend({
+        pageId: z.string().min(1).max(80),
+        instagramAccountId: z.string().min(1).max(80),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const integration = await getInstagramIntegrationByAgent(input.agentId);
+      if (!integration?.pendingAssetsEncrypted) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Não há contas pendentes." });
+      }
+      let assets: FacebookInstagramAsset[] = [];
+      try {
+        assets = JSON.parse(
+          decryptInstagramToken(integration.pendingAssetsEncrypted),
+        ) as FacebookInstagramAsset[];
+      } catch {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Seleção expirada. Conecte novamente." });
+      }
+      const asset = assets.find(
+        candidate =>
+          candidate.pageId === input.pageId &&
+          candidate.instagramAccountId === input.instagramAccountId,
+      );
+      if (!asset) throw new TRPCError({ code: "FORBIDDEN", message: "Conta não autorizada." });
+      const updated = await finalizeFacebookInstagramAsset(input.agentId, asset);
+      return { ok: true as const, status: publicStatus(updated) };
+    }),
   healthCheck: protectedProcedure.input(input).mutation(async ({ input }) => {
     const integration = await getInstagramIntegrationByAgent(input.agentId);
     if (!integration?.accessTokenEncrypted) {
       throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Instagram ainda não conectado." });
     }
     try {
-      let token = decryptInstagramToken(integration.accessTokenEncrypted);
-      let refreshedPatch: Record<string, unknown> = {};
-      if (
-        integration.tokenExpiresAt &&
-        integration.tokenExpiresAt.getTime() <= Date.now() + 7 * 86_400_000
-      ) {
-        const refreshed = await refreshLongLivedInstagramToken(token);
-        token = refreshed.access_token;
-        refreshedPatch = {
-          accessTokenEncrypted: encryptInstagramToken(token),
-          tokenExpiresAt: new Date(Date.now() + refreshed.expires_in * 1000),
-        };
+      if (!integration.instagramAccountId || !integration.facebookPageId) {
+        throw new Error("INSTAGRAM_FACEBOOK_ASSET_MISSING");
       }
-      const profile = await getInstagramProfile(token);
+      const token = decryptInstagramToken(integration.accessTokenEncrypted);
+      const profile = await getInstagramProfile(integration.instagramAccountId, token);
       const updated = await updateInstagramIntegration(input.agentId, {
-        ...refreshedPatch,
         username: profile.username ?? integration.username,
         accountName: profile.name ?? integration.accountName,
         profilePictureUrl: profile.profile_picture_url ?? integration.profilePictureUrl,
@@ -127,8 +168,12 @@ export const instagramRouter = router({
   disconnect: protectedProcedure.input(input).mutation(async ({ input }) => {
     const integration = await updateInstagramIntegration(input.agentId, {
       accessTokenEncrypted: null,
+      pendingAssetsEncrypted: null,
       tokenExpiresAt: null,
       tokenStatus: "missing",
+      facebookPageId: null,
+      facebookPageName: null,
+      instagramAccountId: null,
       isConnected: false,
     });
     await logInstagram({

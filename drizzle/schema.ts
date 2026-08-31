@@ -1467,11 +1467,17 @@ export const instagramIntegrations = mysqlTable(
     id: int("id").autoincrement().primaryKey(),
     agentId: int("agentId").notNull().unique(),
     metaAppId: varchar("metaAppId", { length: 64 }).notNull(),
+    oauthProvider: mysqlEnum("oauthProvider", ["instagram", "facebook"])
+      .default("facebook")
+      .notNull(),
+    facebookPageId: varchar("facebookPageId", { length: 80 }),
+    facebookPageName: varchar("facebookPageName", { length: 200 }),
     instagramAccountId: varchar("instagramAccountId", { length: 80 }),
     username: varchar("username", { length: 160 }),
     accountName: varchar("accountName", { length: 200 }),
     profilePictureUrl: varchar("profilePictureUrl", { length: 1000 }),
     accessTokenEncrypted: longtext("accessTokenEncrypted"),
+    pendingAssetsEncrypted: longtext("pendingAssetsEncrypted"),
     tokenExpiresAt: timestamp("tokenExpiresAt"),
     tokenStatus: mysqlEnum("tokenStatus", ["missing", "valid", "expired", "revoked", "error"])
       .default("missing")

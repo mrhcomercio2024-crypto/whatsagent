@@ -1,11 +1,12 @@
 import type { Express, Request, Response } from "express";
 import { randomBytes } from "crypto";
 import {
-  buildInstagramAuthorizationUrl,
-  exchangeInstagramCode,
-  exchangeLongLivedInstagramToken,
-  getInstagramProfile,
+  buildFacebookAuthorizationUrl,
+  discoverFacebookInstagramAssets,
+  exchangeFacebookCode,
+  exchangeLongLivedFacebookToken,
   subscribeInstagramWebhooks,
+  type FacebookInstagramAsset,
 } from "./client";
 import {
   INSTAGRAM_ADMIN_REDIRECT,
@@ -65,7 +66,53 @@ export async function createInstagramConnectUrl(agentId: number, userId: number)
     redirectOrigin: INSTAGRAM_ADMIN_REDIRECT,
     expiresAt: new Date(exp),
   });
-  return buildInstagramAuthorizationUrl(state);
+  return buildFacebookAuthorizationUrl(state);
+}
+
+export async function finalizeFacebookInstagramAsset(
+  agentId: number,
+  asset: FacebookInstagramAsset,
+) {
+  const subscribedFields = await subscribeInstagramWebhooks(
+    asset.pageId,
+    asset.pageAccessToken,
+  );
+  const integration = await updateInstagramIntegration(agentId, {
+    metaAppId: INSTAGRAM_META_APP_ID,
+    oauthProvider: "facebook",
+    facebookPageId: asset.pageId,
+    facebookPageName: asset.pageName,
+    instagramAccountId: asset.instagramAccountId,
+    username: asset.instagramUsername ?? null,
+    accountName: asset.instagramName ?? null,
+    profilePictureUrl: asset.profilePictureUrl ?? null,
+    accessTokenEncrypted: encryptInstagramToken(asset.pageAccessToken),
+    pendingAssetsEncrypted: null,
+    tokenExpiresAt: null,
+    tokenStatus: "valid",
+    scopes: [...INSTAGRAM_SCOPES],
+    webhookStatus: "subscribed",
+    webhookSubscribedAt: new Date(),
+    lastSyncAt: new Date(),
+    lastError: null,
+    lastErrorCode: null,
+    lastErrorSubcode: null,
+    lastErrorAt: null,
+    isConnected: true,
+  });
+  await logInstagram({
+    agentId,
+    integrationId: integration?.id ?? null,
+    eventType: "oauth_connected",
+    message: "Conta profissional Instagram conectada via Facebook Login for Business.",
+    metadata: {
+      pageId: asset.pageId,
+      instagramAccountId: asset.instagramAccountId,
+      username: asset.instagramUsername,
+      subscribedFields,
+    },
+  });
+  return integration;
 }
 
 async function handleInstagramOauthCallback(req: Request, res: Response) {
@@ -74,11 +121,13 @@ async function handleInstagramOauthCallback(req: Request, res: Response) {
   const code = typeof req.query.code === "string" ? req.query.code : "";
   const providerError = typeof req.query.error === "string" ? req.query.error : "";
   let redirect = INSTAGRAM_ADMIN_REDIRECT;
+  let agentIdForLog: number | null = null;
 
   try {
     if (providerError) throw new Error("INSTAGRAM_OAUTH_DENIED");
     if (!state || !code) throw new Error("INSTAGRAM_OAUTH_CALLBACK_INCOMPLETE");
     const decoded = decodeState(state);
+    agentIdForLog = decoded.agentId;
     const stored = await consumeInstagramOauthState(sha256(state));
     if (!stored) throw new Error("INSTAGRAM_OAUTH_STATE_USED_OR_EXPIRED");
     if (stored.agentId !== decoded.agentId || stored.userId !== decoded.userId) {
@@ -86,44 +135,34 @@ async function handleInstagramOauthCallback(req: Request, res: Response) {
     }
     redirect = stored.redirectOrigin;
 
-    const shortToken = await exchangeInstagramCode(code);
-    const longToken = await exchangeLongLivedInstagramToken(shortToken.access_token);
-    const profile = await getInstagramProfile(longToken.access_token);
-    const accountId = String(profile.user_id || profile.id || shortToken.user_id || "");
-    if (!accountId) throw new Error("INSTAGRAM_ACCOUNT_ID_MISSING");
-    const subscribedFields = await subscribeInstagramWebhooks(accountId, longToken.access_token);
-    const expiresAt = new Date(Date.now() + Math.max(0, longToken.expires_in) * 1000);
-
-    const integration = await updateInstagramIntegration(decoded.agentId, {
-      metaAppId: INSTAGRAM_META_APP_ID,
-      instagramAccountId: accountId,
-      username: profile.username ?? null,
-      accountName: profile.name ?? null,
-      profilePictureUrl: profile.profile_picture_url ?? null,
-      accessTokenEncrypted: encryptInstagramToken(longToken.access_token),
-      tokenExpiresAt: expiresAt,
-      tokenStatus: "valid",
-      scopes: [...INSTAGRAM_SCOPES],
-      webhookStatus: "subscribed",
-      webhookSubscribedAt: new Date(),
-      lastSyncAt: new Date(),
-      lastError: null,
-      lastErrorCode: null,
-      lastErrorSubcode: null,
-      lastErrorAt: null,
-      isConnected: true,
-    });
-    await logInstagram({
-      agentId: decoded.agentId,
-      integrationId: integration?.id ?? null,
-      eventType: "oauth_connected",
-      message: "Conta profissional Instagram conectada via OAuth.",
-      metadata: { accountId, username: profile.username, subscribedFields, tokenExpiresAt: expiresAt },
-    });
+    const shortToken = await exchangeFacebookCode(code);
+    const longToken = await exchangeLongLivedFacebookToken(shortToken.access_token);
+    const assets = await discoverFacebookInstagramAssets(longToken.access_token);
+    if (assets.length === 0) throw new Error("INSTAGRAM_FACEBOOK_ASSET_NOT_FOUND");
+    if (assets.length > 1) {
+      const integration = await updateInstagramIntegration(decoded.agentId, {
+        oauthProvider: "facebook",
+        pendingAssetsEncrypted: encryptInstagramToken(JSON.stringify(assets)),
+        lastError: "Selecione a Página e a conta profissional do Instagram no painel.",
+        lastErrorCode: "INSTAGRAM_ASSET_SELECTION_REQUIRED",
+        lastErrorAt: new Date(),
+      });
+      await logInstagram({
+        agentId: decoded.agentId,
+        integrationId: integration?.id ?? null,
+        eventType: "oauth_asset_selection_required",
+        message: "Mais de uma conta profissional Instagram foi autorizada.",
+        metadata: { assetCount: assets.length },
+      });
+      res.redirect(303, `${redirect}?instagram=select`);
+      return;
+    }
+    await finalizeFacebookInstagramAsset(decoded.agentId, assets[0]);
     res.redirect(303, `${redirect}?instagram=connected`);
   } catch (error) {
     const codeValue = error instanceof Error ? error.message : "INSTAGRAM_OAUTH_UNKNOWN";
     await logInstagram({
+      agentId: agentIdForLog,
       eventType: "oauth_failed",
       level: "error",
       message: codeValue,

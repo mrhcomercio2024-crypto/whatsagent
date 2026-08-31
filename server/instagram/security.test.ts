@@ -8,7 +8,7 @@ import {
   INSTAGRAM_SCOPES,
   instagramEnv,
 } from "./config";
-import { buildInstagramAuthorizationUrl } from "./client";
+import { buildFacebookAuthorizationUrl } from "./client";
 import { safeEqual, verifyMetaSignature } from "./crypto";
 import { __instagramOauthTest } from "./oauth";
 import {
@@ -25,14 +25,15 @@ describe("Instagram security contracts", () => {
     );
   });
 
-  it("builds Instagram Login with current scopes and state", () => {
-    const url = new URL(buildInstagramAuthorizationUrl("signed-state"));
-    expect(url.origin).toBe("https://www.instagram.com");
-    expect(url.pathname).toBe("/oauth/authorize");
+  it("builds Facebook Login for Business with current scopes and state", () => {
+    const url = new URL(buildFacebookAuthorizationUrl("signed-state"));
+    expect(url.origin).toBe("https://www.facebook.com");
+    expect(url.pathname).toBe("/v26.0/dialog/oauth");
     expect(url.searchParams.get("client_id")).toBe(INSTAGRAM_META_APP_ID);
     expect(url.searchParams.get("redirect_uri")).toBe(INSTAGRAM_OAUTH_REDIRECT_URI);
     expect(url.searchParams.get("scope")?.split(",")).toEqual([...INSTAGRAM_SCOPES]);
     expect(url.searchParams.get("state")).toBe("signed-state");
+    expect(url.searchParams.get("auth_type")).toBe("rerequest");
   });
 
   it("accepts only the exact valid X-Hub-Signature-256", () => {

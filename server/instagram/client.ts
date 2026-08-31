@@ -28,77 +28,114 @@ async function metaJson<T>(url: string, init?: RequestInit): Promise<T> {
   return payload as T;
 }
 
-export function buildInstagramAuthorizationUrl(state: string): string {
+export type FacebookInstagramAsset = {
+  pageId: string;
+  pageName: string;
+  pageAccessToken: string;
+  instagramAccountId: string;
+  instagramUsername?: string;
+  instagramName?: string;
+  profilePictureUrl?: string;
+};
+
+export function buildFacebookAuthorizationUrl(state: string): string {
   const { appId } = instagramEnv();
-  const url = new URL("https://www.instagram.com/oauth/authorize");
+  const { graphVersion } = instagramEnv();
+  const url = new URL(`https://www.facebook.com/${graphVersion}/dialog/oauth`);
   url.searchParams.set("client_id", appId);
   url.searchParams.set("redirect_uri", INSTAGRAM_OAUTH_REDIRECT_URI);
   url.searchParams.set("response_type", "code");
   url.searchParams.set("scope", INSTAGRAM_SCOPES.join(","));
   url.searchParams.set("state", state);
+  url.searchParams.set("auth_type", "rerequest");
   return url.toString();
 }
 
-export async function exchangeInstagramCode(code: string) {
+export async function exchangeFacebookCode(code: string) {
   const { appId, appSecret } = instagramEnv();
-  return metaJson<{ access_token: string; user_id: number; permissions?: string[] }>(
-    "https://api.instagram.com/oauth/access_token",
-    {
-      method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        client_id: appId,
-        client_secret: appSecret,
-        grant_type: "authorization_code",
-        redirect_uri: INSTAGRAM_OAUTH_REDIRECT_URI,
-        code,
-      }),
-    },
-  );
-}
-
-export async function exchangeLongLivedInstagramToken(shortLivedToken: string) {
-  const { appSecret } = instagramEnv();
-  const url = new URL("https://graph.instagram.com/access_token");
-  url.searchParams.set("grant_type", "ig_exchange_token");
-  url.searchParams.set("client_secret", appSecret);
-  url.searchParams.set("access_token", shortLivedToken);
-  return metaJson<{ access_token: string; token_type?: string; expires_in: number }>(url.toString());
-}
-
-export async function refreshLongLivedInstagramToken(accessToken: string) {
-  const url = new URL("https://graph.instagram.com/refresh_access_token");
-  url.searchParams.set("grant_type", "ig_refresh_token");
-  url.searchParams.set("access_token", accessToken);
-  return metaJson<{ access_token: string; token_type?: string; expires_in: number }>(url.toString());
-}
-
-export async function getInstagramProfile(accessToken: string) {
   const { graphVersion } = instagramEnv();
-  const url = new URL(`https://graph.instagram.com/${graphVersion}/me`);
-  url.searchParams.set("fields", "id,user_id,username,name,profile_picture_url");
+  const url = new URL(`https://graph.facebook.com/${graphVersion}/oauth/access_token`);
+  url.searchParams.set("client_id", appId);
+  url.searchParams.set("client_secret", appSecret);
+  url.searchParams.set("redirect_uri", INSTAGRAM_OAUTH_REDIRECT_URI);
+  url.searchParams.set("code", code);
+  return metaJson<{ access_token: string; token_type?: string; expires_in?: number }>(url.toString());
+}
+
+export async function exchangeLongLivedFacebookToken(shortLivedToken: string) {
+  const { appId, appSecret, graphVersion } = instagramEnv();
+  const url = new URL(`https://graph.facebook.com/${graphVersion}/oauth/access_token`);
+  url.searchParams.set("grant_type", "fb_exchange_token");
+  url.searchParams.set("client_id", appId);
+  url.searchParams.set("client_secret", appSecret);
+  url.searchParams.set("fb_exchange_token", shortLivedToken);
+  return metaJson<{ access_token: string; token_type?: string; expires_in: number }>(url.toString());
+}
+
+export async function discoverFacebookInstagramAssets(
+  longLivedUserToken: string,
+): Promise<FacebookInstagramAsset[]> {
+  const { graphVersion } = instagramEnv();
+  const pagesUrl = new URL(`https://graph.facebook.com/${graphVersion}/me/accounts`);
+  pagesUrl.searchParams.set("fields", "id,name,access_token,tasks");
+  pagesUrl.searchParams.set("limit", "100");
+  pagesUrl.searchParams.set("access_token", longLivedUserToken);
+  const pages = await metaJson<{
+    data?: Array<{ id: string; name?: string; access_token?: string; tasks?: string[] }>;
+  }>(pagesUrl.toString());
+  const assets: FacebookInstagramAsset[] = [];
+  for (const page of pages.data || []) {
+    if (!page.id || !page.access_token) continue;
+    const pageUrl = new URL(`https://graph.facebook.com/${graphVersion}/${page.id}`);
+    pageUrl.searchParams.set(
+      "fields",
+      "id,name,instagram_business_account{id,username,name,profile_picture_url}",
+    );
+    pageUrl.searchParams.set("access_token", page.access_token);
+    const pageWithInstagram = await metaJson<{
+      id: string;
+      name?: string;
+      instagram_business_account?: {
+        id: string;
+        username?: string;
+        name?: string;
+        profile_picture_url?: string;
+      };
+    }>(pageUrl.toString());
+    const instagram = pageWithInstagram.instagram_business_account;
+    if (!instagram?.id) continue;
+    assets.push({
+      pageId: page.id,
+      pageName: page.name || pageWithInstagram.name || page.id,
+      pageAccessToken: page.access_token,
+      instagramAccountId: instagram.id,
+      instagramUsername: instagram.username,
+      instagramName: instagram.name,
+      profilePictureUrl: instagram.profile_picture_url,
+    });
+  }
+  return assets;
+}
+
+export async function getInstagramProfile(instagramAccountId: string, accessToken: string) {
+  const { graphVersion } = instagramEnv();
+  const url = new URL(`https://graph.facebook.com/${graphVersion}/${instagramAccountId}`);
+  url.searchParams.set("fields", "id,username,name,profile_picture_url");
   url.searchParams.set("access_token", accessToken);
   return metaJson<{
     id?: string;
-    user_id?: string;
     username?: string;
     name?: string;
     profile_picture_url?: string;
   }>(url.toString());
 }
 
-export async function subscribeInstagramWebhooks(accountId: string, accessToken: string) {
+export async function subscribeInstagramWebhooks(pageId: string, accessToken: string) {
   const { graphVersion } = instagramEnv();
-  const allFields = [
-    "messages",
-    "messaging_postbacks",
-    "messaging_referral",
-    "messaging_seen",
-    "message_reactions",
-  ];
+  const allFields = ["messages", "messaging_postbacks", "messaging_referrals"];
 
   async function subscribe(fields: string[]) {
-    const url = new URL(`https://graph.instagram.com/${graphVersion}/${accountId}/subscribed_apps`);
+    const url = new URL(`https://graph.facebook.com/${graphVersion}/${pageId}/subscribed_apps`);
     url.searchParams.set("subscribed_fields", fields.join(","));
     url.searchParams.set("access_token", accessToken);
     return metaJson<{ success: boolean }>(url.toString(), { method: "POST" });
@@ -115,28 +152,32 @@ export async function subscribeInstagramWebhooks(accountId: string, accessToken:
 
 export async function getInstagramUserProfile(igsid: string, accessToken: string) {
   const { graphVersion } = instagramEnv();
-  const url = new URL(`https://graph.instagram.com/${graphVersion}/${igsid}`);
+  const url = new URL(`https://graph.facebook.com/${graphVersion}/${igsid}`);
   url.searchParams.set("fields", "id,username,name,profile_pic");
   url.searchParams.set("access_token", accessToken);
   return metaJson<{ id: string; username?: string; name?: string; profile_pic?: string }>(url.toString());
 }
 
 async function sendInstagramMessage(
-  accountId: string,
+  pageId: string,
   accessToken: string,
   recipientId: string,
   message: Record<string, unknown>,
 ) {
   const { graphVersion } = instagramEnv();
   return metaJson<{ message_id: string; recipient_id?: string }>(
-    `https://graph.instagram.com/${graphVersion}/${accountId}/messages`,
+    `https://graph.facebook.com/${graphVersion}/${pageId}/messages`,
     {
       method: "POST",
       headers: {
         authorization: `Bearer ${accessToken}`,
         "content-type": "application/json",
       },
-      body: JSON.stringify({ recipient: { id: recipientId }, message }),
+      body: JSON.stringify({
+        recipient: { id: recipientId },
+        messaging_type: "RESPONSE",
+        message,
+      }),
     },
   );
 }

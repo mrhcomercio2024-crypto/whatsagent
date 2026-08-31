@@ -94,7 +94,7 @@ async function handleEvent(event: NormalizedInstagramEvent) {
     }
     const { leadId, conversationId } = await resolveInstagramIdentity({
       agentId: integration.agentId,
-      accountId: event.accountId,
+      accountId: integration.instagramAccountId || event.accountId,
       igsid: event.senderId,
       username: profile.username,
       displayName: profile.name || profile.username,
