@@ -36,13 +36,13 @@ describe("Fase 103 — confiabilidade do Ravi Web no iPhone", () => {
 
   it("persiste requestId e recupera resposta concluída sem duplicar balões", () => {
     expect(chat).toContain("pendingRequestStorageKey");
-    expect(chat).toContain("savePendingRequest(slug, requestId)");
+    expect(chat).toContain("savePendingRequest(slug, pending)");
     expect(chat).toContain("requestStatus.fetch");
     expect(chat).toContain("alreadyVisible");
     expect(chat).toContain("MAX_REVEAL_TIME_MS = 15_000");
     expect(chat).toMatch(/finally\s*\{[\s\S]*setPhase\("idle"\)/);
     expect(router).toContain("requestStatus: publicProcedure");
-    expect(router).toContain("getPublicRequestForSession");
+    expect(router).toContain("recoverPublicRequestForSession");
   });
 
   it("não reinicia a página silenciosamente quando um chunk falha", () => {

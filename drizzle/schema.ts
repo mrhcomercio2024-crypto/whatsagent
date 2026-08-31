@@ -1202,18 +1202,27 @@ export const publicSimulatorRequests = mysqlTable(
   {
     id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
     sessionId: bigint("sessionId", { mode: "number" }).notNull(),
-    requestId: varchar("requestId", { length: 80 }).notNull().unique(),
+    requestId: varchar("requestId", { length: 80 }).notNull(),
     kind: mysqlEnum("kind", ["start", "text", "audio"]).notNull(),
-    status: mysqlEnum("status", ["processing", "completed", "failed"])
+    status: mysqlEnum("status", ["processing", "completed", "failed", "expired"])
       .default("processing")
       .notNull(),
     response: json("response"),
     errorMessage: text("errorMessage"),
+    expiresAt: timestamp("expiresAt"),
+    lastRecoveryAt: timestamp("lastRecoveryAt"),
+    recoveryAttempts: int("recoveryAttempts").default(0).notNull(),
+    lastHttpStatus: int("lastHttpStatus"),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
     completedAt: timestamp("completedAt"),
   },
   table => ({
     sessionIdx: index("pub_sim_req_session_idx").on(table.sessionId, table.createdAt),
+    sessionRequestUnique: uniqueIndex("pub_sim_req_session_request_unique").on(
+      table.sessionId,
+      table.requestId,
+    ),
+    requestIdx: index("pub_sim_req_request_idx").on(table.requestId),
   })
 );
 export type PublicSimulatorRequest = typeof publicSimulatorRequests.$inferSelect;

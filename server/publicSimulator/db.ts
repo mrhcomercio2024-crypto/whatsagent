@@ -1,4 +1,4 @@
-import { and, desc, eq, or } from "drizzle-orm";
+import { and, desc, eq, or, sql } from "drizzle-orm";
 import {
   createHash,
   randomBytes,
@@ -281,7 +281,12 @@ export async function beginPublicRequest(
   const existing = await db
     .select()
     .from(publicSimulatorRequests)
-    .where(eq(publicSimulatorRequests.requestId, requestId))
+    .where(
+      and(
+        eq(publicSimulatorRequests.sessionId, sessionId),
+        eq(publicSimulatorRequests.requestId, requestId),
+      ),
+    )
     .limit(1);
   if (existing[0]) return { created: false as const, request: existing[0] };
   try {
@@ -290,6 +295,7 @@ export async function beginPublicRequest(
       requestId,
       kind,
       status: "processing",
+      expiresAt: new Date(Date.now() + 10 * 60_000),
     });
     const id = (result as any)[0]?.insertId as number;
     const rows = await db
@@ -302,7 +308,12 @@ export async function beginPublicRequest(
     const rows = await db
       .select()
       .from(publicSimulatorRequests)
-      .where(eq(publicSimulatorRequests.requestId, requestId))
+      .where(
+        and(
+          eq(publicSimulatorRequests.sessionId, sessionId),
+          eq(publicSimulatorRequests.requestId, requestId),
+        ),
+      )
       .limit(1);
     if (!rows[0]) throw new Error("Falha ao registrar requisição pública");
     return { created: false as const, request: rows[0] };
@@ -325,22 +336,89 @@ export async function getPublicRequestForSession(sessionId: number, requestId: s
   return rows[0];
 }
 
-export async function completePublicRequest(requestId: string, response: unknown) {
+export async function recoverPublicRequestForSession(sessionId: number, requestId: string) {
+  const db = await getDb();
+  if (!db) throw new Error("DB unavailable");
+  const now = new Date();
+  const request = await getPublicRequestForSession(sessionId, requestId);
+  if (!request) return undefined;
+
+  const expiresAt = request.expiresAt ?? new Date(request.createdAt.getTime() + 10 * 60_000);
+  if (request.status === "processing" && expiresAt.getTime() <= now.getTime()) {
+    await db
+      .update(publicSimulatorRequests)
+      .set({
+        status: "expired",
+        errorMessage: "Tempo máximo de processamento excedido",
+        completedAt: now,
+        lastRecoveryAt: now,
+        recoveryAttempts: sql`${publicSimulatorRequests.recoveryAttempts} + 1`,
+        lastHttpStatus: 410,
+      })
+      .where(
+        and(
+          eq(publicSimulatorRequests.sessionId, sessionId),
+          eq(publicSimulatorRequests.requestId, requestId),
+          eq(publicSimulatorRequests.status, "processing"),
+        ),
+      );
+    return getPublicRequestForSession(sessionId, requestId);
+  }
+
+  const httpStatus = request.status === "completed" ? 200 : request.status === "failed" ? 422 : 202;
+  await db
+    .update(publicSimulatorRequests)
+    .set({
+      lastRecoveryAt: now,
+      recoveryAttempts: sql`${publicSimulatorRequests.recoveryAttempts} + 1`,
+      lastHttpStatus: httpStatus,
+    })
+    .where(
+      and(
+        eq(publicSimulatorRequests.sessionId, sessionId),
+        eq(publicSimulatorRequests.requestId, requestId),
+      ),
+    );
+  return {
+    ...request,
+    expiresAt,
+    lastRecoveryAt: now,
+    recoveryAttempts: request.recoveryAttempts + 1,
+    lastHttpStatus: httpStatus,
+  };
+}
+
+export async function completePublicRequest(sessionId: number, requestId: string, response: unknown) {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
   await db
     .update(publicSimulatorRequests)
-    .set({ status: "completed", response, completedAt: new Date() })
-    .where(eq(publicSimulatorRequests.requestId, requestId));
+    .set({ status: "completed", response, completedAt: new Date(), lastHttpStatus: 200 })
+    .where(
+      and(
+        eq(publicSimulatorRequests.sessionId, sessionId),
+        eq(publicSimulatorRequests.requestId, requestId),
+      ),
+    );
 }
 
-export async function failPublicRequest(requestId: string, errorMessage: string) {
+export async function failPublicRequest(sessionId: number, requestId: string, errorMessage: string) {
   const db = await getDb();
   if (!db) return;
   await db
     .update(publicSimulatorRequests)
-    .set({ status: "failed", errorMessage: errorMessage.slice(0, 1000), completedAt: new Date() })
-    .where(eq(publicSimulatorRequests.requestId, requestId));
+    .set({
+      status: "failed",
+      errorMessage: errorMessage.slice(0, 1000),
+      completedAt: new Date(),
+      lastHttpStatus: 422,
+    })
+    .where(
+      and(
+        eq(publicSimulatorRequests.sessionId, sessionId),
+        eq(publicSimulatorRequests.requestId, requestId),
+      ),
+    );
 }
 
 export async function recordPublicConversion(

@@ -11,3 +11,7 @@ O terceiro balão também foi revelado e o estado permaneceu `online`. A primeir
 O navegador de automação não conseguiu transferir foco ao textarea nem pelo índice nem por coordenadas (`activeElement` permaneceu `body`). Para validar corretamente o componente controlado, o próximo passo usa o setter nativo de `HTMLTextAreaElement.prototype.value`, evento `input` e foco programático, que percorrem o mesmo handler React sem depender do overlay do preview.
 
 Com o setter nativo e foco real, o textarea respondeu corretamente: uma linha = 32px/compositor 60px; duas linhas = 56px/compositor 84px; quatro linhas = 104px/compositor 132px. Em todos os casos, `activeElement=textarea`, `scrollY=0`, o compositor terminou exatamente em `innerHeight=1100` e a faixa de mensagens terminou exatamente no topo do compositor, sem lacuna ou sobreposição.
+
+Após a publicação, `https://agentedozap.com/simulador/ravi?debugViewport=1` carregou o painel de telemetria e o fluxo natural. O estado inicial em produção registrou página `0..1100`, mensagens `60..1040`, compositor `1040..1100`, textarea 32px e `scrollY=0`, confirmando que o bundle consolidado está ativo.
+
+Um turno real foi iniciado em produção às 04:38. O Ravi saiu de `digitando`, exibiu a resposta e voltou para `online` em aproximadamente 11 segundos. A geometria permaneceu página `0..1100`, mensagens `60..1040`, compositor `1040..1100`, textarea 32px e `scrollY=0`, sem tela branca ou duplicação.

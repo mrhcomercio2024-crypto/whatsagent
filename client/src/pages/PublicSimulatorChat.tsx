@@ -5,6 +5,10 @@ import {
   calculateHumanTypingDelay,
 } from "@shared/humanTyping";
 import {
+  PUBLIC_REQUEST_RECOVERY_TIMEOUT_MS,
+  publicRequestRecoveryDelay,
+} from "@shared/publicRequestRecovery";
+import {
   BellRing,
   CheckCheck,
   Download,
@@ -74,6 +78,21 @@ type ChatItem = {
 };
 
 type StoredSession = { publicId: string; token: string };
+type PendingRequest = {
+  requestId: string;
+  createdAt: number;
+  kind?: "start" | "text" | "audio";
+  text?: string;
+};
+type RequestDebug = {
+  requestId: string | null;
+  requestStatus: "idle" | "processing" | "completed" | "failed" | "expired";
+  conversationId: number | null;
+  lastHTTPStatus: number | null;
+  recoveryAttempts: number;
+  lastRecoveryResult: string | null;
+  frontendError: string | null;
+};
 
 const DEFAULT_TIMING: Timing = {
   debounceSeconds: 2,
@@ -85,7 +104,6 @@ const DEFAULT_TIMING: Timing = {
 };
 
 const DIRECT_REQUEST_TIMEOUT_MS = 30_000;
-const REQUEST_RECOVERY_TIMEOUT_MS = 120_000;
 const MAX_REVEAL_TIME_MS = 15_000;
 
 function sleep(ms: number) {
@@ -134,27 +152,37 @@ function pendingRequestStorageKey(slug: string) {
   return `whatsagent:public-simulator:pending:${slug}`;
 }
 
-function readPendingRequest(slug: string): { requestId: string; createdAt: number } | null {
+function readPendingRequest(slug: string): PendingRequest | null {
   try {
     const raw = localStorage.getItem(pendingRequestStorageKey(slug));
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as { requestId?: string; createdAt?: number };
+    const parsed = JSON.parse(raw) as Partial<PendingRequest>;
     if (!parsed.requestId || !parsed.createdAt) return null;
     if (Date.now() - parsed.createdAt > 10 * 60_000) {
       localStorage.removeItem(pendingRequestStorageKey(slug));
       return null;
     }
-    return { requestId: parsed.requestId, createdAt: parsed.createdAt };
+    return {
+      requestId: parsed.requestId,
+      createdAt: parsed.createdAt,
+      kind: parsed.kind,
+      text: parsed.text,
+    };
   } catch {
     return null;
   }
 }
 
-function savePendingRequest(slug: string, requestId: string) {
+function savePendingRequest(slug: string, pending: PendingRequest) {
   localStorage.setItem(
     pendingRequestStorageKey(slug),
-    JSON.stringify({ requestId, createdAt: Date.now() }),
+    JSON.stringify(pending),
   );
+}
+
+function requestHttpStatus(error: any): number | null {
+  const value = Number(error?.data?.httpStatus ?? error?.shape?.data?.httpStatus);
+  return Number.isFinite(value) && value > 0 ? value : null;
 }
 
 function clearPendingRequest(slug: string, requestId: string) {
@@ -263,6 +291,15 @@ export default function PublicSimulatorChat() {
   const [showIosInstructions, setShowIosInstructions] = useState(false);
   const [pushBusy, setPushBusy] = useState(false);
   const [slowNotice, setSlowNotice] = useState<string | null>(null);
+  const [requestDebug, setRequestDebug] = useState<RequestDebug>({
+    requestId: null,
+    requestStatus: "idle",
+    conversationId: null,
+    lastHTTPStatus: null,
+    recoveryAttempts: 0,
+    lastRecoveryResult: null,
+    frontendError: null,
+  });
   const mountedRef = useRef(false);
   const endRef = useRef<HTMLDivElement>(null);
   const messagesRef = useRef<HTMLElement>(null);
@@ -335,6 +372,10 @@ export default function PublicSimulatorChat() {
         setConfig(result.config as PublicConfig);
         setTiming(safePublicTiming(result.timing));
         setStatus(result.status);
+        setRequestDebug(previous => ({
+          ...previous,
+          conversationId: result.conversationId,
+        }));
         const historyItems = mapHistory(result.messages as any[], result.config as PublicConfig);
         itemsRef.current = historyItems;
         setItems(historyItems);
@@ -445,27 +486,95 @@ export default function PublicSimulatorChat() {
   );
 
   const recoverRequest = useCallback(
-    async (requestId: string) => {
+    async (pending: PendingRequest, retryOriginal?: () => Promise<any>) => {
       if (!credentials) throw new Error("Sessão indisponível");
-      const deadline = Date.now() + REQUEST_RECOVERY_TIMEOUT_MS;
+      const deadline = Date.now() + PUBLIC_REQUEST_RECOVERY_TIMEOUT_MS;
+      let attempt = 0;
+      let retriedOriginal = false;
+      setRequestDebug(previous => ({
+        ...previous,
+        requestId: pending.requestId,
+        requestStatus: "processing",
+        recoveryAttempts: 0,
+        lastRecoveryResult: "recovery_started",
+        frontendError: null,
+      }));
       while (Date.now() < deadline) {
         try {
-          const state = await utils.publicSimulator.requestStatus.fetch({ ...credentials, requestId });
+          const state = await utils.publicSimulator.requestStatus.fetch({
+            ...credentials,
+            requestId: pending.requestId,
+            requestCreatedAt: pending.createdAt,
+          });
+          const recoveryAttempts = Math.max(attempt + 1, state.recoveryAttempts || 0);
+          setRequestDebug(previous => ({
+            ...previous,
+            requestStatus: state.status,
+            conversationId: state.conversationId,
+            lastHTTPStatus: state.lastHttpStatus ?? 202,
+            recoveryAttempts,
+            lastRecoveryResult: state.registered ? state.status : "processing_unregistered",
+            frontendError: null,
+          }));
           if (state.status === "completed" && state.response) return state.response as any;
           if (state.status === "failed") {
-            clearPendingRequest(slug, requestId);
+            clearPendingRequest(slug, pending.requestId);
             throw new Error(state.errorMessage || "A resposta falhou");
           }
-          if (state.status === "missing") {
-            clearPendingRequest(slug, requestId);
-            throw new Error("Resposta não encontrada");
+          if (state.status === "expired") {
+            clearPendingRequest(slug, pending.requestId);
+            throw new Error(state.errorMessage || "A requisição expirou. Envie a mensagem novamente.");
+          }
+          if (!state.registered && retryOriginal && !retriedOriginal) {
+            retriedOriginal = true;
+            setRequestDebug(previous => ({
+              ...previous,
+              lastRecoveryResult: "retrying_original_request",
+            }));
+            try {
+              const retried = await withTimeout(retryOriginal(), DIRECT_REQUEST_TIMEOUT_MS);
+              setRequestDebug(previous => ({
+                ...previous,
+                requestStatus: "completed",
+                lastHTTPStatus: 200,
+                lastRecoveryResult: "completed_after_idempotent_retry",
+              }));
+              return retried;
+            } catch (retryError: any) {
+              const retryStatus = requestHttpStatus(retryError);
+              setRequestDebug(previous => ({
+                ...previous,
+                lastHTTPStatus: retryStatus,
+                lastRecoveryResult:
+                  retryStatus === 409 ? "original_request_already_processing" : "original_retry_waiting",
+                frontendError: String(retryError?.message || "").slice(0, 180) || null,
+              }));
+            }
           }
         } catch (error: any) {
-          if (/falhou|não encontrada/i.test(String(error?.message || ""))) throw error;
-          // Oscilação de rede não encerra a recuperação; a resposta pode já estar no banco.
+          const httpStatus = requestHttpStatus(error);
+          const message = String(error?.message || "Falha temporária de recovery");
+          setRequestDebug(previous => ({
+            ...previous,
+            lastHTTPStatus: httpStatus,
+            recoveryAttempts: attempt + 1,
+            lastRecoveryResult: "recovery_transport_error",
+            frontendError: message.slice(0, 180),
+          }));
+          if (httpStatus === 401 || httpStatus === 403 || /expirou|resposta falhou/i.test(message)) {
+            throw error;
+          }
         }
-        await sleep(1500);
+        const delay = publicRequestRecoveryDelay(attempt);
+        attempt += 1;
+        await sleep(Math.min(delay, Math.max(0, deadline - Date.now())));
       }
+      setRequestDebug(previous => ({
+        ...previous,
+        requestStatus: "expired",
+        lastRecoveryResult: "recovery_deadline_expired",
+        frontendError: "Tempo máximo de recuperação excedido",
+      }));
       throw new Error("A resposta está demorando mais que o normal. Tente sincronizar novamente.");
     },
     [credentials, slug, utils.publicSimulator.requestStatus],
@@ -478,7 +587,19 @@ export default function PublicSimulatorChat() {
     recoveredOnMountRef.current = true;
     setPhase("thinking");
     setSlowNotice("Recuperando a resposta…");
-    void recoverRequest(pending.requestId)
+    const pendingText = pending.text;
+    const pendingKind = pending.kind === "start" ? "start" : "text";
+    const retryOriginal =
+      pending.kind && pendingText
+        ? () => sendText.mutateAsync({
+            slug,
+            ...credentials,
+            requestId: pending.requestId,
+            kind: pendingKind,
+            text: pendingText,
+          })
+        : undefined;
+    void recoverRequest(pending, retryOriginal)
       .then(async result => {
         setStatus("active");
         if (result.pushConsent) setPushPrompt(result.pushConsent);
@@ -490,32 +611,59 @@ export default function PublicSimulatorChat() {
         setSlowNotice(null);
         setPhase("idle");
       });
-  }, [config, credentials, recoverRequest, revealActions, slug]);
+  }, [config, credentials, recoverRequest, revealActions, sendText, slug]);
 
   const processTextNow = useCallback(
     async (content: string, kind: "start" | "text" = "text") => {
       if (!credentials || !config) return;
       const requestId = crypto.randomUUID();
-      savePendingRequest(slug, requestId);
+      const pending: PendingRequest = { requestId, createdAt: Date.now(), kind, text: content };
+      savePendingRequest(slug, pending);
+      setRequestDebug(previous => ({
+        ...previous,
+        requestId,
+        requestStatus: "processing",
+        lastHTTPStatus: null,
+        recoveryAttempts: 0,
+        lastRecoveryResult: "sending_original_request",
+        frontendError: null,
+      }));
       setPhase("thinking");
       setSlowNotice(null);
       const slowTimer = window.setTimeout(() => setSlowNotice("Preparando sua resposta…"), 12_000);
       try {
         let result: any;
+        const sendOriginal = () => sendText.mutateAsync({ slug, ...credentials, requestId, kind, text: content });
         try {
           result = await withTimeout(
-            sendText.mutateAsync({ slug, ...credentials, requestId, kind, text: content }),
+            sendOriginal(),
             DIRECT_REQUEST_TIMEOUT_MS,
           );
-        } catch {
+          setRequestDebug(previous => ({
+            ...previous,
+            requestStatus: "completed",
+            lastHTTPStatus: 200,
+            lastRecoveryResult: "original_request_completed",
+          }));
+        } catch (directError: any) {
+          setRequestDebug(previous => ({
+            ...previous,
+            lastHTTPStatus: requestHttpStatus(directError),
+            lastRecoveryResult: "original_request_timeout_or_error",
+            frontendError: String(directError?.message || "").slice(0, 180) || null,
+          }));
           setSlowNotice("Sincronizando a resposta…");
-          result = await recoverRequest(requestId);
+          result = await recoverRequest(pending, sendOriginal);
         }
         setStatus("active");
         if (result.pushConsent) setPushPrompt(result.pushConsent);
         await revealActions(result);
         clearPendingRequest(slug, requestId);
       } catch (err: any) {
+        setRequestDebug(previous => ({
+          ...previous,
+          frontendError: String(err?.message || "Não foi possível enviar").slice(0, 180),
+        }));
         setError(err?.message || "Não foi possível enviar. Tente novamente.");
       } finally {
         window.clearTimeout(slowTimer);
@@ -611,34 +759,65 @@ export default function PublicSimulatorChat() {
         const localUrl = URL.createObjectURL(blob);
         pushItem({ side: "lead", kind: "audio", mediaUrl: localUrl, durationMs });
         const requestId = crypto.randomUUID();
-        savePendingRequest(slug, requestId);
+        const pending: PendingRequest = {
+          requestId,
+          createdAt: Date.now(),
+          kind: "audio",
+        };
+        savePendingRequest(slug, pending);
+        setRequestDebug(previous => ({
+          ...previous,
+          requestId,
+          requestStatus: "processing",
+          lastHTTPStatus: null,
+          recoveryAttempts: 0,
+          lastRecoveryResult: "sending_original_audio_request",
+          frontendError: null,
+        }));
         setPhase("thinking");
         setSlowNotice(null);
         const slowTimer = window.setTimeout(() => setSlowNotice("Preparando seu áudio…"), 12_000);
         try {
           const base64 = await blobToBase64(blob);
           let result: any;
+          const sendOriginal = () => sendAudio.mutateAsync({
+            slug,
+            ...credentials,
+            requestId,
+            audioBase64: base64,
+            mimeType: blob.type.split(";")[0] || "audio/webm",
+            durationMs,
+          });
           try {
             result = await withTimeout(
-              sendAudio.mutateAsync({
-                slug,
-                ...credentials,
-                requestId,
-                audioBase64: base64,
-                mimeType: blob.type.split(";")[0] || "audio/webm",
-                durationMs,
-              }),
+              sendOriginal(),
               DIRECT_REQUEST_TIMEOUT_MS,
             );
-          } catch {
+            setRequestDebug(previous => ({
+              ...previous,
+              requestStatus: "completed",
+              lastHTTPStatus: 200,
+              lastRecoveryResult: "original_audio_request_completed",
+            }));
+          } catch (directError: any) {
+            setRequestDebug(previous => ({
+              ...previous,
+              lastHTTPStatus: requestHttpStatus(directError),
+              lastRecoveryResult: "original_audio_timeout_or_error",
+              frontendError: String(directError?.message || "").slice(0, 180) || null,
+            }));
             setSlowNotice("Sincronizando a resposta…");
-            result = await recoverRequest(requestId);
+            result = await recoverRequest(pending, sendOriginal);
           }
           setStatus("active");
           if (result.pushConsent) setPushPrompt(result.pushConsent);
           await revealActions(result);
           clearPendingRequest(slug, requestId);
         } catch (err: any) {
+          setRequestDebug(previous => ({
+            ...previous,
+            frontendError: String(err?.message || "Não foi possível entender o áudio").slice(0, 180),
+          }));
           setError(err?.message || "Não foi possível entender o áudio.");
         } finally {
           window.clearTimeout(slowTimer);
@@ -951,7 +1130,7 @@ export default function PublicSimulatorChat() {
           * { scroll-behavior: auto !important; }
         }
       `}</style>
-      <ViewportDebugPanel />
+      <ViewportDebugPanel request={requestDebug} />
     </div>
   );
 }

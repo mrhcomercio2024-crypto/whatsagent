@@ -34,7 +34,17 @@ function capture(): Snapshot {
   };
 }
 
-export default function ViewportDebugPanel() {
+type RequestSnapshot = {
+  requestId: string | null;
+  requestStatus: string;
+  conversationId: number | null;
+  lastHTTPStatus: number | null;
+  recoveryAttempts: number;
+  lastRecoveryResult: string | null;
+  frontendError: string | null;
+};
+
+export default function ViewportDebugPanel({ request }: { request: RequestSnapshot }) {
   const enabled = useMemo(
     () => new URLSearchParams(window.location.search).get("debugViewport") === "1",
     [],
@@ -66,7 +76,7 @@ export default function ViewportDebugPanel() {
   if (!enabled || !snapshot) return null;
   return (
     <pre className="fixed left-2 top-2 z-[9999] max-w-[calc(100vw-1rem)] overflow-auto rounded-lg border border-emerald-400/40 bg-black/90 p-2 text-[10px] leading-4 text-emerald-200 shadow-2xl">
-      {JSON.stringify(snapshot, null, 2)}
+      {JSON.stringify({ ...snapshot, ...request }, null, 2)}
     </pre>
   );
 }

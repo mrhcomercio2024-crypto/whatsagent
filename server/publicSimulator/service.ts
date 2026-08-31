@@ -476,10 +476,10 @@ export async function processPublicSimulatorTurn(input: {
         signals: interest.signals,
       },
     };
-    await completePublicRequest(input.requestId, response);
+    await completePublicRequest(session.id, input.requestId, response);
     return response;
   } catch (error) {
-    await failPublicRequest(input.requestId, (error as Error).message);
+    await failPublicRequest(session.id, input.requestId, (error as Error).message);
     throw error;
   }
 }

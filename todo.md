@@ -917,4 +917,22 @@
 - [x] Testar 1/2/4 linhas com foco real: textarea 32/56/104px, compositor 60/84/132px, mensagens terminando exatamente no topo do compositor e `scrollY=0`
 - [x] Executar TypeScript, suíte completa (559/559) e build de produção
 - [x] Salvar checkpoint, solicitar publicação e informar versão exata do deploy
-- [ ] Validar no iPhone real antes de considerar resolvido
+- [x] (substituído) A pista concreta `Resposta não encontrada` direcionou a correção específica da Fase 104
+## Fase 104: Corrigir `Resposta não encontrada` no recovery por requestId
+
+- [x] Congelar CSS/viewport e não fazer novas alterações visuais nesta fase
+- [x] Localizar a string: `PublicSimulatorChat.tsx:459-461`, em `recoverRequest`, quando `publicSimulator.requestStatus` retorna `missing`; backend gerava `missing` em `router.ts:212`
+- [x] Correlacionar sessão 19, conversationId 150019, leadId 150019 e request anterior concluído; o request do erro não chegou ao banco e seu UUID antigo não é recuperável retroativamente
+- [x] Confirmar que a inbound do envio afetado, resposta Ravi, HTTP original e recovery não foram persistidos; somente o request anterior está completo
+- [x] Classificar como A + E + J: envio não chegou ao backend, recovery consultou ausência transitória e frontend a tornou terminal sem retry idempotente
+- [x] Substituir `missing/not_found` prematuro por `processing` com `registered=false` durante janela de 10 minutos
+- [x] Expor somente `processing`, `completed`, `failed` e `expired`; migration `0030_cooing_lake.sql` aplicada com expiração e telemetria
+- [x] Persistir request como `processing` e `expiresAt` antes da inbound e da chamada ao modelo
+- [x] Garantir idempotência concorrente por índice `sessionId + requestId`; create/complete/fail/recovery usam o mesmo escopo
+- [x] Implementar recovery com backoff testável 2s → 3s → 5s → 8s e retry único da operação original com o mesmo requestId
+- [x] Não resetar sessão/conversa quando recovery falhar; credenciais e histórico permanecem no navegador e no banco
+- [x] Adicionar requestId, requestStatus, conversationId, lastHTTPStatus, recoveryAttempts, lastRecoveryResult e frontendError ao `?debugViewport=1`, sem alterar o modo normal
+- [x] Testar request ausente recente (`processing/registered=false`), retry com mesmo requestId (`completed`) e duas chamadas concorrentes (HTTP 409 + 200, uma única row completed)
+- [x] Executar TypeScript, 567/567 testes e build de produção; busca final confirma que `Resposta não encontrada`/`missing` existem somente como asserções negativas
+- [x] Salvar checkpoint e solicitar publicação
+- [ ] Validar a máquina de estados e a recuperação no iPhone real após publicação

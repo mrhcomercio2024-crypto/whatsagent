@@ -1,6 +1,7 @@
 import { randomBytes } from "crypto";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
+import { statusForAbsentPublicRequest } from "../../shared/publicRequestRecovery";
 import { adminProcedure, publicProcedure, router } from "../_core/trpc";
 import { getAgentById } from "../db";
 import { storagePut } from "../storage";
@@ -9,7 +10,7 @@ import {
   ensurePublicSimulatorConfig,
   getPublicSimulatorConfigByAgent,
   getPublicSimulatorConfigBySlug,
-  getPublicRequestForSession,
+  recoverPublicRequestForSession,
   getPublicSimulatorSessionAdmin,
   listPublicConversions,
   listPublicSessionMessages,
@@ -138,6 +139,7 @@ export const publicSimulatorRouter = router({
               resumed: true as const,
               publicId: session.publicId,
               token: input.existing.token,
+              conversationId: session.conversationId,
               status: session.status,
               config: publicConfig(config),
               timing: publicTiming(agent),
@@ -161,6 +163,7 @@ export const publicSimulatorRouter = router({
         resumed: false as const,
         publicId: created.session.publicId,
         token: created.token,
+        conversationId: created.session.conversationId,
         status: created.session.status,
         config: publicConfig(config),
         timing: publicTiming(agent),
@@ -204,16 +207,36 @@ export const publicSimulatorRouter = router({
     .input(
       sessionAuthSchema.extend({
         requestId: z.string().min(8).max(80),
+        requestCreatedAt: z.number().int().positive(),
       }),
     )
     .query(async ({ input }) => {
       const session = await requirePublicSimulatorSession(input.publicId, input.token);
-      const request = await getPublicRequestForSession(session.id, input.requestId);
-      if (!request) return { status: "missing" as const, response: null, errorMessage: null };
+      const request = await recoverPublicRequestForSession(session.id, input.requestId);
+      if (!request) {
+        const absentStatus = statusForAbsentPublicRequest(input.requestCreatedAt);
+        return {
+          status: absentStatus,
+          registered: false,
+          response: null,
+          errorMessage:
+            absentStatus === "expired" ? "Requisição expirada antes de chegar ao servidor" : null,
+          recoveryAttempts: 0,
+          lastHttpStatus: absentStatus === "expired" ? 410 : 202,
+          conversationId: session.conversationId,
+        };
+      }
       return {
         status: request.status,
+        registered: true,
         response: request.status === "completed" ? request.response : null,
-        errorMessage: request.status === "failed" ? request.errorMessage : null,
+        errorMessage:
+          request.status === "failed" || request.status === "expired"
+            ? request.errorMessage
+            : null,
+        recoveryAttempts: request.recoveryAttempts,
+        lastHttpStatus: request.lastHttpStatus,
+        conversationId: session.conversationId,
       };
     }),
 
@@ -247,6 +270,12 @@ export const publicSimulatorRouter = router({
         const message = (error as Error).message;
         if (message === "INVALID_PUBLIC_SESSION") {
           throw new TRPCError({ code: "UNAUTHORIZED", message: "Sessão inválida" });
+        }
+        if (message === "REQUEST_ALREADY_PROCESSING") {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "Esta mensagem já está sendo processada",
+          });
         }
         throw new TRPCError({ code: "BAD_REQUEST", message });
       }
