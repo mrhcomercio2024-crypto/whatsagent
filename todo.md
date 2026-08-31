@@ -820,3 +820,16 @@
 - [x] Testes Vitest de PWA, segurança, scoring, multicanal, VAPID, tracking, cancelamentos e agendamento — 536/536 verde
 - [x] Validar desktop/Android compatível: contexto seguro, Service Worker e PushManager ativos; fluxo instrutivo tardio do iPhone coberto por regra e teste
 - [x] Build de produção concluído; manifest, Service Worker e ícones servidos corretamente; checkpoint e instrução de publicação/agendamento nesta entrega
+## Fase 97: Teclado mobile e layout próximo ao WhatsApp
+
+- [x] Auditar altura, scroll, safe-area, foco e posicionamento do compositor atual: layout usava `100dvh` sem acompanhar `visualViewport`, sem lock do body e textarea com 15px no iPhone
+- [x] Usar `window.visualViewport` para acompanhar altura e deslocamento úteis quando o teclado abrir
+- [x] Bloquear scroll/overscroll do `html` e `body` somente enquanto a conversa pública estiver montada
+- [x] Manter cabeçalho fixo e mensagens em uma área rolável própria com momentum scroll
+- [x] Fixar compositor exatamente acima do teclado e respeitar `safe-area-inset-bottom`
+- [x] Usar fonte mínima de 16px no campo e viewport sem bloqueio de zoom para impedir ampliação automática do iPhone
+- [x] Rolar para a última mensagem ao focar, redimensionar o teclado e receber novos balões
+- [x] Refinar altura automática do textarea, foco preservado, safe-area, cabeçalho e compositor para parecer com o WhatsApp móvel
+- [x] Criar 5 testes de source/viewport e executar suíte completa — 541/541 verde
+- [x] Validar em 390×844 e com teclado simulado de 430px: cabeçalho, mensagens e compositor permaneceram dentro da área útil; input em 16px e body bloqueado
+- [x] Build de produção concluído, servidor restaurado, checkpoint salvo e publicação solicitada

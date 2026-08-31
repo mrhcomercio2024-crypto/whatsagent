@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRoute } from "wouter";
+import { useChatVisualViewport } from "../hooks/useChatVisualViewport";
 import {
   getPushCapability,
   registerRaviServiceWorker,
@@ -195,9 +196,12 @@ export default function PublicSimulatorChat() {
   const [pushEnabled, setPushEnabled] = useState(false);
   const [showIosInstructions, setShowIosInstructions] = useState(false);
   const [pushBusy, setPushBusy] = useState(false);
+  const keyboardOpen = useChatVisualViewport();
 
   const mountedRef = useRef(false);
   const endRef = useRef<HTMLDivElement>(null);
+  const messagesRef = useRef<HTMLElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const queueRef = useRef<string[]>([]);
   const debounceRef = useRef<number | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -229,6 +233,14 @@ export default function PublicSimulatorChat() {
       pushCapability &&
       (pushCapability.ios ? strongInterest : pushCapability.supported),
   );
+
+  const scrollToLatest = useCallback((behavior: ScrollBehavior = "smooth") => {
+    window.requestAnimationFrame(() => {
+      const messages = messagesRef.current;
+      if (messages) messages.scrollTo({ top: messages.scrollHeight, behavior });
+      endRef.current?.scrollIntoView({ behavior, block: "end" });
+    });
+  }, []);
 
   useEffect(() => {
     document.title = "Conversa com RAVI";
@@ -279,8 +291,17 @@ export default function PublicSimulatorChat() {
   }, [credentials, mayOfferPush, pushConsentOffered, pushSupport.data?.consentOfferedAt]);
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [items.length, phase]);
+    scrollToLatest("smooth");
+  }, [items.length, phase, scrollToLatest]);
+
+  useEffect(() => {
+    const handleViewport = () => {
+      scrollToLatest("auto");
+      window.setTimeout(() => scrollToLatest("auto"), 120);
+    };
+    window.addEventListener("ravi:viewport-resize", handleViewport);
+    return () => window.removeEventListener("ravi:viewport-resize", handleViewport);
+  }, [scrollToLatest]);
 
   useEffect(() => {
     return () => {
@@ -385,6 +406,8 @@ export default function PublicSimulatorChat() {
     pushItem({ side: "lead", kind: "text", text: value });
     queueRef.current.push(value);
     setText("");
+    if (inputRef.current) inputRef.current.style.height = "32px";
+    window.requestAnimationFrame(() => inputRef.current?.focus({ preventScroll: true }));
     if (debounceRef.current !== null) return;
     let left = Math.max(0, timing.debounceSeconds);
     if (left === 0) {
@@ -547,12 +570,13 @@ export default function PublicSimulatorChat() {
 
   return (
     <div
-      className="min-h-[100dvh] bg-[#071015] text-[#e9edef] sm:grid sm:place-items-center sm:p-3"
+      className="ravi-visual-viewport fixed left-0 right-0 flex overflow-hidden bg-[#071015] text-[#e9edef] sm:items-center sm:justify-center sm:p-3"
+      data-keyboard-open={keyboardOpen ? "true" : "false"}
       style={{ "--sim-accent": config.accentColor } as React.CSSProperties}
     >
-      <div className="flex h-[100dvh] w-full max-w-[620px] overflow-hidden bg-[#0b141a] shadow-2xl sm:h-[min(920px,98dvh)] sm:rounded-2xl sm:border sm:border-white/10">
+      <div className="flex h-full w-full max-w-[620px] overflow-hidden bg-[#0b141a] shadow-2xl sm:max-h-[920px] sm:rounded-2xl sm:border sm:border-white/10">
         <main className="flex min-w-0 flex-1 flex-col">
-          <header className="flex h-[60px] shrink-0 items-center gap-3 bg-[#202c33] px-3 sm:px-4">
+          <header className="ravi-header z-10 flex shrink-0 items-center gap-3 bg-[#202c33] px-3 shadow-sm sm:px-4">
             <Avatar config={config} size="md" />
             <div className="min-w-0 flex-1">
               <h1 className="truncate text-[15px] font-medium">{config.displayName}</h1>
@@ -566,7 +590,7 @@ export default function PublicSimulatorChat() {
             </div>
           </header>
 
-          <section className="sim-chat-bg flex-1 overflow-y-auto px-2 py-4 sm:px-4">
+          <section ref={messagesRef} className="sim-chat-bg min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 py-3 [scrollbar-width:none] sm:px-4 sm:py-4">
             <div className="mx-auto mb-4 w-fit rounded-lg bg-[#182229] px-3 py-1.5 text-center text-[11px] text-[#8696a0] shadow">
               HOJE
             </div>
@@ -648,7 +672,7 @@ export default function PublicSimulatorChat() {
             </div>
           )}
 
-          <footer className="shrink-0 bg-[#202c33] px-2 py-2 sm:px-3">
+          <footer className="ravi-composer z-10 shrink-0 bg-[#202c33] px-2 pt-1.5 sm:px-3 sm:pt-2">
             {recording ? (
               <div className="flex h-12 items-center gap-3">
                 <button
@@ -678,9 +702,18 @@ export default function PublicSimulatorChat() {
                 <div className="flex min-h-11 flex-1 items-center gap-2 rounded-3xl bg-[#2a3942] px-3 py-1.5">
                   <Smile className="size-5 shrink-0 text-[#8696a0]" />
                   <textarea
+                    ref={inputRef}
                     rows={1}
                     value={text}
-                    onChange={event => setText(event.target.value)}
+                    onChange={event => {
+                      setText(event.target.value);
+                      event.currentTarget.style.height = "32px";
+                      event.currentTarget.style.height = `${Math.min(112, event.currentTarget.scrollHeight)}px`;
+                    }}
+                    onFocus={() => {
+                      scrollToLatest("auto");
+                      window.setTimeout(() => scrollToLatest("auto"), 250);
+                    }}
                     onKeyDown={event => {
                       if (event.key === "Enter" && !event.shiftKey) {
                         event.preventDefault();
@@ -688,8 +721,12 @@ export default function PublicSimulatorChat() {
                       }
                     }}
                     disabled={!started || busy}
+                    autoComplete="off"
+                    autoCorrect="on"
+                    autoCapitalize="sentences"
+                    enterKeyHint="send"
                     placeholder={started ? config.inputPlaceholder : "Toque em SIM, QUERO SABER para começar"}
-                    className="max-h-28 min-h-8 flex-1 resize-none bg-transparent py-1.5 text-[15px] leading-5 text-[#e9edef] outline-none placeholder:text-[#8696a0] disabled:cursor-not-allowed"
+                    className="max-h-28 min-h-8 flex-1 resize-none overflow-y-auto bg-transparent py-1 text-[16px] leading-6 text-[#e9edef] outline-none placeholder:text-[#8696a0] disabled:cursor-not-allowed"
                   />
                   <Paperclip className="size-5 shrink-0 -rotate-45 text-[#8696a0]" />
                 </div>
@@ -714,6 +751,30 @@ export default function PublicSimulatorChat() {
       </div>
 
       <style>{`
+        .ravi-visual-viewport {
+          top: var(--ravi-visual-top, 0px);
+          height: var(--ravi-visual-height, 100dvh);
+          overscroll-behavior: none;
+          touch-action: none;
+        }
+        .ravi-header {
+          height: calc(60px + env(safe-area-inset-top));
+          padding-top: env(safe-area-inset-top);
+        }
+        .sim-chat-bg {
+          touch-action: pan-y;
+          -webkit-overflow-scrolling: touch;
+          scroll-behavior: smooth;
+        }
+        .sim-chat-bg::-webkit-scrollbar { display: none; }
+        .ravi-composer {
+          padding-bottom: max(.5rem, env(safe-area-inset-bottom));
+          box-shadow: 0 -1px 0 rgba(255,255,255,.04);
+          touch-action: manipulation;
+        }
+        .ravi-visual-viewport[data-keyboard-open="true"] .ravi-composer {
+          padding-bottom: .375rem;
+        }
         .sim-chat-bg {
           background-color: #0b141a;
           background-image:
