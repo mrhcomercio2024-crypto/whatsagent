@@ -3,6 +3,7 @@ import { z } from "zod";
 import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
+import { instagramRouter } from "./instagram/router";
 import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { sdk } from "./_core/sdk";
 import {
@@ -114,6 +115,7 @@ const agentScopedSchema = z.object({ agentId: z.number().int().positive() });
 
 export const appRouter = router({
   system: systemRouter,
+  instagram: instagramRouter,
   publicSimulator: publicSimulatorRouter,
   publicSimulatorAdmin: publicSimulatorAdminRouter,
   auth: router({

@@ -1,0 +1,1 @@
+ALTER TABLE `messages` ADD CONSTRAINT `msg_provider_unique` UNIQUE(`channel`,`providerMessageId`);

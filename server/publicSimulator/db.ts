@@ -150,7 +150,7 @@ export async function createPublicSimulatorSession(
   const { publicId, token } = generatePublicCredentials();
   const syntheticPhone = `SIMWEB:${publicId}`;
   const leadId = await findOrCreateLead(config.agentId, syntheticPhone);
-  const conversationId = await findOrCreateConversation(config.agentId, leadId);
+  const conversationId = await findOrCreateConversation(config.agentId, leadId, { channel: "web" });
 
   await appendMessage({
     conversationId,

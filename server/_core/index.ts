@@ -15,6 +15,8 @@ import { registerRealtimeRoutes } from "../realtime/sse";
 import { registerPublicSimulatorWebhook } from "../publicSimulator/webhook";
 import { registerPublicPushEventRoutes } from "../publicSimulator/push/events";
 import { registerRecoveryScheduledRoute } from "../publicSimulator/recovery/scheduled";
+import { registerInstagramWebhookRoutes } from "../instagram/webhook";
+import { registerInstagramOauthRoutes } from "../instagram/oauth";
 import { startFollowupEngine } from "../followup/engine";
 import { startDebounceWorker } from "../ai/debounceWorker";
 import { stopRetryWorker } from "../whatsapp/retryWorker";
@@ -47,11 +49,14 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 async function startServer() {
   const app = express();
   const server = createServer(app);
+  // O Webhook Instagram precisa do corpo bruto para validar X-Hub-Signature-256.
+  registerInstagramWebhookRoutes(app);
   // Configure body parser with larger size limit for file uploads
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   registerStorageProxy(app);
   registerOAuthRoutes(app);
+  registerInstagramOauthRoutes(app);
   registerWhatsappWebhook(app);
   registerZapiWebhook(app);
   registerExternalEventsWebhook(app);

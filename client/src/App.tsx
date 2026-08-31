@@ -29,6 +29,7 @@ import AdminUsers from "./pages/AdminUsers";
 import PublicSimulatorChat from "./pages/PublicSimulatorChat";
 import PublicSimulatorAdmin from "./pages/PublicSimulatorAdmin";
 import PublicSimulatorErrorBoundary from "./components/PublicSimulatorErrorBoundary";
+import Instagram from "./pages/Instagram";
 
 function PublicSimulatorRoute() {
   return (
@@ -49,6 +50,7 @@ function Router() {
       <Route path="/dashboard" component={Dashboard} />
       {/* /chat, /inbox e /live convergem para a tela unificada (Live) */}
       <Route path="/chat" component={Live} />
+      <Route path="/instagram" component={Instagram} />
       <Route path="/inbox" component={Live} />
       <Route path="/leads" component={Leads} />
       <Route path="/simulator" component={Simulator} />

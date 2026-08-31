@@ -354,6 +354,10 @@ export const conversations = mysqlTable(
     id: int("id").autoincrement().primaryKey(),
     agentId: int("agentId").notNull(),
     leadId: int("leadId").notNull(),
+    channel: mysqlEnum("channel", ["whatsapp", "instagram", "web"])
+      .default("whatsapp")
+      .notNull(),
+    channelMetadata: json("channelMetadata"),
     status: mysqlEnum("status", ["open", "human_handoff", "closed", "archived"])
       .default("open")
       .notNull(),
@@ -379,7 +383,12 @@ export const conversations = mysqlTable(
     updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
   },
   table => ({
-    agentLeadUnique: uniqueIndex("conv_agent_lead_unique").on(table.agentId, table.leadId),
+    agentLeadUnique: uniqueIndex("conv_agent_lead_unique").on(
+      table.agentId,
+      table.leadId,
+      table.channel,
+    ),
+    agentChannelIdx: index("conv_agent_channel_idx").on(table.agentId, table.channel, table.lastMessageAt),
     statusIdx: index("conv_status_idx").on(table.status),
   })
 );
@@ -396,6 +405,9 @@ export const messages = mysqlTable(
   {
     id: int("id").autoincrement().primaryKey(),
     conversationId: int("conversationId").notNull(),
+    channel: mysqlEnum("channel", ["whatsapp", "instagram", "web"])
+      .default("whatsapp")
+      .notNull(),
     direction: mysqlEnum("direction", ["inbound", "outbound"]).notNull(),
     sender: mysqlEnum("sender", ["lead", "ai", "human", "system"]).notNull(),
     contentType: mysqlEnum("contentType", ["text", "image", "video", "audio", "document", "template"])
@@ -405,6 +417,8 @@ export const messages = mysqlTable(
     mediaUrl: varchar("mediaUrl", { length: 500 }),
     mediaId: int("mediaId"), // referência ao media_assets se aplicável
     templateName: varchar("templateName", { length: 200 }),
+    providerMessageId: varchar("providerMessageId", { length: 240 }),
+    providerStatus: varchar("providerStatus", { length: 40 }),
     waMessageId: varchar("waMessageId", { length: 200 }), // id do WhatsApp
     waStatus: mysqlEnum("waStatus", ["queued", "sent", "delivered", "read", "failed"]),
     metadata: json("metadata"),
@@ -412,6 +426,8 @@ export const messages = mysqlTable(
   },
   table => ({
     convIdx: index("msg_conv_idx").on(table.conversationId, table.createdAt),
+    providerIdx: index("msg_provider_idx").on(table.channel, table.providerMessageId),
+    providerUnique: uniqueIndex("msg_provider_unique").on(table.channel, table.providerMessageId),
     waIdx: index("msg_wa_idx").on(table.waMessageId),
   })
 );
@@ -1443,3 +1459,155 @@ export const recoveryEvents = mysqlTable(
 );
 export type RecoveryEvent = typeof recoveryEvents.$inferSelect;
 export type InsertRecoveryEvent = typeof recoveryEvents.$inferInsert;
+
+/** Configuração de uma conta profissional Instagram por agente. */
+export const instagramIntegrations = mysqlTable(
+  "instagram_integrations",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    agentId: int("agentId").notNull().unique(),
+    metaAppId: varchar("metaAppId", { length: 64 }).notNull(),
+    instagramAccountId: varchar("instagramAccountId", { length: 80 }),
+    username: varchar("username", { length: 160 }),
+    accountName: varchar("accountName", { length: 200 }),
+    profilePictureUrl: varchar("profilePictureUrl", { length: 1000 }),
+    accessTokenEncrypted: longtext("accessTokenEncrypted"),
+    tokenExpiresAt: timestamp("tokenExpiresAt"),
+    tokenStatus: mysqlEnum("tokenStatus", ["missing", "valid", "expired", "revoked", "error"])
+      .default("missing")
+      .notNull(),
+    scopes: json("scopes"),
+    webhookStatus: mysqlEnum("webhookStatus", ["pending", "verified", "subscribed", "error"])
+      .default("pending")
+      .notNull(),
+    webhookVerifiedAt: timestamp("webhookVerifiedAt"),
+    webhookSubscribedAt: timestamp("webhookSubscribedAt"),
+    lastWebhookAt: timestamp("lastWebhookAt"),
+    lastInboundAt: timestamp("lastInboundAt"),
+    lastOutboundAt: timestamp("lastOutboundAt"),
+    lastSyncAt: timestamp("lastSyncAt"),
+    lastError: text("lastError"),
+    lastErrorCode: varchar("lastErrorCode", { length: 80 }),
+    lastErrorSubcode: varchar("lastErrorSubcode", { length: 80 }),
+    lastErrorAt: timestamp("lastErrorAt"),
+    isConnected: boolean("isConnected").default(false).notNull(),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    accountIdx: uniqueIndex("instagram_integration_account_unique").on(table.instagramAccountId),
+  }),
+);
+export type InstagramIntegration = typeof instagramIntegrations.$inferSelect;
+export type InsertInstagramIntegration = typeof instagramIntegrations.$inferInsert;
+
+/** Identidades externas por canal ligadas ao mesmo lead do CRM. */
+export const channelIdentities = mysqlTable(
+  "channel_identities",
+  {
+    id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
+    agentId: int("agentId").notNull(),
+    leadId: int("leadId").notNull(),
+    channel: mysqlEnum("channel", ["whatsapp", "instagram", "web"]).notNull(),
+    accountId: varchar("accountId", { length: 100 }).notNull(),
+    externalUserId: varchar("externalUserId", { length: 200 }).notNull(),
+    username: varchar("username", { length: 160 }),
+    displayName: varchar("displayName", { length: 200 }),
+    profilePictureUrl: varchar("profilePictureUrl", { length: 1000 }),
+    metadata: json("metadata"),
+    lastSeenAt: timestamp("lastSeenAt"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    externalUnique: uniqueIndex("channel_identity_external_unique").on(
+      table.agentId,
+      table.channel,
+      table.accountId,
+      table.externalUserId,
+    ),
+    leadIdx: index("channel_identity_lead_idx").on(table.leadId, table.channel),
+  }),
+);
+export type ChannelIdentity = typeof channelIdentities.$inferSelect;
+export type InsertChannelIdentity = typeof channelIdentities.$inferInsert;
+
+/** Nonces one-time do OAuth Instagram, armazenados apenas como hash. */
+export const instagramOauthStates = mysqlTable(
+  "instagram_oauth_states",
+  {
+    id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
+    stateHash: varchar("stateHash", { length: 64 }).notNull().unique(),
+    agentId: int("agentId").notNull(),
+    userId: int("userId").notNull(),
+    redirectOrigin: varchar("redirectOrigin", { length: 500 }).notNull(),
+    expiresAt: timestamp("expiresAt").notNull(),
+    consumedAt: timestamp("consumedAt"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => ({
+    expiryIdx: index("instagram_oauth_state_expiry_idx").on(table.expiresAt, table.consumedAt),
+  }),
+);
+export type InstagramOauthState = typeof instagramOauthStates.$inferSelect;
+export type InsertInstagramOauthState = typeof instagramOauthStates.$inferInsert;
+
+/** Eventos recebidos da Meta; eventKey garante idempotência persistente. */
+export const instagramWebhookEvents = mysqlTable(
+  "instagram_webhook_events",
+  {
+    id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
+    integrationId: int("integrationId"),
+    agentId: int("agentId"),
+    eventKey: varchar("eventKey", { length: 240 }).notNull().unique(),
+    eventType: varchar("eventType", { length: 80 }).notNull(),
+    providerMessageId: varchar("providerMessageId", { length: 240 }),
+    instagramAccountId: varchar("instagramAccountId", { length: 80 }),
+    igsid: varchar("igsid", { length: 200 }),
+    payload: json("payload").notNull(),
+    status: mysqlEnum("status", ["received", "ignored", "processing", "processed", "failed"])
+      .default("received")
+      .notNull(),
+    attemptCount: int("attemptCount").default(0).notNull(),
+    httpStatus: int("httpStatus"),
+    metaErrorCode: varchar("metaErrorCode", { length: 80 }),
+    metaErrorSubcode: varchar("metaErrorSubcode", { length: 80 }),
+    errorMessage: text("errorMessage"),
+    receivedAt: timestamp("receivedAt").defaultNow().notNull(),
+    processedAt: timestamp("processedAt"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => ({
+    agentStatusIdx: index("instagram_event_agent_status_idx").on(table.agentId, table.status, table.receivedAt),
+    accountIdx: index("instagram_event_account_idx").on(table.instagramAccountId, table.receivedAt),
+  }),
+);
+export type InstagramWebhookEvent = typeof instagramWebhookEvents.$inferSelect;
+export type InsertInstagramWebhookEvent = typeof instagramWebhookEvents.$inferInsert;
+
+/** Log operacional estruturado e sanitizado do canal Instagram. */
+export const instagramLogs = mysqlTable(
+  "instagram_logs",
+  {
+    id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
+    agentId: int("agentId"),
+    integrationId: int("integrationId"),
+    conversationId: int("conversationId"),
+    leadId: int("leadId"),
+    eventType: varchar("eventType", { length: 100 }).notNull(),
+    level: mysqlEnum("level", ["info", "warning", "error"]).default("info").notNull(),
+    providerMessageId: varchar("providerMessageId", { length: 240 }),
+    httpStatus: int("httpStatus"),
+    metaErrorCode: varchar("metaErrorCode", { length: 80 }),
+    metaErrorSubcode: varchar("metaErrorSubcode", { length: 80 }),
+    message: varchar("message", { length: 500 }),
+    metadata: json("metadata"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => ({
+    agentEventIdx: index("instagram_log_agent_event_idx").on(table.agentId, table.eventType, table.createdAt),
+    conversationIdx: index("instagram_log_conversation_idx").on(table.conversationId, table.createdAt),
+  }),
+);
+export type InstagramLog = typeof instagramLogs.$inferSelect;
+export type InsertInstagramLog = typeof instagramLogs.$inferInsert;

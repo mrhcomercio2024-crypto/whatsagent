@@ -579,19 +579,29 @@ export async function listLeads(agentId: number, opts?: { limit?: number }) {
 
 export async function findOrCreateConversation(
   agentId: number,
-  leadId: number
+  leadId: number,
+  opts?: { channel?: "whatsapp" | "instagram" | "web"; channelMetadata?: Record<string, unknown> },
 ): Promise<number> {
   const db = await getDb();
   if (!db) throw new Error("DB unavailable");
+  const channel = opts?.channel ?? "whatsapp";
   const existing = await db
     .select()
     .from(conversations)
-    .where(and(eq(conversations.agentId, agentId), eq(conversations.leadId, leadId)))
+    .where(
+      and(
+        eq(conversations.agentId, agentId),
+        eq(conversations.leadId, leadId),
+        eq(conversations.channel, channel),
+      ),
+    )
     .limit(1);
   if (existing[0]) return existing[0].id;
   const r = await db.insert(conversations).values({
     agentId,
     leadId,
+    channel,
+    channelMetadata: opts?.channelMetadata,
   } satisfies InsertConversation);
   return (r as any)[0]?.insertId as number;
 }

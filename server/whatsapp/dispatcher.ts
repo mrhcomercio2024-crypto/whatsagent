@@ -72,6 +72,13 @@ export async function dispatchActions(opts: {
   }
   const safeOpts = { ...opts, actions: filtered };
 
+  const conversation = await getConversationById(opts.conversationId);
+  if (conversation?.channel === "instagram") {
+    const { dispatchInstagramActions } = await import("../instagram/adapter");
+    await dispatchInstagramActions(safeOpts);
+    return;
+  }
+
   if (opts.agent.connectionMode === "qr") {
     // Modo "qr" agora usa Z-API por baixo (Baileys descontinuado).
     // O nome "qr" é mantido por compatibilidade com agentes existentes.

@@ -51,6 +51,7 @@ import {
   ShieldCheck,
   ShieldAlert,
   Smartphone,
+  Instagram,
 } from "lucide-react";
 import { useEffect } from "react";
 import { Link, useLocation } from "wouter";
@@ -67,6 +68,7 @@ function buildGroups(isAdmin: boolean): Array<{
     items: [
       { icon: LayoutDashboard, label: "Dashboard", path: "/dashboard" },
       { icon: MessageSquare, label: "Chat", path: "/chat" },
+      { icon: Instagram, label: "INSTAGRAM", path: "/instagram" },
       { icon: Users, label: "Leads", path: "/leads" },
       { icon: TestTube2, label: "Simulador", path: "/simulator" },
       { icon: Smartphone, label: "SIMULADOR WHATSAPP", path: "/simulador-whatsapp" },

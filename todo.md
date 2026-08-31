@@ -982,3 +982,33 @@
 - [x] Validar em 390×844 e medir no histórico longo: textarea 32/56/104px, compositor 60/84/132px e bottom exatamente no limite visível em 1/2/4 linhas
 - [x] Executar `pnpm check`, suíte Vitest completa (78 arquivos/574 testes) e build de produção
 - [x] Salvar checkpoint da correção Safari (`865bfecc`) e solicitar nova publicação para confirmação no iPhone real
+
+## Fase 109 — Ravi + Instagram Direct oficial
+
+- [x] Auditar schema atual de agentes, leads, conversations, messages, checkout, métricas, tags, objeções e identidades
+- [x] Auditar Ravi Core, webhooks WhatsApp/Z-API, dispatcher, handoff, autenticação, rotas tRPC e menu Operação
+- [x] Validar na documentação oficial atual da Meta Instagram Login, OAuth, tokens, webhooks, assinatura, permissões, envio e janela de 24 horas
+- [x] Entregar antes do código a auditoria A–J: existente, reutilizado, criado, arquivos, migration, callback, redirect URI, verify token, secrets e configuração manual Meta
+- [x] Apresentar três opções de implantação com trade-offs, custo e complexidade, recomendando webhook event-driven no hosting atual sem polling
+- [x] Confirmar uso exclusivo do Meta App `Dashboard Marcelo` / `2533423037090142` e não criar outro App
+- [x] Criar e aplicar migration `0032_nice_chronomancer.sql` para configuração Instagram, identidades multicanal, canal da conversa/mensagem, OAuth, eventos/logs e attribution, sem duplicar CRM
+- [x] Preservar integralmente WhatsApp, Z-API, Ravi Web Lite/PWA, Follow-up Engine, checkout e Ravi Core; 22 leads, 22 conversas e todo o histórico permaneceram intactos
+- [x] Implementar OAuth oficial Instagram Login com state HMAC + nonce one-time, redirect fixo, troca de code, long-lived token, refresh e inscrição de Webhooks
+- [x] Armazenar Access Token cifrado AES-256-GCM somente no backend; App Secret/Verify Token em env e DTOs/logs sem secrets
+- [x] Implementar GET/POST `/webhooks/meta/instagram` com verify token, raw body antes do parser JSON, `X-Hub-Signature-256`, sanitização e ACK seguro
+- [x] Suportar prioritariamente `messages` e estruturar postbacks, referral, seen e reactions sem atrasar o MVP
+- [x] Deduplicar persistentemente por MID/eventKey e ignorar `is_echo=true`, garantindo uma execução comercial por inbound
+- [x] Normalizar IGSID/accountId/referral/ad_id/ads_context_data/reply_to/anexos e persistir payload seguro para attribution
+- [x] Reutilizar leads/conversations/messages com `channel_identities`, histórico completo e contexto contínuo no mesmo Ravi Core
+- [x] Implementar Instagram Adapter oficial em `graph.instagram.com/v26.0`, janela de 24h e erro Meta estruturado sem expor token
+- [x] Implementar handoff humano exclusivo com ASSUMIR CONVERSA e DEVOLVER PARA O RAVI, bloqueando envio humano antes do handoff e IA enquanto pausada
+- [x] Criar `OPERAÇÃO > INSTAGRAM` no design system atual sem reorganizar menus existentes
+- [x] Construir status/health check sem secrets, botão CONECTAR INSTAGRAM, reconexão, desconexão e teste não invasivo
+- [x] Construir inbox responsivo em três áreas com conversas, histórico e dados do lead, incluindo filtros por status, nome/@, temperatura, score, tag, não lidas e handoff
+- [x] Exibir métricas reais disponíveis, logs estruturados e attribution por referral/ad/IGSID até checkout/venda; receita permanece “—” sem amountCents explícito
+- [x] Tratar anexos não suportados com persistência e resposta textual segura; MVP de texto permanece prioritário
+- [x] Adicionar rate limit após assinatura válida, validações agentId/conversation/channel, state OAuth one-time, eventKey/MID únicos e proteção contra replay/echo/loop
+- [x] Cobrir OAuth, assinatura, raw body, parser, idempotência, echo, cinco DMs, handoff, anexos, erros e regressões de WhatsApp/Z-API/Ravi Web
+- [ ] Validar a sequência de contexto de cinco DMs e histórico no inbox com conta profissional de teste
+- [x] Executar `pnpm check`, suíte Vitest completa (82 arquivos/597 testes) e build de produção
+- [ ] Salvar checkpoint, publicar, concluir configuração manual Meta e executar o teste de aceitação real ponta a ponta
