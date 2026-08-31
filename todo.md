@@ -733,3 +733,25 @@
 - [x] UI no Chat: dispensável — a UX preferida é ficá-lo silencioso (banner pode confundir o operador). Pode ser adicionado depois se necessário.
 - [x] Testes vitest: 7 novos em `reconnectPurge.test.ts` validando os 3 pontos de purga + Fase 90 preservada
 - [x] Suite 493/493 verde
+## Fase 92: SIMULADOR WHATSAPP público conectado ao agente real
+
+- [x] Auditar simulador, editor de etapas, storage, transcrição, rotas públicas e autenticação atuais
+- [x] Modelar e migrar configuração do simulador, sessões anônimas, mensagens, UTMs, uploads e conversões (`0026_dusty_sabra.sql` aplicado)
+- [x] Implementar sessão pública persistente e isolada da Z-API, com token aleatório armazenado somente como hash
+- [x] Implementar abertura natural do RAVI com botão “SIM, QUERO SABER” e fala do lead configurável
+- [x] Conectar conversa pública ao cérebro, etapas, objeções, guardas, delays e mídias reais do agente via `processInboundForReply({ isSimulation: true })`
+- [x] Implementar backend para envio de texto e gravação de áudio pelo visitante
+- [x] Transcrever áudio por Whisper e responder em texto com o agente real
+- [x] Capturar e persistir WhatsApp, e-mail e nome informados durante a conversa
+- [x] Implementar retorno ao ponto da conversa no mesmo navegador por `publicId + token`
+- [x] Implementar página pública dinâmica `/simulador/:slug` (configuração inicial em `/simulador/ravi`) inspirada em mensageiro, desktop e mobile
+- [x] Implementar estados online/digitando/contagem regressiva, gravação e reprodução de áudio, ticks, horários, anexos e abertura de links em nova aba
+- [x] Criar aba privada “SIMULADOR WHATSAPP” no menu, protegida por login administrativo
+- [x] Criar editor de abertura, botão, avatar, nome, status, aparência, URL pública e checkout
+- [x] Integrar na aba o editor completo das etapas e a biblioteca/gatilhos de imagens, vídeos, áudios e documentos
+- [x] Criar histórico privado com visitante, contatos extraídos, UTMs, mensagens, etapa, duração, checkout e resultado
+- [x] Implementar rastreamento de pedido do link, envio e clique no checkout, com URL instrumentada por `wa_sim_session` e UTMs
+- [x] Implementar webhook configurável Looma/Pagar.me com segredo na URL, HMAC opcional, idempotência por `eventId` e associação por sessão/telefone/e-mail
+- [x] Escrever 18 testes Vitest para tokens, idempotência, contatos, áudio, checkout, webhook, rotas públicas/privadas e isolamento da Z-API — suíte 511/511 verde
+- [x] Validar visualmente em desktop (1440×900) e mobile (390×844), executar fluxo real de dois turnos, captura de contatos/UTMs, retomada após recarregar, histórico administrativo, TypeScript e build de produção
+- [x] Salvar checkpoint e entregar link público de teste

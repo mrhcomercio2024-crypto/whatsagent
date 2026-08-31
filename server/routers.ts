@@ -104,12 +104,18 @@ import { dispatchActions } from "./whatsapp/dispatcher";
 import { qualifyLead } from "./ai/qualifier";
 import { AVAILABLE_LLM_MODELS } from "../shared/llm-models";
 import { REFERENCE_PRICES } from "./ai/pricing";
+import {
+  publicSimulatorAdminRouter,
+  publicSimulatorRouter,
+} from "./publicSimulator/router";
 
 const idSchema = z.object({ id: z.number().int().positive() });
 const agentScopedSchema = z.object({ agentId: z.number().int().positive() });
 
 export const appRouter = router({
   system: systemRouter,
+  publicSimulator: publicSimulatorRouter,
+  publicSimulatorAdmin: publicSimulatorAdminRouter,
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
     logout: publicProcedure.mutation(({ ctx }) => {

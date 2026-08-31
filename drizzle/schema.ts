@@ -1061,3 +1061,170 @@ export const stepComplianceLogs = mysqlTable(
 );
 export type StepComplianceLog = typeof stepComplianceLogs.$inferSelect;
 export type InsertStepComplianceLog = typeof stepComplianceLogs.$inferInsert;
+
+/**
+ * ────────────────────────────────────────────────────────────
+ * PUBLIC SIMULATOR CONFIG — configuração pública e visual do
+ * SIMULADOR WHATSAPP. Há uma configuração por agente e um slug
+ * público único (ex.: /simulador/ravi).
+ * ────────────────────────────────────────────────────────────
+ */
+export const publicSimulatorConfigs = mysqlTable(
+  "public_simulator_configs",
+  {
+    id: int("id").autoincrement().primaryKey(),
+    agentId: int("agentId").notNull().unique(),
+    slug: varchar("slug", { length: 100 }).notNull().unique(),
+    enabled: boolean("enabled").default(true).notNull(),
+    displayName: varchar("displayName", { length: 120 }).default("RAVI").notNull(),
+    statusText: varchar("statusText", { length: 120 }).default("online").notNull(),
+    avatarUrl: varchar("avatarUrl", { length: 500 }),
+    accentColor: varchar("accentColor", { length: 20 }).default("#00a884").notNull(),
+    welcomeMessage: text("welcomeMessage").notNull(),
+    startButtonText: varchar("startButtonText", { length: 120 })
+      .default("SIM, QUERO SABER")
+      .notNull(),
+    startLeadMessage: varchar("startLeadMessage", { length: 240 })
+      .default("Sim, quero saber como funciona.")
+      .notNull(),
+    inputPlaceholder: varchar("inputPlaceholder", { length: 160 })
+      .default("Digite uma mensagem")
+      .notNull(),
+    checkoutUrl: varchar("checkoutUrl", { length: 1000 }),
+    checkoutButtonText: varchar("checkoutButtonText", { length: 160 })
+      .default("ABRIR CHECKOUT")
+      .notNull(),
+    webhookSecret: varchar("webhookSecret", { length: 128 }).notNull(),
+    purchaseEventNames: json("purchaseEventNames"),
+    checkoutRequestPatterns: json("checkoutRequestPatterns"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    agentIdx: index("pub_sim_cfg_agent_idx").on(table.agentId),
+    slugIdx: index("pub_sim_cfg_slug_idx").on(table.slug),
+  })
+);
+export type PublicSimulatorConfig = typeof publicSimulatorConfigs.$inferSelect;
+export type InsertPublicSimulatorConfig = typeof publicSimulatorConfigs.$inferInsert;
+
+/**
+ * ────────────────────────────────────────────────────────────
+ * PUBLIC SIMULATOR SESSIONS — uma conversa pública por visitante.
+ * O browser recebe publicId + token aleatório; somente o hash do
+ * token fica persistido. A conversa em si reutiliza leads,
+ * conversations e messages para passar pelo cérebro real.
+ * ────────────────────────────────────────────────────────────
+ */
+export const publicSimulatorSessions = mysqlTable(
+  "public_simulator_sessions",
+  {
+    id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
+    publicId: varchar("publicId", { length: 64 }).notNull().unique(),
+    accessTokenHash: varchar("accessTokenHash", { length: 128 }).notNull(),
+    configId: int("configId").notNull(),
+    agentId: int("agentId").notNull(),
+    leadId: int("leadId").notNull(),
+    conversationId: int("conversationId").notNull(),
+    status: mysqlEnum("status", ["waiting", "active", "completed", "converted", "archived"])
+      .default("waiting")
+      .notNull(),
+    startedAt: timestamp("startedAt"),
+    lastSeenAt: timestamp("lastSeenAt").defaultNow().notNull(),
+    completedAt: timestamp("completedAt"),
+    capturedName: varchar("capturedName", { length: 200 }),
+    capturedPhone: varchar("capturedPhone", { length: 40 }),
+    capturedEmail: varchar("capturedEmail", { length: 320 }),
+    utmSource: varchar("utmSource", { length: 160 }),
+    utmMedium: varchar("utmMedium", { length: 160 }),
+    utmCampaign: varchar("utmCampaign", { length: 240 }),
+    utmContent: varchar("utmContent", { length: 240 }),
+    utmTerm: varchar("utmTerm", { length: 240 }),
+    gclid: varchar("gclid", { length: 240 }),
+    fbclid: varchar("fbclid", { length: 240 }),
+    referrer: varchar("referrer", { length: 1000 }),
+    landingUrl: varchar("landingUrl", { length: 1500 }),
+    userAgent: varchar("userAgent", { length: 1000 }),
+    ipHash: varchar("ipHash", { length: 128 }),
+    checkoutRequestedAt: timestamp("checkoutRequestedAt"),
+    checkoutLinkSentAt: timestamp("checkoutLinkSentAt"),
+    checkoutClickedAt: timestamp("checkoutClickedAt"),
+    purchasedAt: timestamp("purchasedAt"),
+    purchaseEventId: varchar("purchaseEventId", { length: 180 }),
+    orderId: varchar("orderId", { length: 180 }),
+    amountCents: int("amountCents"),
+    currency: varchar("currency", { length: 12 }).default("BRL"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+  },
+  table => ({
+    agentIdx: index("pub_sim_session_agent_idx").on(table.agentId, table.createdAt),
+    configIdx: index("pub_sim_session_config_idx").on(table.configId, table.createdAt),
+    conversationIdx: uniqueIndex("pub_sim_session_conv_unique").on(table.conversationId),
+    phoneIdx: index("pub_sim_session_phone_idx").on(table.capturedPhone),
+    emailIdx: index("pub_sim_session_email_idx").on(table.capturedEmail),
+    statusIdx: index("pub_sim_session_status_idx").on(table.agentId, table.status),
+  })
+);
+export type PublicSimulatorSession = typeof publicSimulatorSessions.$inferSelect;
+export type InsertPublicSimulatorSession = typeof publicSimulatorSessions.$inferInsert;
+
+/**
+ * Idempotência dos envios públicos. Evita mensagem/resposta duplicada
+ * por duplo clique, retry do browser ou timeout da rede.
+ */
+export const publicSimulatorRequests = mysqlTable(
+  "public_simulator_requests",
+  {
+    id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
+    sessionId: bigint("sessionId", { mode: "number" }).notNull(),
+    requestId: varchar("requestId", { length: 80 }).notNull().unique(),
+    kind: mysqlEnum("kind", ["start", "text", "audio"]).notNull(),
+    status: mysqlEnum("status", ["processing", "completed", "failed"])
+      .default("processing")
+      .notNull(),
+    response: json("response"),
+    errorMessage: text("errorMessage"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    completedAt: timestamp("completedAt"),
+  },
+  table => ({
+    sessionIdx: index("pub_sim_req_session_idx").on(table.sessionId, table.createdAt),
+  })
+);
+export type PublicSimulatorRequest = typeof publicSimulatorRequests.$inferSelect;
+export type InsertPublicSimulatorRequest = typeof publicSimulatorRequests.$inferInsert;
+
+/**
+ * Eventos de conversão do simulador: pedido de link, envio do link,
+ * clique e compra confirmada pelo webhook Looma/Pagar.me.
+ */
+export const publicSimulatorConversions = mysqlTable(
+  "public_simulator_conversions",
+  {
+    id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
+    sessionId: bigint("sessionId", { mode: "number" }).notNull(),
+    agentId: int("agentId").notNull(),
+    eventId: varchar("eventId", { length: 180 }).notNull().unique(),
+    eventType: mysqlEnum("eventType", [
+      "checkout_requested",
+      "checkout_link_sent",
+      "checkout_clicked",
+      "purchase_paid",
+      "purchase_failed",
+      "purchase_refunded",
+    ]).notNull(),
+    orderId: varchar("orderId", { length: 180 }),
+    amountCents: int("amountCents"),
+    currency: varchar("currency", { length: 12 }).default("BRL"),
+    payload: json("payload"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  table => ({
+    sessionIdx: index("pub_sim_conv_session_idx").on(table.sessionId, table.createdAt),
+    agentIdx: index("pub_sim_conv_agent_idx").on(table.agentId, table.eventType, table.createdAt),
+    orderIdx: index("pub_sim_conv_order_idx").on(table.orderId),
+  })
+);
+export type PublicSimulatorConversion = typeof publicSimulatorConversions.$inferSelect;
+export type InsertPublicSimulatorConversion = typeof publicSimulatorConversions.$inferInsert;

@@ -26,13 +26,17 @@ import Retries from "./pages/Retries";
 import Live from "./pages/Live";
 import Login from "./pages/Login";
 import AdminUsers from "./pages/AdminUsers";
+import PublicSimulatorChat from "./pages/PublicSimulatorChat";
+import PublicSimulatorAdmin from "./pages/PublicSimulatorAdmin";
 
 function Router() {
   return (
     <Switch>
       <Route path="/" component={Home} />
       <Route path="/login" component={Login} />
+      <Route path="/simulador/:slug" component={PublicSimulatorChat} />
       <Route path="/admin/users" component={AdminUsers} />
+      <Route path="/simulador-whatsapp" component={PublicSimulatorAdmin} />
       <Route path="/dashboard" component={Dashboard} />
       {/* /chat, /inbox e /live convergem para a tela unificada (Live) */}
       <Route path="/chat" component={Live} />

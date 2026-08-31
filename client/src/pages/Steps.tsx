@@ -33,7 +33,7 @@ export default function StepsPage() {
   );
 }
 
-function StepsEditor({ agentId }: { agentId: number }) {
+export function StepsEditor({ agentId }: { agentId: number }) {
   const utils = trpc.useUtils();
   const { data: steps } = trpc.steps.list.useQuery({ agentId });
   const { data: models } = trpc.catalog.llmModels.useQuery();

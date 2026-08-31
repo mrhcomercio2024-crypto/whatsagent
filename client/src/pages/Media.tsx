@@ -58,7 +58,7 @@ function MediaInner({ agentId }: { agentId: number }) {
   );
 }
 
-function Library({ agentId }: { agentId: number }) {
+export function Library({ agentId }: { agentId: number }) {
   const utils = trpc.useUtils();
   const { data: media } = trpc.media.list.useQuery({ agentId });
   const upload = trpc.media.upload.useMutation({
@@ -311,7 +311,7 @@ function Library({ agentId }: { agentId: number }) {
   );
 }
 
-function Triggers({ agentId }: { agentId: number }) {
+export function Triggers({ agentId }: { agentId: number }) {
   const utils = trpc.useUtils();
   const { data: triggers } = trpc.media.listTriggers.useQuery({ agentId });
   const { data: media } = trpc.media.list.useQuery({ agentId });

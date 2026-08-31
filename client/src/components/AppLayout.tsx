@@ -50,6 +50,7 @@ import {
   RefreshCcw,
   ShieldCheck,
   ShieldAlert,
+  Smartphone,
 } from "lucide-react";
 import { useEffect } from "react";
 import { Link, useLocation } from "wouter";
@@ -68,6 +69,7 @@ function buildGroups(isAdmin: boolean): Array<{
       { icon: MessageSquare, label: "Chat", path: "/chat" },
       { icon: Users, label: "Leads", path: "/leads" },
       { icon: TestTube2, label: "Simulador", path: "/simulator" },
+      { icon: Smartphone, label: "SIMULADOR WHATSAPP", path: "/simulador-whatsapp" },
       { icon: DollarSign, label: "Custos", path: "/costs" },
     ],
   },
