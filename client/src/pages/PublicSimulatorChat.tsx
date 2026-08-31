@@ -296,16 +296,6 @@ export default function PublicSimulatorChat() {
   }, [items.length, phase, scrollToLatest]);
 
   useEffect(() => {
-    const handleViewport = () => {
-      // Só reposiciona quando o campo está ativo. Fazer scroll duplo em todo
-      // resize do VisualViewport causava feedback contínuo no Safari móvel.
-      if (document.activeElement === inputRef.current) scrollToLatest("auto");
-    };
-    window.addEventListener("ravi:viewport-resize", handleViewport);
-    return () => window.removeEventListener("ravi:viewport-resize", handleViewport);
-  }, [scrollToLatest]);
-
-  useEffect(() => {
     return () => {
       if (debounceRef.current) window.clearInterval(debounceRef.current);
       if (recordingTimerRef.current) window.clearInterval(recordingTimerRef.current);
@@ -572,7 +562,7 @@ export default function PublicSimulatorChat() {
 
   return (
     <div
-      className="ravi-visual-viewport fixed left-0 right-0 flex overflow-hidden bg-[#071015] text-[#e9edef] sm:items-center sm:justify-center sm:p-3"
+      className="ravi-app-shell fixed inset-0 flex overflow-hidden bg-[#071015] text-[#e9edef] sm:items-center sm:justify-center sm:p-3"
       data-keyboard-open={keyboardOpen ? "true" : "false"}
       style={{ "--sim-accent": config.accentColor } as React.CSSProperties}
     >
@@ -752,10 +742,10 @@ export default function PublicSimulatorChat() {
       </div>
 
       <style>{`
-        .ravi-visual-viewport {
-          top: 0;
-          height: var(--ravi-visual-height, 100dvh);
-          min-height: 240px;
+        .ravi-app-shell {
+          height: 100vh;
+          height: 100dvh;
+          min-height: 0;
           background: #071015;
           overscroll-behavior: none;
           touch-action: none;
@@ -775,7 +765,7 @@ export default function PublicSimulatorChat() {
           box-shadow: 0 -1px 0 rgba(255,255,255,.04);
           touch-action: manipulation;
         }
-        .ravi-visual-viewport[data-keyboard-open="true"] .ravi-composer {
+        .ravi-app-shell[data-keyboard-open="true"] .ravi-composer {
           padding-bottom: .375rem;
         }
         .sim-chat-bg {

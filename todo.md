@@ -860,3 +860,17 @@
 - [x] Executar suíte completa (553/553), build e teste de estresse no preview com 800 eventos de viewport durante “digitando”
 - [x] Confirmar correção em `agentedozap.com`: Service Worker v2 ativo, shell escuro, fallback seguro e turno completo após 1.000 eventos de viewport durante “digitando”, sem tela branca ou erro no console
 - [x] Salvar checkpoint e solicitar publicação
+## Fase 100: Correção definitiva do teclado no Safari iPhone
+
+- [x] Reproduzir a geometria da captura: o mínimo artificial de 240px reduzia o shell e o Safari ainda deslocava o layout para revelar o textarea, gerando a dupla compensação e o vazio
+- [x] Confirmar pelas referências CSSOM/WebKit que no iPhone o teclado reduz e desloca apenas o Visual Viewport; medir/reescrever simultaneamente altura e top do app causa layout não interoperável
+- [x] Substituir altura/top por JavaScript por shell fixo estável em `100dvh`, sem mínimo artificial de 240px
+- [x] Ignorar completamente valores transitórios de `visualViewport`; teclado é detectado por foco, sem reescrever a geometria
+- [x] Manter mensagens em `flex: 1` com scroll interno, ocupando todo o espaço acima do compositor
+- [x] Garantir textarea multilinha e impedir auto-scroll do documento com reposição simples a `(0,0)`, sem ciclo de estado/viewport
+- [x] Testar foco e textarea em duas linhas: shell 1100px, mensagens 776px, compositor 82px e `window.scrollY=0`, sem colapso ou vazio interno
+- [x] Validar visualmente em 390×844 e cobrir fechamento/rotação por shell `100dvh`, focusin/focusout e restore no unmount
+- [x] Atualizar testes de regressão para exigir ausência de `visualViewport`/altura JS, scroll interno e bloqueio do auto-scroll do Safari
+- [x] Executar suíte completa (553/553), TypeScript e build de produção
+- [x] Salvar checkpoint e solicitar publicação
+- [ ] Validar o teclado aberto no iPhone real após publicação

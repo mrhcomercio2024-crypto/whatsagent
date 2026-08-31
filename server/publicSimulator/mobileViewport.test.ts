@@ -8,19 +8,21 @@ const chat = fs.readFileSync(path.join(root, "client/src/pages/PublicSimulatorCh
 const html = fs.readFileSync(path.join(root, "client/index.html"), "utf8");
 
 describe("Ravi mobile keyboard viewport", () => {
-  it("tracks visual viewport height without listening to unstable Safari scroll events", () => {
-    expect(hook).toContain("window.visualViewport");
-    expect(hook).toContain('viewport?.addEventListener("resize", sync)');
-    expect(hook).not.toContain('viewport?.addEventListener("scroll", sync)');
-    expect(hook).toContain('--ravi-visual-height');
-    expect(hook).toContain('setProperty("--ravi-visual-top", "0px")');
+  it("lets Safari manage the visual viewport without resizing the app in JavaScript", () => {
+    expect(hook).not.toContain("window.visualViewport");
+    expect(hook).not.toContain("--ravi-visual-height");
+    expect(hook).not.toContain("--ravi-visual-top");
+    expect(chat).toContain('className="ravi-app-shell fixed inset-0');
+    expect(chat).toContain("height: 100dvh");
   });
 
   it("locks overflow without fixing the iOS body and restores styles on unmount", () => {
     expect(hook).not.toContain('body.style.position = "fixed"');
     expect(hook).toContain('body.style.overflow = "hidden"');
-    expect(hook).toContain("restoreStyle(root, previousRoot)");
-    expect(hook).toContain("restoreStyle(body, previousBody)");
+    expect(hook).toContain("restore(root, previousRoot)");
+    expect(hook).toContain("restore(body, previousBody)");
+    expect(hook).toContain('window.addEventListener("scroll", keepDocumentAtOrigin');
+    expect(hook).toContain("window.scrollTo(0, 0)");
   });
 
   it("uses independent message scrolling and keeps the composer inside safe areas", () => {
@@ -39,8 +41,8 @@ describe("Ravi mobile keyboard viewport", () => {
     expect(html).not.toContain("user-scalable=no");
   });
 
-  it("keeps focus and scrolls to the latest message as the keyboard opens", () => {
-    expect(chat).toContain('window.addEventListener("ravi:viewport-resize"');
+  it("keeps focus and scrolls to the latest message without viewport event loops", () => {
+    expect(chat).not.toContain('window.addEventListener("ravi:viewport-resize"');
     expect(chat).toContain('onFocus={() =>');
     expect(chat).toContain('focus({ preventScroll: true })');
     expect(chat).toContain('messages.scrollTo({ top: messages.scrollHeight');

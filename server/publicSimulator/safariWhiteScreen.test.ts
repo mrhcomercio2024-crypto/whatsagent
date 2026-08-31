@@ -22,16 +22,17 @@ describe("Ravi Web — proteção contra tela branca no Safari", () => {
     expect(viewportSource).not.toContain('body.style.position = "fixed"');
   });
 
-  it("limita a altura e nunca aplica offsetTop do Safari ao chat", () => {
-    expect(viewportSource).toContain("Math.max(240");
-    expect(viewportSource).toContain('setProperty("--ravi-visual-top", "0px")');
-    expect(chatSource).toContain("top: 0;");
-    expect(chatSource).toContain("min-height: 240px;");
+  it("não aplica altura, mínimo artificial ou offsetTop calculados pelo JavaScript", () => {
+    expect(viewportSource).not.toContain("window.visualViewport");
+    expect(viewportSource).not.toContain("Math.max(240");
+    expect(chatSource).toContain("height: 100dvh;");
+    expect(chatSource).toContain("min-height: 0;");
+    expect(chatSource).not.toContain("min-height: 240px;");
   });
 
   it("não executa auto-scroll duplo em cada resize", () => {
     expect(chatSource).not.toContain('window.setTimeout(() => scrollToLatest("auto"), 120)');
-    expect(chatSource).toContain("document.activeElement === inputRef.current");
+    expect(chatSource).not.toContain('window.addEventListener("ravi:viewport-resize"');
   });
 
   it("Service Worker nunca devolve navegação indefinida", () => {
