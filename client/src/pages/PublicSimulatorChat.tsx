@@ -1,20 +1,21 @@
 import { trpc } from "@/lib/trpc";
 import {
-  ArrowLeft,
+  calculateHumanInterMessageDelay,
+  calculateHumanPreparationDelay,
+  calculateHumanTypingDelay,
+} from "@shared/humanTyping";
+import {
   CheckCheck,
   Download,
   FileText,
   Loader2,
   Mic,
-  MoreVertical,
   Paperclip,
   Pause,
   Play,
   Send,
   Smile,
   Square,
-  Video,
-  Volume2,
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -226,11 +227,14 @@ export default function PublicSimulatorChat() {
       setTiming(nextTiming);
       for (let index = 0; index < result.actions.length; index += 1) {
         const action = result.actions[index];
+        const content = String(action.text || action.caption || action.filename || "mídia");
         setPhase("typing");
-        const delay = nextTiming.typingSimulationEnabled
-          ? Math.max(250, Math.min(action.typingMs || 500, 8000))
-          : 250;
-        await sleep(delay);
+        await sleep(calculateHumanPreparationDelay(index));
+        await sleep(
+          action.kind === "text" || action.kind === "checkout"
+            ? calculateHumanTypingDelay(content, nextTiming)
+            : Math.max(850, Math.min(1800, calculateHumanTypingDelay(content, nextTiming))),
+        );
         if (action.kind === "text") {
           pushItem({ side: "agent", kind: "text", text: action.text });
         } else if (action.kind === "checkout") {
@@ -251,7 +255,8 @@ export default function PublicSimulatorChat() {
           });
         }
         if (index < result.actions.length - 1) {
-          await sleep(Math.max(0, nextTiming.interMessageDelayMs));
+          setPhase("idle");
+          await sleep(calculateHumanInterMessageDelay(nextTiming.interMessageDelayMs));
         }
       }
       setPhase("idle");
@@ -432,43 +437,12 @@ export default function PublicSimulatorChat() {
 
   return (
     <div
-      className="min-h-[100dvh] bg-[#0a1014] text-[#e9edef] md:grid md:place-items-center md:p-5"
+      className="min-h-[100dvh] bg-[#071015] text-[#e9edef] sm:grid sm:place-items-center sm:p-3"
       style={{ "--sim-accent": config.accentColor } as React.CSSProperties}
     >
-      <div className="flex h-[100dvh] w-full overflow-hidden bg-[#111b21] shadow-2xl md:h-[min(900px,94dvh)] md:max-w-[1440px] md:rounded-2xl md:border md:border-white/10">
-        <aside className="hidden w-[34%] min-w-[320px] max-w-[430px] flex-col border-r border-white/10 bg-[#111b21] md:flex">
-          <div className="flex h-[60px] items-center justify-between bg-[#202c33] px-4">
-            <Avatar config={config} size="md" />
-            <div className="flex items-center gap-5 text-[#aebac1]">
-              <Volume2 className="size-5" />
-              <MoreVertical className="size-5" />
-            </div>
-          </div>
-          <div className="border-b border-white/5 p-2">
-            <div className="rounded-lg bg-[#202c33] px-4 py-2 text-sm text-[#8696a0]">
-              Pesquisar ou iniciar uma nova conversa
-            </div>
-          </div>
-          <div className="flex items-center gap-3 border-b border-white/5 bg-[#2a3942] px-3 py-3">
-            <Avatar config={config} size="lg" />
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center justify-between">
-                <span className="truncate font-medium">{config.displayName}</span>
-                <span className="text-[11px] text-[var(--sim-accent)]">agora</span>
-              </div>
-              <p className="mt-0.5 truncate text-xs text-[#8696a0]">
-                {items[items.length - 1]?.text || "Toque para iniciar a conversa"}
-              </p>
-            </div>
-          </div>
-          <div className="flex flex-1 items-center justify-center px-10 text-center text-xs leading-5 text-[#667781]">
-            Esta conversa continua automaticamente neste navegador.
-          </div>
-        </aside>
-
-        <main className="flex min-w-0 flex-1 flex-col bg-[#0b141a]">
+      <div className="flex h-[100dvh] w-full max-w-[620px] overflow-hidden bg-[#0b141a] shadow-2xl sm:h-[min(920px,98dvh)] sm:rounded-2xl sm:border sm:border-white/10">
+        <main className="flex min-w-0 flex-1 flex-col">
           <header className="flex h-[60px] shrink-0 items-center gap-3 bg-[#202c33] px-3 sm:px-4">
-            <ArrowLeft className="size-5 text-[#aebac1] md:hidden" />
             <Avatar config={config} size="md" />
             <div className="min-w-0 flex-1">
               <h1 className="truncate text-[15px] font-medium">{config.displayName}</h1>
@@ -482,11 +456,9 @@ export default function PublicSimulatorChat() {
                 )}
               </p>
             </div>
-            <Video className="size-5 text-[#aebac1]" />
-            <MoreVertical className="size-5 text-[#aebac1]" />
           </header>
 
-          <section className="sim-chat-bg flex-1 overflow-y-auto px-2 py-4 sm:px-[7%] lg:px-[10%]">
+          <section className="sim-chat-bg flex-1 overflow-y-auto px-2 py-4 sm:px-4">
             <div className="mx-auto mb-4 w-fit rounded-lg bg-[#182229] px-3 py-1.5 text-center text-[11px] text-[#8696a0] shadow">
               HOJE
             </div>
@@ -639,7 +611,7 @@ function MessageBubble({
   return (
     <div className={`flex ${outgoing ? "justify-end" : "justify-start"}`}>
       <div
-        className={`relative max-w-[86%] rounded-lg px-2.5 py-1.5 text-[14.5px] leading-[1.35] shadow sm:max-w-[72%] ${
+        className={`relative max-w-[88%] rounded-lg px-2.5 py-1.5 text-[14.5px] leading-[1.38] shadow sm:max-w-[82%] ${
           outgoing ? "bg-[#005c4b]" : "bg-[#202c33]"
         }`}
       >
@@ -789,4 +761,3 @@ function blobToBase64(blob: Blob) {
     reader.readAsDataURL(blob);
   });
 }
-

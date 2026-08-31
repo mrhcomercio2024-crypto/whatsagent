@@ -755,3 +755,16 @@
 - [x] Escrever 18 testes Vitest para tokens, idempotência, contatos, áudio, checkout, webhook, rotas públicas/privadas e isolamento da Z-API — suíte 511/511 verde
 - [x] Validar visualmente em desktop (1440×900) e mobile (390×844), executar fluxo real de dois turnos, captura de contatos/UTMs, retomada após recarregar, histórico administrativo, TypeScript e build de produção
 - [x] Salvar checkpoint e entregar link público de teste
+## Fase 93: Simulador mobile-first e digitação humana
+
+- [x] Remover completamente a coluna lateral da página pública em todos os tamanhos de tela
+- [x] Manter somente cabeçalho, conversa, estados e compositor, como numa conversa mobile
+- [x] Limitar a largura no desktop a 620px para preservar a experiência de celular centralizada
+- [x] Exibir “digitando…” durante a preparação e escrita de cada balão
+- [x] Calcular tempo de digitação por tamanho, velocidade, pontuação e variação humana, respeitando limites configurados
+- [x] Inserir pausa inicial e pausas naturais entre balões consecutivos, retornando brevemente ao estado online
+- [x] Revelar mensagens e mídias uma por vez, nunca todas juntas
+- [x] Adicionar 7 testes Vitest do comportamento de digitação gradual — suíte 518/518 verde
+- [x] Validar visualmente em 390×844 e desktop: somente a conversa é exibida; no desktop ela fica centralizada com largura de celular
+- [x] Expor URL pública temporária para teste no celular: `https://3000-i7ecmog0vc18eghb8zn0m-48b433ee.us2.manus.computer/simulador/ravi`
+- [x] Salvar checkpoint final
