@@ -244,6 +244,7 @@ export default function PublicSimulatorChat() {
 
   useEffect(() => {
     document.title = "Conversa com RAVI";
+    sessionStorage.removeItem("ravi:asset-recovery");
     if (mountedRef.current) return;
     mountedRef.current = true;
     bootstrap
@@ -296,8 +297,9 @@ export default function PublicSimulatorChat() {
 
   useEffect(() => {
     const handleViewport = () => {
-      scrollToLatest("auto");
-      window.setTimeout(() => scrollToLatest("auto"), 120);
+      // Só reposiciona quando o campo está ativo. Fazer scroll duplo em todo
+      // resize do VisualViewport causava feedback contínuo no Safari móvel.
+      if (document.activeElement === inputRef.current) scrollToLatest("auto");
     };
     window.addEventListener("ravi:viewport-resize", handleViewport);
     return () => window.removeEventListener("ravi:viewport-resize", handleViewport);
@@ -711,8 +713,7 @@ export default function PublicSimulatorChat() {
                       event.currentTarget.style.height = `${Math.min(112, event.currentTarget.scrollHeight)}px`;
                     }}
                     onFocus={() => {
-                      scrollToLatest("auto");
-                      window.setTimeout(() => scrollToLatest("auto"), 250);
+                      window.requestAnimationFrame(() => scrollToLatest("auto"));
                     }}
                     onKeyDown={event => {
                       if (event.key === "Enter" && !event.shiftKey) {
@@ -752,8 +753,10 @@ export default function PublicSimulatorChat() {
 
       <style>{`
         .ravi-visual-viewport {
-          top: var(--ravi-visual-top, 0px);
+          top: 0;
           height: var(--ravi-visual-height, 100dvh);
+          min-height: 240px;
+          background: #071015;
           overscroll-behavior: none;
           touch-action: none;
         }
@@ -835,7 +838,7 @@ function MessageBubble({
           <img src={item.mediaUrl} alt="" className="mb-1 max-h-[380px] w-full rounded-md object-cover" />
         )}
         {item.kind === "video" && item.mediaUrl && (
-          <video src={item.mediaUrl} controls playsInline className="mb-1 max-h-[380px] w-full rounded-md" />
+          <video src={item.mediaUrl} controls playsInline preload="metadata" className="mb-1 max-h-[380px] w-full rounded-md" />
         )}
         {item.kind === "audio" && (
           <AudioBubble url={item.mediaUrl || null} durationMs={item.durationMs || null} />
@@ -953,6 +956,7 @@ function AudioBubble({ url, durationMs }: { url: string | null; durationMs: numb
         <audio
           ref={audioRef}
           src={url}
+          preload="metadata"
           onPlay={() => setPlaying(true)}
           onPause={() => setPlaying(false)}
           onEnded={() => setPlaying(false)}

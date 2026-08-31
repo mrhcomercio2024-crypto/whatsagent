@@ -28,13 +28,22 @@ import Login from "./pages/Login";
 import AdminUsers from "./pages/AdminUsers";
 import PublicSimulatorChat from "./pages/PublicSimulatorChat";
 import PublicSimulatorAdmin from "./pages/PublicSimulatorAdmin";
+import PublicSimulatorErrorBoundary from "./components/PublicSimulatorErrorBoundary";
+
+function PublicSimulatorRoute() {
+  return (
+    <PublicSimulatorErrorBoundary>
+      <PublicSimulatorChat />
+    </PublicSimulatorErrorBoundary>
+  );
+}
 
 function Router() {
   return (
     <Switch>
       <Route path="/" component={Home} />
       <Route path="/login" component={Login} />
-      <Route path="/simulador/:slug" component={PublicSimulatorChat} />
+      <Route path="/simulador/:slug" component={PublicSimulatorRoute} />
       <Route path="/admin/users" component={AdminUsers} />
       <Route path="/simulador-whatsapp" component={PublicSimulatorAdmin} />
       <Route path="/dashboard" component={Dashboard} />

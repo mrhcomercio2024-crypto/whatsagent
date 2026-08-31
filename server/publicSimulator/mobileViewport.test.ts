@@ -8,16 +8,16 @@ const chat = fs.readFileSync(path.join(root, "client/src/pages/PublicSimulatorCh
 const html = fs.readFileSync(path.join(root, "client/index.html"), "utf8");
 
 describe("Ravi mobile keyboard viewport", () => {
-  it("tracks visual viewport height and offset during keyboard resize", () => {
+  it("tracks visual viewport height without listening to unstable Safari scroll events", () => {
     expect(hook).toContain("window.visualViewport");
     expect(hook).toContain('viewport?.addEventListener("resize", sync)');
-    expect(hook).toContain('viewport?.addEventListener("scroll", sync)');
+    expect(hook).not.toContain('viewport?.addEventListener("scroll", sync)');
     expect(hook).toContain('--ravi-visual-height');
-    expect(hook).toContain('--ravi-visual-top');
+    expect(hook).toContain('setProperty("--ravi-visual-top", "0px")');
   });
 
-  it("locks and restores document scrolling only while chat is mounted", () => {
-    expect(hook).toContain('body.style.position = "fixed"');
+  it("locks overflow without fixing the iOS body and restores styles on unmount", () => {
+    expect(hook).not.toContain('body.style.position = "fixed"');
     expect(hook).toContain('body.style.overflow = "hidden"');
     expect(hook).toContain("restoreStyle(root, previousRoot)");
     expect(hook).toContain("restoreStyle(body, previousBody)");

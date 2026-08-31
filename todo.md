@@ -844,3 +844,19 @@
 - [x] Testar fluxo real no Ravi Web: backend caiu de 18–40s para ~2s no turno medido; resposta continuou em balões progressivos
 - [x] Executar suíte completa (545/545), TypeScript e build de produção; servidor restaurado
 - [x] Salvar checkpoint e solicitar publicação
+## Fase 99: Tela branca intermitente no Safari durante “digitando”
+
+- [x] Correlacionar 23:50 com a sessão iPhone #10/conversa 150010: request `start` concluída em 22s, sem erro backend
+- [x] Identificar conteúdo renderizado: somente 5 balões de texto, sem imagem, vídeo ou áudio; mídia descartada como causa direta
+- [x] Auditar frontend e Service Worker: ciclo `visualViewport.scroll → state → scrollToLatest → viewport.scroll`, `body:fixed`, `offsetTop` sem limite e fallback de navegação potencialmente indefinido
+- [x] Reproduzir transição `online → digitando → balões` e submeter o estado a 800 eventos rápidos de viewport sem perder a página
+- [x] Testar hipótese de crash de memória: a conversa afetada continha somente texto; mídias agora usam `preload=metadata` como proteção adicional
+- [x] Confirmar hipótese dominante: loop de relayout do WebKit por `visualViewport.scroll`, `body:fixed`, `offsetTop` aplicado ao root e auto-scroll duplo
+- [x] Adicionar Error Boundary específico para a conversa pública com retomada do histórico
+- [x] Adicionar shell escuro inicial e recuperação automática única para falhas de chunk/cache
+- [x] Endurecer Service Worker v2 para nunca responder navegação com conteúdo vazio
+- [x] Garantir altura mínima de 240px, valor finito e `top: 0` quando `visualViewport` oscilar
+- [x] Remover listener `visualViewport.scroll`, `body:fixed` e auto-scroll duplo que formavam o ciclo de relayout
+- [x] Executar suíte completa (553/553), build e teste de estresse no preview com 800 eventos de viewport durante “digitando”
+- [ ] Confirmar correção no domínio de produção após publicação
+- [x] Salvar checkpoint e solicitar publicação

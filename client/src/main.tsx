@@ -10,6 +10,28 @@ import "./index.css";
 
 const queryClient = new QueryClient();
 
+const isPublicSimulator = () => window.location.pathname.startsWith("/simulador/");
+
+const recoverPublicSimulatorChunk = (reason: string) => {
+  if (!isPublicSimulator()) return;
+  const key = "ravi:asset-recovery";
+  if (sessionStorage.getItem(key)) return;
+  sessionStorage.setItem(key, reason);
+  window.location.reload();
+};
+
+window.addEventListener("vite:preloadError", event => {
+  event.preventDefault();
+  recoverPublicSimulatorChunk("vite-preload-error");
+});
+
+window.addEventListener("error", event => {
+  const message = String(event.message || "");
+  if (/module script|dynamically imported|failed to fetch|loading chunk/i.test(message)) {
+    recoverPublicSimulatorChunk("asset-load-error");
+  }
+});
+
 const redirectToLoginIfUnauthorized = (error: unknown) => {
   if (!(error instanceof TRPCClientError)) return;
   if (typeof window === "undefined") return;
@@ -17,6 +39,9 @@ const redirectToLoginIfUnauthorized = (error: unknown) => {
   const isUnauthorized = error.message === UNAUTHED_ERR_MSG;
 
   if (!isUnauthorized) return;
+  // A conversa pública usa seu próprio token anônimo. Uma chamada protegida
+  // acidental nunca deve expulsar o visitante para /login no meio do fluxo.
+  if (isPublicSimulator()) return;
   // Já estamos na tela de login — evita loop
   if (window.location.pathname === "/login") return;
 
