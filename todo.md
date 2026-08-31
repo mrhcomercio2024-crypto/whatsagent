@@ -890,3 +890,13 @@
 - [x] Executar suíte completa (553/553), TypeScript e build de produção
 - [x] Salvar checkpoint e solicitar publicação
 - [ ] Validar no iPhone real após publicação
+## Fase 102: Limpar somente os dados operacionais do Ravi Web
+
+- [x] Mapear 15 tabelas com `sessionId`, `conversationId` ou `leadId` e isolar registros por `public_simulator_sessions`
+- [x] Registrar contagens anteriores: 13 sessões, 13 conversas, 13 leads `SIMWEB:*`, 76 mensagens e 17 requests; preservar 12 conversas/12 leads WhatsApp, 1 config e 3 regras
+- [x] Excluir transacionalmente eventos, fila, subscriptions, conversões e requests do Ravi Web
+- [x] Excluir mensagens, follow-ups, retries, métricas, uso LLM, objeções e compliance somente das conversas `SIMWEB:*`
+- [x] Excluir sessões, conversas e leads sintéticos somente do Ravi Web
+- [x] Preservar `public_simulator_configs`, `recovery_rules`, agente, cérebro, etapas, mídias e integrações
+- [x] Preservar integralmente 12 conversas e 12 leads do WhatsApp/Z-API
+- [x] Verificar contagens zeradas: sessões, requests, conversões, subscriptions, recovery jobs/events, conversas, mensagens e leads `SIMWEB:*` em zero; 1 config, 3 regras e 1 agente preservados
