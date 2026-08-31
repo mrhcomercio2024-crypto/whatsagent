@@ -775,3 +775,9 @@
 - [x] Alterar o nome exibido para “Ravi Wedrop”
 - [x] Validar o cabeçalho e o avatar no layout móvel em 390×844
 - [x] Salvar checkpoint final
+## Fase 95: Remover contagem regressiva da conversa pública
+
+- [x] Remover “responde em Xs” do cabeçalho
+- [x] Remover “começa a responder em Xs” da área de mensagens
+- [x] Manter o debounce interno sem expor segundos ao visitante
+- [x] Atualizar testes: suíte 519/519 verde; validação visual e checkpoint concluídos nesta fase

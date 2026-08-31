@@ -162,7 +162,6 @@ export default function PublicSimulatorChat() {
   const [items, setItems] = useState<ChatItem[]>([]);
   const [text, setText] = useState("");
   const [phase, setPhase] = useState<"idle" | "waiting" | "thinking" | "typing">("idle");
-  const [countdown, setCountdown] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [recording, setRecording] = useState(false);
   const [recordingMs, setRecordingMs] = useState(0);
@@ -296,7 +295,6 @@ export default function PublicSimulatorChat() {
   const flushQueue = useCallback(async () => {
     if (debounceRef.current) window.clearInterval(debounceRef.current);
     debounceRef.current = null;
-    setCountdown(0);
     const merged = queueRef.current.join("\n").trim();
     queueRef.current = [];
     if (merged) await processTextNow(merged, "text");
@@ -316,10 +314,8 @@ export default function PublicSimulatorChat() {
       return;
     }
     setPhase("waiting");
-    setCountdown(left);
     debounceRef.current = window.setInterval(() => {
       left -= 1;
-      setCountdown(Math.max(0, left));
       if (left <= 0) void flushQueue();
     }, 1000);
   };
@@ -449,8 +445,6 @@ export default function PublicSimulatorChat() {
               <p className="h-4 truncate text-[11px] text-[#8696a0]">
                 {phase === "typing" || phase === "thinking" ? (
                   <span className="text-[var(--sim-accent)]">digitando…</span>
-                ) : phase === "waiting" ? (
-                  `responde em ${countdown}s`
                 ) : (
                   config.statusText
                 )}
@@ -475,11 +469,6 @@ export default function PublicSimulatorChat() {
                 />
               ))}
               {(phase === "thinking" || phase === "typing") && <TypingBubble />}
-              {phase === "waiting" && (
-                <div className="pl-1 text-[11px] text-white/40">
-                  {config.displayName} começa a responder em {countdown}s
-                </div>
-              )}
               <div ref={endRef} />
             </div>
           </section>

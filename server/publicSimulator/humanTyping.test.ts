@@ -65,4 +65,17 @@ describe("human typing rhythm", () => {
     expect(source).toContain("setPhase(\"idle\")");
     expect(source).toContain("calculateHumanInterMessageDelay");
   });
+
+  it("keeps debounce private without showing a seconds countdown to the visitor", async () => {
+    const fs = await import("node:fs/promises");
+    const source = await fs.readFile(
+      new URL("../../client/src/pages/PublicSimulatorChat.tsx", import.meta.url),
+      "utf8",
+    );
+    expect(source).toContain('setPhase("waiting")');
+    expect(source).toContain("timing.debounceSeconds");
+    expect(source).not.toContain("setCountdown");
+    expect(source).not.toContain("responde em ${countdown}s");
+    expect(source).not.toContain("começa a responder em");
+  });
 });
