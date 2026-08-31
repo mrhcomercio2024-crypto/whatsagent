@@ -311,6 +311,7 @@ export default function PublicSimulatorChat() {
   const mountedRef = useRef(false);
   const endRef = useRef<HTMLDivElement>(null);
   const messagesRef = useRef<HTMLElement>(null);
+  const composerRef = useRef<HTMLElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const queueRef = useRef<string[]>([]);
   const debounceRef = useRef<number | null>(null);
@@ -352,10 +353,14 @@ export default function PublicSimulatorChat() {
 
   const scrollToLatest = useCallback((behavior: ScrollBehavior = "smooth") => {
     window.requestAnimationFrame(() => {
-      // Com o teclado aberto, o Safari já mantém o textarea visível. Não
-      // disputamos essa posição; fora do foco, rolamos o documento normalmente.
-      if (document.activeElement === inputRef.current) return;
-      endRef.current?.scrollIntoView({ behavior, block: "end" });
+      // Quando novas mensagens aumentam o documento com o teclado aberto, o
+      // Safari não reposiciona novamente o sticky. Reexibimos o compositor pelo
+      // mecanismo nativo, sem medir ou reescrever a altura do viewport.
+      if (document.activeElement === inputRef.current) {
+        composerRef.current?.scrollIntoView({ behavior: "auto", block: "nearest" });
+        return;
+      }
+      composerRef.current?.scrollIntoView({ behavior, block: "end" });
     });
   }, []);
 
@@ -1167,7 +1172,7 @@ export default function PublicSimulatorChat() {
             </div>
           )}
 
-          <footer className="ravi-composer z-30 shrink-0 bg-[#202c33] px-2 pt-1.5 sm:px-3 sm:pt-2">
+          <footer ref={composerRef} className="ravi-composer z-30 shrink-0 bg-[#202c33] px-2 pt-1.5 sm:px-3 sm:pt-2">
             {recording ? (
               <div className="flex h-12 items-center gap-3">
                 <button
@@ -1209,6 +1214,9 @@ export default function PublicSimulatorChat() {
                       window.setTimeout(() => {
                         inputRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
                       }, 180);
+                    }}
+                    onBlur={() => {
+                      window.setTimeout(() => scrollToLatest("auto"), 80);
                     }}
                     onKeyDown={event => {
                       if (event.key === "Enter" && !event.shiftKey) {

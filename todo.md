@@ -970,3 +970,15 @@
 - [ ] Validar fisicamente 10 mensagens e histórico em iPhone/Safari e Android/Chrome após publicação; Desktop/Chrome e viewports 390×844/1440×900 já validados
 - [x] Executar `pnpm check`, suíte Vitest completa (78 arquivos/573 testes) e build de produção antes do checkpoint Lite
 - [x] Salvar checkpoint Ravi Web Lite (`4461040e`) e entregar a versão para publicação/validação no iPhone real
+
+## Fase 108 — Compositor preso sob teclado e barra inferior do Safari
+
+- [x] Reproduzir e medir o estado das capturas: teclado aberto comprime/sobrepõe o compositor e, após fechar, ele pode ficar abaixo da área visível
+- [x] Identificar a causa: `scrollToLatest` retornava imediatamente quando o textarea estava focado; cada nova mensagem aumentava o documento sem reposicionar o campo na área visual do Safari, deixando o sticky sob teclado/barra
+- [x] Implementar correção móvel mínima: quando o textarea está focado, reposicionar nativamente o `.ravi-composer` com `scrollIntoView(nearest)`; no blur, alinhar o fim sem medir o viewport
+- [x] Garantir no preview que o compositor permaneça alinhado ao limite inferior ao enviar, durante o foco e após o blur; confirmação física no Safari ficará para após publicação
+- [x] Preservar Ravi Web Lite, requestId, retry, sessão, histórico, mídias, checkout e código Advanced
+- [x] Adicionar testes de regressão para foco/blur, alvo correto do scroll, ausência de `VisualViewport`, altura JS, body lock e fullscreen
+- [x] Validar em 390×844 e medir no histórico longo: textarea 32/56/104px, compositor 60/84/132px e bottom exatamente no limite visível em 1/2/4 linhas
+- [x] Executar `pnpm check`, suíte Vitest completa (78 arquivos/574 testes) e build de produção
+- [ ] Salvar checkpoint e solicitar nova publicação para confirmação no iPhone real

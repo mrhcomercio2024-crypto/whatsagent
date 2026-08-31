@@ -46,4 +46,16 @@ describe("Ravi mobile keyboard viewport", () => {
     expect(chat).toContain('scrollIntoView({ block: "nearest", behavior: "smooth" })');
     expect(chat).toContain('onPointerDown={event => event.preventDefault()}');
   });
+
+  it("mantém o compositor na área visual quando mensagens chegam com o textarea focado", () => {
+    expect(chat).toContain('document.activeElement === inputRef.current');
+    expect(chat).toContain('const composerRef = useRef<HTMLElement>(null)');
+    expect(chat).toContain('ref={composerRef} className="ravi-composer');
+    expect(chat).toContain('scrollIntoView({ behavior: "auto", block: "nearest" })');
+    expect(chat).toContain('composerRef.current?.scrollIntoView({ behavior, block: "end" })');
+    expect(chat).toContain('onBlur={() => {');
+    expect(chat).toContain('scrollToLatest("auto")');
+    expect(chat).not.toContain("window.innerHeight");
+    expect(chat).not.toContain("document.documentElement.style.height");
+  });
 });
